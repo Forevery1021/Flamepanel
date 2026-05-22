@@ -1,0 +1,40 @@
+:root {
+  --el-color-primary: #409eff;
+}
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+}
+
+/* 布局 */
+.layout {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  width: 240px;
+  background: #ffffff;
+  border-right: 1px solid #e4e7ed;
+  overflow-y: auto;
+}
+
+.main-content {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+  background: #f5f7fa;
+}
+
+/* 暗黑模式支持 */
+.dark .sidebar {
+  background: #1e1e1e;
+  border-right: 1px solid #3a3a3a;
+}
+
+.dark .main-content {
+  background: #121212;
+}

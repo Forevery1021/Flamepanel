@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  ops-panel:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/nginx:/etc/nginx
+    restart: unless-stopped
+    environment:
+      - OP_PORT=8080
+      - OP_JWT_SECRET=your-super-secret-key-change-me-2026
