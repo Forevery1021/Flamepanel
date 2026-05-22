@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use crate::middleware::auth::CurrentUser;
+use crate::middleware::middleware_auth::CurrentUser;
 
 type SessionMap = Arc<Mutex<HashMap<String, Arc<Mutex<Child>>>>>;
 

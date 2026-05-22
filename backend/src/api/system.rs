@@ -2,7 +2,7 @@ use axum::{Json, Router, routing::get};
 use utoipa::ToSchema;
 use serde::Serialize;
 use sysinfo::System;
-use crate::middleware::auth::CurrentUser;
+use crate::middleware::middleware_auth::CurrentUser;
 
 #[derive(Serialize, ToSchema)]
 pub struct SystemInfo {

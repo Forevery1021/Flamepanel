@@ -30,7 +30,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             port: 8080,
-            database_url: "sqlite://./data/ops_panel.db?mode=rwc".to_string(),
+            // mode=rwc：文件不存在时自动创建；路径相对于运行时工作目录
+            database_url: "sqlite:data/ops_panel.db?mode=rwc".to_string(),
             jwt_secret: "your-super-secret-jwt-key-change-in-production".to_string(),
             admin_username: "admin".to_string(),
             admin_password: "$2b$12$...".to_string(), // bcrypt hash

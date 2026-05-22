@@ -1,7 +1,7 @@
 use axum::{Json, Router, routing::{get, post}};
 use serde::{Deserialize, Serialize};
 use crate::core::error::AppError;
-use crate::middleware::auth::CurrentUser;
+use crate::middleware::middleware_auth::CurrentUser;
 
 #[derive(Serialize)]
 pub struct DockerContainer {

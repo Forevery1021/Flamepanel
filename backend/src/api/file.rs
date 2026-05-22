@@ -5,7 +5,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::path::{Path as StdPath, PathBuf};
 use crate::core::error::AppError;
-use crate::middleware::auth::CurrentUser;
+use crate::middleware::middleware_auth::CurrentUser;
 
 const ALLOWED_BASE_PATHS: &[&str] = &["/www", "/data", "/home", "/root/ops-panel/data"];
 

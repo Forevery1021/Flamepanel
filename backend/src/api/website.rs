@@ -1,7 +1,7 @@
 use axum::{Json, Router, routing::post};
 use serde::{Deserialize, Serialize};
 use crate::core::error::AppError;
-use crate::middleware::auth::CurrentUser;
+use crate::middleware::middleware_auth::CurrentUser;
 
 #[derive(Deserialize)]
 pub struct WebsiteConfig {
