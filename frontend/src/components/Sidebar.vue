@@ -9,6 +9,8 @@ import {
   Link,
   Lock,
   User,
+  Document,
+  Cpu,
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -22,6 +24,9 @@ const menuItems = [
   { path: '/website', name: '网站管理', icon: Link },
   { path: '/waf', name: 'WAF 防火墙', icon: Lock },
   { path: '/terminal', name: 'Web 终端', icon: Monitor },
+  { path: '/users', name: '用户管理', icon: User },
+  { path: '/logs', name: '操作日志', icon: Document },
+  { path: '/processes', name: '进程管理', icon: Cpu },
 ]
 
 const handleLogout = () => {

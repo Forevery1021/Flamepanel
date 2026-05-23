@@ -1,10 +1,11 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use utoipa::ToSchema;
 
 // ─── User 领域实体 ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct User {
     pub id: i64,
     pub username: String,
@@ -16,7 +17,7 @@ pub struct User {
 
 // ─── Server 领域实体（系统资源监控）────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ServerInfo {
     pub cpu_usage: f32,
     pub cpu_cores: usize,
@@ -31,20 +32,20 @@ pub struct ServerInfo {
     pub network: NetworkInfo,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LoadAverage {
     pub one: f64,
     pub five: f64,
     pub fifteen: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct NetworkInfo {
     pub hostname: String,
     pub interfaces: Vec<NetworkInterface>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct NetworkInterface {
     pub name: String,
     pub ipv4: Vec<String>,
@@ -54,7 +55,7 @@ pub struct NetworkInterface {
 
 // ─── Website 领域实体（Nginx 站点）─────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Website {
     pub id: i64,
     pub domain: String,
@@ -65,6 +66,7 @@ pub struct Website {
     pub ssl_key_path: Option<String>,
     pub config_path: String,
     pub enabled: bool,
+    pub engine: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -75,6 +77,7 @@ pub struct CreateWebsiteRequest {
     pub root_path: String,
     pub proxy_port: Option<i32>,
     pub enable_ssl: bool,
+    pub engine: Option<String>,
 }
 
 // ─── File 领域实体 ────────────────────────────────────────────────────────────
@@ -112,7 +115,7 @@ pub struct DockerContainerLogs {
 
 // ─── WAF 规则实体 ─────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct WafRule {
     pub id: i64,
     pub name: String,
@@ -144,9 +147,29 @@ pub struct UpdateWafRuleRequest {
     pub enabled: Option<bool>,
 }
 
-// ─── Dashboard 聚合数据 ────────────────────────────────────────────────────────
+// ─── WAF IP 规则 ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct WafIpRule {
+    pub id: i64,
+    pub ip: String,
+    pub action: String,
+    pub description: Option<String>,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateWafIpRuleRequest {
+    pub ip: String,
+    pub action: String,
+    pub description: Option<String>,
+}
+
+// ─── Dashboard 聚合数据 ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DashboardInfo {
     pub server_info: ServerInfo,
     pub docker_containers_running: i64,
@@ -158,7 +181,7 @@ pub struct DashboardInfo {
     pub waf_rules_enabled: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct OperationLogEntry {
     pub username: String,
     pub action: String,

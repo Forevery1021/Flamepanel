@@ -35,6 +35,9 @@ jobs:
       - name: Build Frontend
         run: cd frontend && npm run build
 
+      - name: Check Formatting
+        run: cargo fmt --all -- --check
+
       - name: Run Clippy
         run: cargo clippy --all-targets -- -D warnings
 
@@ -44,6 +47,14 @@ jobs:
       - name: Build Release
         run: cargo build --release --package ops-panel-backend
 
+      - name: Login to GitHub Container Registry
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Docker Build & Push
         if: github.ref == 'refs/heads/main'
         uses: docker/build-push-action@v6
@@ -51,5 +62,3 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/${{ github.repository }}:latest
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}

@@ -10,12 +10,13 @@ use tokio::sync::{broadcast, Mutex};
 use crate::config::Config;
 use crate::core::error::AppError;
 use crate::domain::{
-    DashboardInfo, CreateWafRuleRequest, LoadAverage, NetworkInfo, NetworkInterface,
-    OperationLogEntry, ServerInfo, UpdateWafRuleRequest, User, WafRule,
+    DashboardInfo, CreateWafRuleRequest, LoadAverage, NetworkInfo, NetworkInterface, ServerInfo,
+    UpdateWafRuleRequest, User, WafRule,
 };
 use crate::infrastructure::{
-    LogRepository, SqliteLogRepository, SqliteUserRepository, SqliteWafRuleRepository,
-    SqliteWebsiteRepository, UserRepository, WafRuleRepository, WebsiteRepository,
+    LogRepository, SqliteLogRepository, SqliteUserRepository, SqliteWafIpRuleRepository,
+    SqliteWafRuleRepository, SqliteWebsiteRepository, UserRepository, WafIpRuleRepository,
+    WafRuleRepository, WebsiteRepository,
 };
 use crate::metrics::{MetricsHistory, MetricsSnapshot};
 use crate::middleware::auth::create_jwt;
@@ -36,6 +37,7 @@ pub struct AppState {
     pub user_repo: Arc<dyn UserRepository>,
     pub website_repo: Arc<dyn WebsiteRepository>,
     pub waf_repo: Arc<dyn WafRuleRepository>,
+    pub waf_ip_repo: Arc<dyn WafIpRuleRepository>,
     pub log_repo: Arc<dyn LogRepository>,
     pub sessions: SessionMap,
     pub metrics_history: Arc<Mutex<MetricsHistory>>,
@@ -52,6 +54,7 @@ impl AppState {
             user_repo: Arc::new(SqliteUserRepository::new(db.clone())),
             website_repo: Arc::new(SqliteWebsiteRepository::new(db.clone())),
             waf_repo: Arc::new(SqliteWafRuleRepository::new(db.clone())),
+            waf_ip_repo: Arc::new(SqliteWafIpRuleRepository::new(db.clone())),
             log_repo: Arc::new(SqliteLogRepository::new(db.clone())),
             sessions: SessionMap::default(),
             db,
@@ -112,7 +115,7 @@ impl AuthService {
 
         self.user_repo.update_last_login(user.id).await.ok();
 
-        let token = create_jwt(&user.username, 7 * 24 * 3600)?;
+        let token = create_jwt(&user.username, &user.role, 7 * 24 * 3600)?;
         Ok((token, user))
     }
 

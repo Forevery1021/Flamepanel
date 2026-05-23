@@ -16,6 +16,7 @@ use crate::core::error::AppError;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: String,
+    pub role: String,
     pub exp: usize,
     pub iat: usize,
 }
@@ -26,10 +27,11 @@ lazy_static::lazy_static! {
         .into_bytes();
 }
 
-pub fn create_jwt(username: &str, expires_in_secs: u64) -> Result<String, AppError> {
+pub fn create_jwt(username: &str, role: &str, expires_in_secs: u64) -> Result<String, AppError> {
     let now = chrono::Utc::now();
     let claims = Claims {
         sub: username.to_string(),
+        role: role.to_string(),
         iat: now.timestamp() as usize,
         exp: (now + chrono::Duration::seconds(expires_in_secs as i64)).timestamp() as usize,
     };
@@ -86,6 +88,35 @@ where
                 .cloned()
                 .map(CurrentUser)
                 .ok_or(AppError::Unauthorized)
+        }
+    }
+}
+
+/// 提取器：要求当前用户为 admin 角色
+pub struct RequireAdmin(pub Arc<Claims>);
+
+impl<S> FromRequestParts<S> for RequireAdmin
+where
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        async move {
+            let claims = parts
+                .extensions
+                .get::<Arc<Claims>>()
+                .cloned()
+                .ok_or(AppError::Unauthorized)?;
+
+            if claims.role != "admin" {
+                return Err(AppError::Forbidden);
+            }
+
+            Ok(RequireAdmin(claims))
         }
     }
 }

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::application::{AppState, WafService};
 use crate::core::error::AppError;
-use crate::domain::{CreateWafRuleRequest, UpdateWafRuleRequest, WafRule};
+use crate::domain::{CreateWafRuleRequest, UpdateWafRuleRequest, WafRule, WafIpRule, CreateWafIpRuleRequest};
 use crate::middleware::auth::CurrentUser;
 
 #[derive(Debug, Deserialize)]
@@ -35,6 +35,10 @@ pub fn routes() -> Router<AppState> {
         .route("/rules/update", put(update_rule))
         .route("/rules/delete", delete(delete_rule))
         .route("/rules/toggle", post(toggle_rule))
+        .route("/ip-rules", get(list_ip_rules))
+        .route("/ip-rules/create", post(create_ip_rule))
+        .route("/ip-rules/toggle", post(toggle_ip_rule))
+        .route("/ip-rules/delete", delete(delete_ip_rule))
 }
 
 async fn list_rules(
@@ -128,5 +132,69 @@ async fn toggle_rule(
     Ok(Json(MessageResponse {
         success: true,
         message: format!("规则已{}", if payload.enabled { "启用" } else { "禁用" }),
+    }))
+}
+
+// ─── IP Rule Handlers ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct IpRuleIdQuery {
+    pub id: i64,
+}
+
+async fn list_ip_rules(
+    State(state): State<AppState>,
+    CurrentUser(_claims): CurrentUser,
+) -> Result<Json<Vec<WafIpRule>>, AppError> {
+    let rules = state.waf_ip_repo.list_all().await?;
+    Ok(Json(rules))
+}
+
+async fn create_ip_rule(
+    State(state): State<AppState>,
+    CurrentUser(_claims): CurrentUser,
+    Json(payload): Json<CreateWafIpRuleRequest>,
+) -> Result<Json<WafIpRule>, AppError> {
+    if payload.ip.is_empty() {
+        return Err(AppError::BadRequest("IP 不能为空".into()));
+    }
+    if payload.action != "allow" && payload.action != "block" {
+        return Err(AppError::BadRequest("action 必须为 allow 或 block".into()));
+    }
+
+    let rule = state.waf_ip_repo.create(&payload).await?;
+
+    tracing::info!("用户 '{}' 创建了 IP 规则: {} -> {}", _claims.sub, rule.ip, rule.action);
+
+    Ok(Json(rule))
+}
+
+async fn toggle_ip_rule(
+    State(state): State<AppState>,
+    CurrentUser(_claims): CurrentUser,
+    Json(payload): Json<ToggleRequest>,
+) -> Result<Json<MessageResponse>, AppError> {
+    state.waf_ip_repo.update(payload.id, payload.enabled, None).await?;
+
+    tracing::info!("用户 '{}' 将 IP 规则 id={} enabled={}", _claims.sub, payload.id, payload.enabled);
+
+    Ok(Json(MessageResponse {
+        success: true,
+        message: format!("IP 规则已{}", if payload.enabled { "启用" } else { "禁用" }),
+    }))
+}
+
+async fn delete_ip_rule(
+    State(state): State<AppState>,
+    CurrentUser(_claims): CurrentUser,
+    Query(query): Query<IpRuleIdQuery>,
+) -> Result<Json<MessageResponse>, AppError> {
+    state.waf_ip_repo.delete(query.id).await?;
+
+    tracing::info!("用户 '{}' 删除了 IP 规则 id={}", _claims.sub, query.id);
+
+    Ok(Json(MessageResponse {
+        success: true,
+        message: "IP 规则删除成功".into(),
     }))
 }

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::application::{AppState, AuthService};
 use crate::core::error::AppError;
-use crate::middleware::auth::CurrentUser;
+use crate::middleware::auth::{CurrentUser, RequireAdmin};
 
 // ─── DTOs ─────────────────────────────────────────────────────────────────────
 
@@ -93,14 +93,14 @@ async fn login(
 
 async fn register(
     State(state): State<AppState>,
-    CurrentUser(_claims): CurrentUser,
+    RequireAdmin(claims): RequireAdmin,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<Json<UserResponse>, AppError> {
     let svc = AuthService::new(state.user_repo.clone());
     let role = payload.role.unwrap_or_else(|| "user".into());
     let user = svc.register(&payload.username, &payload.password, &role).await?;
 
-    tracing::info!("管理员 '{}' 创建了用户 '{}'", _claims.sub, user.username);
+    tracing::info!("管理员 '{}' 创建了用户 '{}'", claims.sub, user.username);
 
     Ok(Json(UserResponse {
         id: user.id,

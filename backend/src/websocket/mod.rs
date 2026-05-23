@@ -33,6 +33,7 @@ fn default_rows() -> u16 { 40 }
 struct TerminalMessage {
     #[serde(rename = "type")]
     msg_type: Option<String>,
+    #[allow(dead_code)]
     data: Option<String>,
     cols: Option<u16>,
     rows: Option<u16>,

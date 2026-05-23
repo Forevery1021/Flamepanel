@@ -15,8 +15,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
 bcrypt = "0.19.1"
 sysinfo = "0.39.2"
-utoipa = { version = "5", features = ["axum_extras"] }
-# utoipa-swagger-ui = { version = "7", features = ["axum"] }
+utoipa = { version = "5", features = ["axum_extras", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2.0"
 figment = { version = "0.10", features = ["env", "toml"] }
@@ -30,3 +29,6 @@ regex = "1"
 clap = { version = "4", features = ["derive"] }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

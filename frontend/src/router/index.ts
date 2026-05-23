@@ -46,6 +46,21 @@ const router = createRouter({
           name: 'Terminal',
           component: () => import('@/views/TerminalView.vue'),
         },
+        {
+          path: 'users',
+          name: 'Users',
+          component: () => import('@/views/UsersView.vue'),
+        },
+        {
+          path: 'logs',
+          name: 'Logs',
+          component: () => import('@/views/LogView.vue'),
+        },
+        {
+          path: 'processes',
+          name: 'Processes',
+          component: () => import('@/views/ProcessView.vue'),
+        },
       ],
     },
   ],

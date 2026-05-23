@@ -13,7 +13,7 @@ import {
   ElUpload,
   ElIcon,
 } from 'element-plus'
-import { Upload, FolderAdd } from '@element-plus/icons-vue'
+import { Upload, FolderAdd, Download, Edit } from '@element-plus/icons-vue'
 import type { FileItem } from '@/types'
 
 const files = ref<FileItem[]>([])
@@ -25,6 +25,9 @@ const editorContent = ref('')
 const editingFile = ref<FileItem | null>(null)
 const uploadVisible = ref(false)
 const uploadUrl = ref('')
+const renameVisible = ref(false)
+const renameTarget = ref<FileItem | null>(null)
+const renameName = ref('')
 
 const uploadHeaders = computed(() => ({
   Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
@@ -115,6 +118,32 @@ const deleteItem = async (file: FileItem) => {
   }
 }
 
+const downloadFile = (file: FileItem) => {
+  const token = localStorage.getItem('token') || ''
+  const url = `/api/file/download?path=${encodeURIComponent(file.path)}&token=${encodeURIComponent(token)}`
+  window.open(url, '_blank')
+}
+
+const openRename = (file: FileItem) => {
+  renameTarget.value = file
+  renameName.value = file.name
+  renameVisible.value = true
+}
+
+const doRename = async () => {
+  if (!renameTarget.value || !renameName.value) return
+  const dir = renameTarget.value.path.substring(0, renameTarget.value.path.lastIndexOf('/')) || '/'
+  const newPath = dir + '/' + renameName.value
+  try {
+    await api.post('/file/rename', { old_path: renameTarget.value.path, new_path: newPath })
+    ElMessage.success('重命名成功')
+    renameVisible.value = false
+    loadFiles()
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.message || '重命名失败')
+  }
+}
+
 const startUpload = () => {
   uploadUrl.value = `/api/file/upload?dir=${encodeURIComponent(currentPath.value)}`
   uploadVisible.value = true
@@ -183,23 +212,12 @@ onMounted(loadFiles)
         </ElTableColumn>
         <ElTableColumn prop="modified" label="修改时间" width="180" />
         <ElTableColumn prop="permissions" label="权限" width="100" />
-        <ElTableColumn label="操作" width="200" fixed="right">
+        <ElTableColumn label="操作" width="280" fixed="right">
           <template #default="{ row }">
-            <ElButton
-              v-if="!row.is_dir"
-              size="small"
-              type="primary"
-              @click="viewFile(row)"
-            >
-              查看
-            </ElButton>
-            <ElButton
-              size="small"
-              type="danger"
-              @click="deleteItem(row)"
-            >
-              删除
-            </ElButton>
+            <ElButton v-if="!row.is_dir" size="small" type="primary" :icon="Edit" @click="viewFile(row)">查看</ElButton>
+            <ElButton v-if="!row.is_dir" size="small" :icon="Download" @click="downloadFile(row)">下载</ElButton>
+            <ElButton size="small" @click="openRename(row)">重命名</ElButton>
+            <ElButton size="small" type="danger" @click="deleteItem(row)">删除</ElButton>
           </template>
         </ElTableColumn>
       </ElTable>
@@ -221,6 +239,15 @@ onMounted(loadFiles)
       <template #footer>
         <ElButton @click="editorVisible = false">取消</ElButton>
         <ElButton type="primary" @click="saveFile">保存</ElButton>
+      </template>
+    </ElDialog>
+
+    <!-- 重命名弹窗 -->
+    <ElDialog v-model="renameVisible" title="重命名" width="420px">
+      <ElInput v-model="renameName" placeholder="新文件名" @keyup.enter="doRename" />
+      <template #footer>
+        <ElButton @click="renameVisible = false">取消</ElButton>
+        <ElButton type="primary" @click="doRename">确认</ElButton>
       </template>
     </ElDialog>
 

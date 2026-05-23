@@ -136,6 +136,7 @@ export interface Website {
   ssl_key_path: string | null
   config_path: string
   enabled: boolean
+  engine: string
   created_at: string
   updated_at: string
 }
@@ -145,6 +146,7 @@ export interface CreateWebsiteRequest {
   root_path?: string
   proxy_port?: number
   enable_ssl?: boolean
+  engine?: string
 }
 
 // ─── WAF ──────────────────────────────────────────────────────────────────────
@@ -169,6 +171,24 @@ export interface CreateWafRuleRequest {
   description?: string
 }
 
+// ─── WAF IP Rules ──────────────────────────────────────────────────────────────
+
+export interface WafIpRule {
+  id: number
+  ip: string
+  action: 'allow' | 'block'
+  description: string | null
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateWafIpRuleRequest {
+  ip: string
+  action: string
+  description?: string
+}
+
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 export interface LoginResponse {
@@ -181,6 +201,16 @@ export interface LoginResponse {
 export interface MessageResponse {
   success: boolean
   message: string
+}
+
+// ─── User ──────────────────────────────────────────────────────────────────────
+
+export interface User {
+  id: number
+  username: string
+  role: string
+  created_at: string
+  last_login: string | null
 }
 
 // ─── Terminal ─────────────────────────────────────────────────────────────────
