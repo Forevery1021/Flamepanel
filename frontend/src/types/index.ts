@@ -173,13 +173,9 @@ export interface CreateWafRuleRequest {
 
 export interface LoginResponse {
   token: string
-  user: {
-    id: number
-    username: string
-    role: string
-    created_at: string
-    last_login: string | null
-  }
+  username: string
+  role: string
+  expires_in: number
 }
 
 export interface MessageResponse {
