@@ -223,6 +223,131 @@ pub struct CleanupResult {
     pub errors: Vec<String>,
 }
 
+// ─── 面板设置 ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct Setting {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSettingsRequest {
+    pub theme: Option<String>,
+    pub language: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PanelSettings {
+    pub theme: String,
+    pub language: String,
+}
+
+// ─── 计划任务 (Cron) ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct CronJob {
+    pub id: i64,
+    pub name: String,
+    pub schedule: String,
+    pub command: Option<String>,
+    pub url: Option<String>,
+    pub enabled: bool,
+    pub last_run: Option<String>,
+    pub next_run: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateCronJobRequest {
+    pub name: String,
+    pub schedule: String,
+    pub command: Option<String>,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateCronJobRequest {
+    pub name: Option<String>,
+    pub schedule: Option<String>,
+    pub command: Option<String>,
+    pub url: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct CronJobLog {
+    pub id: i64,
+    pub job_id: i64,
+    pub status: String,
+    pub output: Option<String>,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+}
+
+// ─── 数据库管理 ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DatabaseInstance {
+    pub id: i64,
+    pub name: String,
+    pub db_type: String,
+    pub version: String,
+    pub port: i32,
+    pub container_id: Option<String>,
+    pub username: String,
+    pub password: String,
+    pub status: String,
+    pub data_dir: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateDatabaseRequest {
+    pub name: String,
+    pub db_type: String,
+    pub version: Option<String>,
+    pub port: Option<i32>,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DatabaseBackup {
+    pub id: i64,
+    pub instance_id: i64,
+    pub filename: String,
+    pub size_bytes: i64,
+    pub created_at: String,
+}
+
+// ─── 应用商店 ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct InstalledApp {
+    pub id: i64,
+    pub app_key: String,
+    pub name: String,
+    pub category: String,
+    pub port: i32,
+    pub status: String,
+    pub compose_file: Option<String>,
+    pub data_dir: Option<String>,
+    pub version: String,
+    pub description: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstallAppRequest {
+    pub app_key: String,
+    pub name: String,
+    pub port: Option<i32>,
+    pub extra_env: Option<std::collections::HashMap<String, String>>,
+}
+
 // ─── 分页 / 通用 ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

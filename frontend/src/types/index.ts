@@ -247,3 +247,122 @@ export interface CleanupResult {
   freed_display: string
   errors: string[]
 }
+
+// ─── Settings ──────────────────────────────────────────────────────────────────
+
+export interface PanelSettings {
+  theme: string
+  language: string
+}
+
+export interface UpdateSettingsRequest {
+  theme?: string
+  language?: string
+}
+
+// ─── Cron ──────────────────────────────────────────────────────────────────────
+
+export interface CronJob {
+  id: number
+  name: string
+  schedule: string
+  command: string | null
+  url: string | null
+  enabled: boolean
+  last_run: string | null
+  next_run: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateCronJobRequest {
+  name: string
+  schedule: string
+  command?: string
+  url?: string
+}
+
+export interface UpdateCronJobRequest {
+  name?: string
+  schedule?: string
+  command?: string
+  url?: string
+  enabled?: boolean
+}
+
+export interface CronJobLog {
+  id: number
+  job_id: number
+  status: string
+  output: string | null
+  started_at: string
+  finished_at: string | null
+}
+
+// ─── Database ──────────────────────────────────────────────────────────────────
+
+export interface DatabaseInstance {
+  id: number
+  name: string
+  db_type: string
+  version: string
+  port: number
+  container_id: string | null
+  username: string
+  password: string
+  status: string
+  data_dir: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateDatabaseRequest {
+  name: string
+  db_type: string
+  version?: string
+  port?: number
+  password: string
+}
+
+export interface DatabaseBackup {
+  id: number
+  instance_id: number
+  filename: string
+  size_bytes: number
+  created_at: string
+}
+
+// ─── App Store ─────────────────────────────────────────────────────────────────
+
+export interface AppManifest {
+  key: string
+  name: string
+  category: string
+  description: string
+  version: string
+  default_port: number
+  icon: string
+  compose: string
+}
+
+export interface InstalledApp {
+  id: number
+  app_key: string
+  name: string
+  category: string
+  port: number
+  status: string
+  compose_file: string | null
+  data_dir: string | null
+  version: string
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface InstallAppRequest {
+  app_key: string
+  name: string
+  port?: number
+  extra_env?: Record<string, string>
+}

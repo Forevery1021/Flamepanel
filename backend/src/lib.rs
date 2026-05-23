@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 pub mod api;
+pub mod app_catalog;
 pub mod application;
 pub mod cli;
 pub mod config;
@@ -51,6 +52,9 @@ pub async fn start_server() {
     metrics::spawn_metrics_collector(metrics_history.clone(), metrics_tx.clone());
 
     let state = AppState::new(db, metrics_tx, metrics_history);
+
+    // Spawn cron scheduler background task
+    application::CronService::spawn_scheduler(state.clone());
 
     let app = axum::Router::new()
         .merge(api::routes())

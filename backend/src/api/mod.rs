@@ -1,13 +1,17 @@
 use axum::{middleware, Router};
 
+pub mod appstore;
 pub mod auth;
 pub mod cleanup;
+pub mod cron;
 pub mod dashboard;
+pub mod database;
 pub mod docker;
 pub mod file;
 pub mod health;
 pub mod logs;
 pub mod openapi;
+pub mod settings;
 pub mod system;
 pub mod users;
 pub mod waf;
@@ -33,6 +37,10 @@ pub fn routes() -> Router<AppState> {
         .nest("/users", users::routes())
         .nest("/logs", logs::routes())
         .nest("/cleanup", cleanup::routes())
+        .nest("/settings", settings::routes())
+        .nest("/cron", cron::routes())
+        .nest("/databases", database::routes())
+        .nest("/appstore", appstore::routes())
         .layer(middleware::from_fn(auth_middleware));
 
     Router::new()

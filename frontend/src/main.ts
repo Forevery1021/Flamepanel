@@ -6,6 +6,7 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import App from './App.vue'
 import router from './router'
 import { createPinia } from 'pinia'
+import { useTheme } from '@/composables/useTheme'
 
 import './style.css'
 
@@ -16,4 +17,8 @@ app.use(pinia)
 app.use(router)
 app.use(ElementPlus, { locale: zhCn })
 
-app.mount('#app')
+// Apply saved theme before mounting to prevent flash
+const { initTheme } = useTheme()
+initTheme().then(() => {
+  app.mount('#app')
+})

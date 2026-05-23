@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 
 use crate::core::error::AppError;
-use crate::domain::{User, Website, CreateWebsiteRequest, WafRule, CreateWafRuleRequest, UpdateWafRuleRequest, WafIpRule, CreateWafIpRuleRequest, OperationLogEntry, PageParams, PagedResult};
+use crate::domain::{User, Website, CreateWebsiteRequest, WafRule, CreateWafRuleRequest, UpdateWafRuleRequest, WafIpRule, CreateWafIpRuleRequest, OperationLogEntry, PageParams, PagedResult, Setting, PanelSettings, CronJob, CreateCronJobRequest, UpdateCronJobRequest, CronJobLog, DatabaseInstance, DatabaseBackup, InstalledApp};
 
 // ─── User Repository ──────────────────────────────────────────────────────────
 
@@ -480,6 +480,433 @@ impl WafIpRuleRepository for SqliteWafIpRuleRepository {
             .execute(&self.db)
             .await
             .map_err(|e| AppError::Internal(format!("删除 IP 规则失败: {e}")))?;
+        Ok(())
+    }
+}
+
+// ─── Settings Repository ──────────────────────────────────────────────────────
+
+#[async_trait]
+pub trait SettingsRepository: Send + Sync {
+    async fn get_all(&self) -> Result<PanelSettings, AppError>;
+    async fn get(&self, key: &str) -> Result<Option<String>, AppError>;
+    async fn set(&self, key: &str, value: &str) -> Result<(), AppError>;
+}
+
+pub struct SqliteSettingsRepository {
+    db: SqlitePool,
+}
+
+impl SqliteSettingsRepository {
+    pub fn new(db: SqlitePool) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait]
+impl SettingsRepository for SqliteSettingsRepository {
+    async fn get_all(&self) -> Result<PanelSettings, AppError> {
+        let rows = sqlx::query_as::<_, Setting>(
+            "SELECT key, value FROM settings"
+        )
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询设置失败: {e}")))?;
+
+        let mut theme = "light".to_string();
+        let mut language = "zh-CN".to_string();
+        for row in rows {
+            match row.key.as_str() {
+                "theme" => theme = row.value,
+                "language" => language = row.value,
+                _ => {}
+            }
+        }
+        Ok(PanelSettings { theme, language })
+    }
+
+    async fn get(&self, key: &str) -> Result<Option<String>, AppError> {
+        let row = sqlx::query_as::<_, Setting>(
+            "SELECT key, value FROM settings WHERE key = ?"
+        )
+        .bind(key)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询设置失败: {e}")))?;
+        Ok(row.map(|r| r.value))
+    }
+
+    async fn set(&self, key: &str, value: &str) -> Result<(), AppError> {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("保存设置失败: {e}")))?;
+        Ok(())
+    }
+}
+
+// ─── CronJob Repository ───────────────────────────────────────────────────────
+
+#[async_trait]
+pub trait CronJobRepository: Send + Sync {
+    async fn create(&self, req: &CreateCronJobRequest) -> Result<CronJob, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<CronJob>, AppError>;
+    async fn list_all(&self) -> Result<Vec<CronJob>, AppError>;
+    async fn list_enabled(&self) -> Result<Vec<CronJob>, AppError>;
+    async fn update(&self, id: i64, req: &UpdateCronJobRequest) -> Result<(), AppError>;
+    async fn update_run_time(&self, id: i64, last_run: &str, next_run: &str) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+    async fn log(&self, job_id: i64, status: &str, output: Option<&str>, started_at: &str, finished_at: &str) -> Result<(), AppError>;
+    async fn list_logs(&self, job_id: i64, limit: i64) -> Result<Vec<CronJobLog>, AppError>;
+}
+
+pub struct SqliteCronJobRepository {
+    db: SqlitePool,
+}
+
+impl SqliteCronJobRepository {
+    pub fn new(db: SqlitePool) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait]
+impl CronJobRepository for SqliteCronJobRepository {
+    async fn create(&self, req: &CreateCronJobRequest) -> Result<CronJob, AppError> {
+        sqlx::query_as::<_, CronJob>(
+            "INSERT INTO cron_jobs (name, schedule, command, url) VALUES (?, ?, ?, ?) RETURNING id, name, schedule, command, url, enabled, last_run, next_run, created_at, updated_at"
+        )
+        .bind(&req.name)
+        .bind(&req.schedule)
+        .bind(&req.command)
+        .bind(&req.url)
+        .fetch_one(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("创建计划任务失败: {e}")))
+    }
+
+    async fn find_by_id(&self, id: i64) -> Result<Option<CronJob>, AppError> {
+        sqlx::query_as::<_, CronJob>(
+            "SELECT id, name, schedule, command, url, enabled, last_run, next_run, created_at, updated_at FROM cron_jobs WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询计划任务失败: {e}")))
+    }
+
+    async fn list_all(&self) -> Result<Vec<CronJob>, AppError> {
+        sqlx::query_as::<_, CronJob>(
+            "SELECT id, name, schedule, command, url, enabled, last_run, next_run, created_at, updated_at FROM cron_jobs ORDER BY id"
+        )
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询计划任务列表失败: {e}")))
+    }
+
+    async fn list_enabled(&self) -> Result<Vec<CronJob>, AppError> {
+        sqlx::query_as::<_, CronJob>(
+            "SELECT id, name, schedule, command, url, enabled, last_run, next_run, created_at, updated_at FROM cron_jobs WHERE enabled = 1 ORDER BY id"
+        )
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询启用的计划任务失败: {e}")))
+    }
+
+    async fn update(&self, id: i64, req: &UpdateCronJobRequest) -> Result<(), AppError> {
+        let existing = self.find_by_id(id).await?
+            .ok_or(AppError::NotFound("计划任务不存在".into()))?;
+
+        sqlx::query(
+            "UPDATE cron_jobs SET name = ?, schedule = ?, command = ?, url = ?, enabled = ? WHERE id = ?"
+        )
+        .bind(req.name.as_deref().unwrap_or(&existing.name))
+        .bind(req.schedule.as_deref().unwrap_or(&existing.schedule))
+        .bind(req.command.as_ref().or(existing.command.as_ref()))
+        .bind(req.url.as_ref().or(existing.url.as_ref()))
+        .bind(req.enabled.unwrap_or(existing.enabled))
+        .bind(id)
+        .execute(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("更新计划任务失败: {e}")))?;
+        Ok(())
+    }
+
+    async fn update_run_time(&self, id: i64, last_run: &str, next_run: &str) -> Result<(), AppError> {
+        sqlx::query("UPDATE cron_jobs SET last_run = ?, next_run = ? WHERE id = ?")
+            .bind(last_run)
+            .bind(next_run)
+            .bind(id)
+            .execute(&self.db)
+            .await
+            .map_err(|e| AppError::Internal(format!("更新运行时间失败: {e}")))?;
+        Ok(())
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM cron_jobs WHERE id = ?")
+            .bind(id)
+            .execute(&self.db)
+            .await
+            .map_err(|e| AppError::Internal(format!("删除计划任务失败: {e}")))?;
+        Ok(())
+    }
+
+    async fn log(&self, job_id: i64, status: &str, output: Option<&str>, started_at: &str, finished_at: &str) -> Result<(), AppError> {
+        sqlx::query(
+            "INSERT INTO cron_job_logs (job_id, status, output, started_at, finished_at) VALUES (?, ?, ?, ?, ?)"
+        )
+        .bind(job_id)
+        .bind(status)
+        .bind(output)
+        .bind(started_at)
+        .bind(finished_at)
+        .execute(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("写入任务日志失败: {e}")))?;
+        Ok(())
+    }
+
+    async fn list_logs(&self, job_id: i64, limit: i64) -> Result<Vec<CronJobLog>, AppError> {
+        sqlx::query_as::<_, CronJobLog>(
+            "SELECT id, job_id, status, output, started_at, finished_at FROM cron_job_logs WHERE job_id = ? ORDER BY id DESC LIMIT ?"
+        )
+        .bind(job_id)
+        .bind(limit)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询任务日志失败: {e}")))
+    }
+}
+
+// ─── Database Repository ──────────────────────────────────────────────────────
+
+#[async_trait]
+pub trait DatabaseRepository: Send + Sync {
+    async fn create(
+        &self, name: &str, db_type: &str, version: &str, port: i32,
+        container_id: Option<&str>, username: &str, password: &str,
+        data_dir: Option<&str>,
+    ) -> Result<DatabaseInstance, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<DatabaseInstance>, AppError>;
+    async fn list_all(&self) -> Result<Vec<DatabaseInstance>, AppError>;
+    async fn update_status(&self, id: i64, status: &str) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+}
+
+pub struct SqliteDatabaseRepository {
+    db: SqlitePool,
+}
+
+impl SqliteDatabaseRepository {
+    pub fn new(db: SqlitePool) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait]
+impl DatabaseRepository for SqliteDatabaseRepository {
+    async fn create(
+        &self, name: &str, db_type: &str, version: &str, port: i32,
+        container_id: Option<&str>, username: &str, password: &str,
+        data_dir: Option<&str>,
+    ) -> Result<DatabaseInstance, AppError> {
+        sqlx::query_as::<_, DatabaseInstance>(
+            "INSERT INTO database_instances (name, db_type, version, port, container_id, username, password, status, data_dir) VALUES (?, ?, ?, ?, ?, ?, ?, 'installing', ?) RETURNING id, name, db_type, version, port, container_id, username, password, status, data_dir, created_at, updated_at"
+        )
+        .bind(name)
+        .bind(db_type)
+        .bind(version)
+        .bind(port)
+        .bind(container_id)
+        .bind(username)
+        .bind(password)
+        .bind(data_dir)
+        .fetch_one(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("创建数据库实例失败: {e}")))
+    }
+
+    async fn find_by_id(&self, id: i64) -> Result<Option<DatabaseInstance>, AppError> {
+        sqlx::query_as::<_, DatabaseInstance>(
+            "SELECT id, name, db_type, version, port, container_id, username, password, status, data_dir, created_at, updated_at FROM database_instances WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询数据库实例失败: {e}")))
+    }
+
+    async fn list_all(&self) -> Result<Vec<DatabaseInstance>, AppError> {
+        sqlx::query_as::<_, DatabaseInstance>(
+            "SELECT id, name, db_type, version, port, container_id, username, password, status, data_dir, created_at, updated_at FROM database_instances ORDER BY id"
+        )
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询数据库列表失败: {e}")))
+    }
+
+    async fn update_status(&self, id: i64, status: &str) -> Result<(), AppError> {
+        sqlx::query("UPDATE database_instances SET status = ? WHERE id = ?")
+            .bind(status)
+            .bind(id)
+            .execute(&self.db)
+            .await
+            .map_err(|e| AppError::Internal(format!("更新数据库状态失败: {e}")))?;
+        Ok(())
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM database_instances WHERE id = ?")
+            .bind(id)
+            .execute(&self.db)
+            .await
+            .map_err(|e| AppError::Internal(format!("删除数据库实例失败: {e}")))?;
+        Ok(())
+    }
+}
+
+// ─── Database Backup Repository ────────────────────────────────────────────────
+
+#[async_trait]
+pub trait DatabaseBackupRepository: Send + Sync {
+    async fn create(&self, instance_id: i64, filename: &str, size_bytes: i64) -> Result<DatabaseBackup, AppError>;
+    async fn list_by_instance(&self, instance_id: i64) -> Result<Vec<DatabaseBackup>, AppError>;
+}
+
+pub struct SqliteDatabaseBackupRepository {
+    db: SqlitePool,
+}
+
+impl SqliteDatabaseBackupRepository {
+    pub fn new(db: SqlitePool) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait]
+impl DatabaseBackupRepository for SqliteDatabaseBackupRepository {
+    async fn create(&self, instance_id: i64, filename: &str, size_bytes: i64) -> Result<DatabaseBackup, AppError> {
+        sqlx::query_as::<_, DatabaseBackup>(
+            "INSERT INTO database_backups (instance_id, filename, size_bytes) VALUES (?, ?, ?) RETURNING id, instance_id, filename, size_bytes, created_at"
+        )
+        .bind(instance_id)
+        .bind(filename)
+        .bind(size_bytes)
+        .fetch_one(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("创建备份记录失败: {e}")))
+    }
+
+    async fn list_by_instance(&self, instance_id: i64) -> Result<Vec<DatabaseBackup>, AppError> {
+        sqlx::query_as::<_, DatabaseBackup>(
+            "SELECT id, instance_id, filename, size_bytes, created_at FROM database_backups WHERE instance_id = ? ORDER BY id DESC"
+        )
+        .bind(instance_id)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询备份列表失败: {e}")))
+    }
+}
+
+// ─── App Store Repository ──────────────────────────────────────────────────────
+
+#[async_trait]
+pub trait AppRepository: Send + Sync {
+    async fn create(
+        &self, app_key: &str, name: &str, category: &str, port: i32,
+        version: &str, description: Option<&str>, compose_file: Option<&str>,
+        data_dir: Option<&str>,
+    ) -> Result<InstalledApp, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<InstalledApp>, AppError>;
+    async fn find_by_name(&self, name: &str) -> Result<Option<InstalledApp>, AppError>;
+    async fn list_all(&self) -> Result<Vec<InstalledApp>, AppError>;
+    async fn update_status(&self, id: i64, status: &str) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+}
+
+pub struct SqliteAppRepository {
+    db: SqlitePool,
+}
+
+impl SqliteAppRepository {
+    pub fn new(db: SqlitePool) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait]
+impl AppRepository for SqliteAppRepository {
+    async fn create(
+        &self, app_key: &str, name: &str, category: &str, port: i32,
+        version: &str, description: Option<&str>, compose_file: Option<&str>,
+        data_dir: Option<&str>,
+    ) -> Result<InstalledApp, AppError> {
+        sqlx::query_as::<_, InstalledApp>(
+            "INSERT INTO installed_apps (app_key, name, category, port, status, version, description, compose_file, data_dir) VALUES (?, ?, ?, ?, 'installing', ?, ?, ?, ?) RETURNING id, app_key, name, category, port, status, compose_file, data_dir, version, description, created_at, updated_at"
+        )
+        .bind(app_key)
+        .bind(name)
+        .bind(category)
+        .bind(port)
+        .bind(version)
+        .bind(description)
+        .bind(compose_file)
+        .bind(data_dir)
+        .fetch_one(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("创建应用失败: {e}")))
+    }
+
+    async fn find_by_id(&self, id: i64) -> Result<Option<InstalledApp>, AppError> {
+        sqlx::query_as::<_, InstalledApp>(
+            "SELECT id, app_key, name, category, port, status, compose_file, data_dir, version, description, created_at, updated_at FROM installed_apps WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询应用失败: {e}")))
+    }
+
+    async fn find_by_name(&self, name: &str) -> Result<Option<InstalledApp>, AppError> {
+        sqlx::query_as::<_, InstalledApp>(
+            "SELECT id, app_key, name, category, port, status, compose_file, data_dir, version, description, created_at, updated_at FROM installed_apps WHERE name = ?"
+        )
+        .bind(name)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询应用失败: {e}")))
+    }
+
+    async fn list_all(&self) -> Result<Vec<InstalledApp>, AppError> {
+        sqlx::query_as::<_, InstalledApp>(
+            "SELECT id, app_key, name, category, port, status, compose_file, data_dir, version, description, created_at, updated_at FROM installed_apps ORDER BY id"
+        )
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| AppError::Internal(format!("查询应用列表失败: {e}")))
+    }
+
+    async fn update_status(&self, id: i64, status: &str) -> Result<(), AppError> {
+        sqlx::query("UPDATE installed_apps SET status = ? WHERE id = ?")
+            .bind(status)
+            .bind(id)
+            .execute(&self.db)
+            .await
+            .map_err(|e| AppError::Internal(format!("更新应用状态失败: {e}")))?;
+        Ok(())
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM installed_apps WHERE id = ?")
+            .bind(id)
+            .execute(&self.db)
+            .await
+            .map_err(|e| AppError::Internal(format!("删除应用失败: {e}")))?;
         Ok(())
     }
 }

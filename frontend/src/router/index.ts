@@ -32,6 +32,11 @@ const router = createRouter({
           component: () => import('@/views/DockerView.vue'),
         },
         {
+          path: 'databases',
+          name: 'Databases',
+          component: () => import('@/views/DatabaseView.vue'),
+        },
+        {
           path: 'website',
           name: 'Website',
           component: () => import('@/views/WebsiteView.vue'),
@@ -65,6 +70,21 @@ const router = createRouter({
           path: 'cleanup',
           name: 'Cleanup',
           component: () => import('@/views/CleanupView.vue'),
+        },
+        {
+          path: 'settings',
+          name: 'Settings',
+          component: () => import('@/views/SettingsView.vue'),
+        },
+        {
+          path: 'cron',
+          name: 'Cron',
+          component: () => import('@/views/CronView.vue'),
+        },
+        {
+          path: 'appstore',
+          name: 'AppStore',
+          component: () => import('@/views/AppStoreView.vue'),
         },
       ],
     },

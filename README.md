@@ -11,14 +11,18 @@
 
 ## 核心特性
 
-- **系统监控**：实时 CPU、内存、磁盘、负载、网络接口监控
-- **Docker 管理**：容器列表、启动 / 停止 / 重启、日志查看
+- **系统监控**：实时 CPU、内存、磁盘、负载、网络接口监控 + ECharts 趋势图表
+- **Docker 管理**：容器列表、启动 / 停止 / 重启、日志查看、镜像管理
+- **数据库管理**：一键部署 MySQL、PostgreSQL、Redis、MongoDB / MariaDB，自动备份
+- **应用商店**：内置 8 款应用，Docker Compose 一键部署（WordPress / Gitea / Portainer 等）
 - **网站托管**：Nginx 站点一键创建、启用 / 禁用、SSL 管理
-- **WAF 防火墙**：正则规则引擎，支持 URL / Header / Body / Cookie 匹配
+- **WAF 防火墙**：正则规则引擎，支持 URL / Header / Body / Cookie 匹配 + IP 黑白名单
+- **计划任务**：Cron 表达式调度，支持 Shell 命令和 URL 请求，自动执行日志记录
 - **文件管理**：可视化文件浏览、编辑、上传、新建文件夹
 - **Web 终端**：基于 xterm.js + WebSocket 的浏览器终端
-- **仪表盘**：系统概览 + 容器 / 网站 / WAF 统计 + 操作日志
+- **仪表盘**：系统概览 + 容器 / 网站 / WAF / 数据库统计 + 操作日志
 - **安全认证**：JWT + bcrypt 密码哈希，中间件保护
+- **面板设置**：亮色 / 深色主题切换，CSS 变量驱动
 - **系统清理**：扫描并清理系统缓存、Docker 缓存、包管理器缓存、日志文件、构建产物
 
 ## 技术栈
@@ -28,8 +32,10 @@
 | 后端框架 | Rust + Axum 0.8 |
 | 数据库 | SQLite (sqlx 0.9, 运行时迁移) |
 | 认证 | jsonwebtoken 10 + bcrypt 0.19 |
+| 容器编排 | Docker CLI + Docker Compose |
 | 前端框架 | Vue 3.5 + TypeScript 6.0 |
 | UI 组件 | Element Plus 2.9 |
+| 图表 | ECharts 6.1 |
 | 终端 | xterm.js 5.5 + WebSocket |
 | 构建 | Vite 8 + vue-tsc |
 | 系统信息 | sysinfo 0.39 |
@@ -39,29 +45,31 @@
 ```
 Flamepanel/
 ├── backend/
-│   ├── migrations/          # SQLite 数据库迁移
+│   ├── migrations/          # 7 组 SQLite 数据库迁移
 │   ├── src/
-│   │   ├── api/             # HTTP handlers (auth, cleanup, dashboard, docker, file, system, waf, website)
-│   │   ├── application.rs   # AppState, AuthService, DashboardService, WafService, CleanupService
+│   │   ├── api/             # 14 个 HTTP handler (auth, appstore, cleanup, cron, dashboard, database, docker, file, logs, settings, system, users, waf, website)
+│   │   ├── app_catalog.rs   # 内置应用目录 (8 款应用 + Docker Compose 模板)
+│   │   ├── application.rs   # AppState + Auth/System/Dashboard/Waf/Cleanup/Cron 服务
 │   │   ├── config.rs        # 配置加载 (figment: TOML + 环境变量)
 │   │   ├── core/            # AppError, 错误处理
-│   │   ├── domain.rs        # 领域实体 (User, Website, WafRule, ServerInfo, etc.)
-│   │   ├── infrastructure.rs # Repository 实现 (SQLite + Docker CLI)
-│   │   ├── main.rs          # 入口 + 路由注册
-│   │   ├── middleware/       # JWT 认证中间件
+│   │   ├── domain.rs        # 领域实体 (User, Website, WafRule, CronJob, DatabaseInstance, InstalledApp, etc.)
+│   │   ├── infrastructure.rs # 10 个 Repository 实现 (SQLite + Docker CLI)
+│   │   ├── main.rs          # 入口
+│   │   ├── middleware/       # JWT 认证 + 限流 + WAF 中间件
 │   │   ├── plugin/          # 插件系统框架
 │   │   ├── utils.rs
-│   │   └── websocket/       # Web 终端 WebSocket 处理
+│   │   └── websocket/       # Web 终端 + 指标推送 WebSocket
 │   └── Cargo.toml
 ├── frontend/
 │   └── src/
 │       ├── api/             # Axios HTTP 客户端
-│       ├── components/      # Sidebar 等共享组件
+│       ├── components/      # Sidebar, SystemChart, Terminal 等共享组件
+│       ├── composables/     # useTheme, useMetricsWebSocket
 │       ├── layout/          # 主布局
-│       ├── router/          # Vue Router 配置
+│       ├── router/          # Vue Router 配置 (14 条路由)
 │       ├── stores/          # Pinia 状态管理 (auth, dashboard, system, docker)
-│       ├── types/           # TypeScript 类型定义
-│       └── views/           # 页面组件 (9 个视图)
+│       ├── types/           # TypeScript 类型定义 (15 组接口)
+│       └── views/           # 页面组件 (12 个视图)
 ├── docker-compose.yml
 ├── Dockerfile
 ├── install.sh
@@ -70,31 +78,36 @@ Flamepanel/
 
 ## 当前开发进度
 
-### 已完成
+### Phase 1 + 2 已完成（v0.2.x）
 
-- **P1-P4 核心基础**：Clean Architecture 分层、错误处理、配置加载、JWT 中间件、SQLite Repository
-- **P5 API 层**：
+- **核心基础**：Clean Architecture 分层、错误处理、配置加载、JWT 中间件、限流中间件、SQLite Repository
+- **API 层（14 个模块）**：
   - `auth` — 登录 / 注册 / 修改密码 / 当前用户
   - `dashboard` — 系统概览聚合（CPU / 内存 / 磁盘 / Docker / 网站 / WAF / 日志）
   - `docker` — 容器列表 / 启动 / 停止 / 重启 / 日志 / 镜像列表
+  - `database` — MySQL / MariaDB / PostgreSQL / Redis / MongoDB 一键部署 + 备份
+  - `appstore` — 应用目录 + Docker Compose 安装 / 启停 / 卸载 / 日志
+  - `cron` — 计划任务 CRUD + Cron 调度器 + 执行日志
   - `file` — 文件浏览 / 读取 / 写入 / 创建目录 / 删除 / 上传
   - `system` — 系统信息 / 进程列表
+  - `settings` — 面板设置（主题 / 密码 / 关于）
   - `cleanup` — 系统垃圾扫描 / 分类清理（temp / docker / package / logs / dev）
   - `waf` — WAF 规则 CRUD + 启用 / 禁用 + IP 黑白名单
   - `website` — Nginx 站点 CRUD + 启用 / 禁用 + SSL
-- **P6 WebSocket**：交互式 Web 终端（bash / sh）
-- **P6 插件系统**：插件清单加载、启动 / 停止管理框架
-- **P7 WAF 防火墙**：正则规则引擎 + 5 条默认安全规则
-- **P7 仪表盘**：Dashboard 数据聚合服务
-- **前端界面**：9 个视图（登录 / 仪表盘 / Docker / 文件管理 / 网站 / WAF / 终端 / 进程管理 / 系统清理）
-- **数据库表**：users, websites, operation_logs, waf_rules, waf_ip_rules
+  - `users` — 用户列表 / 角色管理 / 密码重置
+  - `logs` — 操作日志分页查看
+- **WebSocket**：交互式 Web 终端（bash / sh）+ 实时指标推送
+- **前沿特性**：深色主题、Cron 调度器、应用商店、数据库管理
+- **前端界面**：12 个视图（登录 / 仪表盘 / Docker / 文件管理 / 网站 / WAF / 终端 / 用户管理 / 操作日志 / 进程管理 / 系统清理 / 面板设置 / 计划任务 / 数据库管理 / 应用商店）
+- **数据库表**：users, websites, operation_logs, waf_rules, waf_ip_rules, settings, cron_jobs, cron_job_logs, database_instances, database_backups, installed_apps
 
-### 待开发
+### 待开发（Phase 3）
 
+- 多节点 / 集群管理（轻量 Rust Agent）
+- AI 集成（Ollama 本地 LLM + 日志分析）
 - 集成测试（axum-test + sqlx）
-- utoipa OpenAPI 文档
 - 告警通知（邮件 / Telegram / Webhook）
-- 多服务器集中管理
+- 备份与高可用（S3 / 阿里云 OSS）
 - CI/CD（GitHub Actions）
 - Docker 镜像发布
 

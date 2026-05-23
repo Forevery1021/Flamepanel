@@ -12,6 +12,10 @@ import {
   Document,
   Cpu,
   Delete,
+  Setting,
+  Timer,
+  Coin,
+  ShoppingCart,
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -22,6 +26,7 @@ const menuItems = [
   { path: '/dashboard', name: '仪表盘', icon: House },
   { path: '/file', name: '文件管理', icon: Folder },
   { path: '/docker', name: 'Docker 管理', icon: Grid },
+  { path: '/databases', name: '数据库管理', icon: Coin },
   { path: '/website', name: '网站管理', icon: Link },
   { path: '/waf', name: 'WAF 防火墙', icon: Lock },
   { path: '/terminal', name: 'Web 终端', icon: Monitor },
@@ -29,6 +34,9 @@ const menuItems = [
   { path: '/logs', name: '操作日志', icon: Document },
   { path: '/processes', name: '进程管理', icon: Cpu },
   { path: '/cleanup', name: '系统清理', icon: Delete },
+  { path: '/settings', name: '面板设置', icon: Setting },
+  { path: '/cron', name: '计划任务', icon: Timer },
+  { path: '/appstore', name: '应用商店', icon: ShoppingCart },
 ]
 
 const handleLogout = () => {
@@ -73,16 +81,17 @@ const handleLogout = () => {
 .sidebar {
   width: 240px;
   min-width: 240px;
-  background: #ffffff;
-  border-right: 1px solid #e4e7ed;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   height: 100vh;
+  transition: background 0.3s, border-color 0.3s;
 }
 
 .logo {
   padding: 24px;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid var(--border-color);
 }
 .logo h2 {
   margin: 0;
@@ -92,7 +101,7 @@ const handleLogout = () => {
 .subtitle {
   margin: 4px 0 0;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-secondary);
 }
 
 .menu {
@@ -109,10 +118,10 @@ const handleLogout = () => {
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
-  color: #606266;
+  color: var(--text-regular);
 }
 .menu-item:hover {
-  background: #f0f7ff;
+  background: var(--bg-hover);
   color: #409eff;
 }
 .menu-item.active {
@@ -122,7 +131,7 @@ const handleLogout = () => {
 
 .footer {
   padding: 20px;
-  border-top: 1px solid #e4e7ed;
+  border-top: 1px solid var(--border-color);
 }
 
 .user {
@@ -130,6 +139,6 @@ const handleLogout = () => {
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  color: #606266;
+  color: var(--text-regular);
 }
 </style>

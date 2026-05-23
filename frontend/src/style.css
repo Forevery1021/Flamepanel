@@ -1,5 +1,85 @@
-:root {
+/* Light theme (default) */
+:root,
+[data-theme='light'] {
   --el-color-primary: #409eff;
+
+  --bg-page: #f5f7fa;
+  --bg-sidebar: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #f0f7ff;
+  --bg-input: #ffffff;
+
+  --text-primary: #303133;
+  --text-regular: #606266;
+  --text-secondary: #909399;
+  --text-placeholder: #c0c4cc;
+
+  --border-color: #e4e7ed;
+  --border-light: #f0f0f0;
+
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+/* Dark theme */
+[data-theme='dark'] {
+  --el-color-primary: #409eff;
+
+  --bg-page: #141414;
+  --bg-sidebar: #1d1e1f;
+  --bg-card: #1d1e1f;
+  --bg-hover: #2a2b2d;
+  --bg-input: #2a2b2d;
+
+  --text-primary: #e5eaf3;
+  --text-regular: #cfd3dc;
+  --text-secondary: #a3a6ad;
+  --text-placeholder: #636466;
+
+  --border-color: #3c3d3f;
+  --border-light: #2a2b2d;
+
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Dark mode Element Plus overrides */
+[data-theme='dark'] .el-card,
+[data-theme='dark'] .el-table,
+[data-theme='dark'] .el-dialog,
+[data-theme='dark'] .el-drawer,
+[data-theme='dark'] .el-select-dropdown,
+[data-theme='dark'] .el-picker-panel,
+[data-theme='dark'] .el-dropdown-menu,
+[data-theme='dark'] .el-message-box,
+[data-theme='dark'] .el-form-item__label,
+[data-theme='dark'] .el-checkbox__label,
+[data-theme='dark'] .el-radio__label,
+[data-theme='dark'] .el-tabs__item,
+[data-theme='dark'] .el-pagination button,
+[data-theme='dark'] .el-dialog__title,
+[data-theme='dark'] .el-empty__description p,
+[data-theme='dark'] .el-table th,
+[data-theme='dark'] .el-table td,
+[data-theme='dark'] .el-tag--info {
+  color: var(--text-regular) !important;
+}
+
+[data-theme='dark'] .el-card,
+[data-theme='dark'] .el-table,
+[data-theme='dark'] .el-table__header-wrapper,
+[data-theme='dark'] .el-dialog,
+[data-theme='dark'] .el-message-box,
+[data-theme='dark'] .el-input__wrapper,
+[data-theme='dark'] .el-textarea__inner,
+[data-theme='dark'] .el-select .el-input__wrapper,
+[data-theme='dark'] .el-button:not(.el-button--primary):not(.el-button--danger):not(.el-button--success):not(.el-button--warning) {
+  background-color: var(--bg-card) !important;
+  border-color: var(--border-color) !important;
+}
+
+[data-theme='dark'] .el-table {
+  --el-table-tr-bg-color: var(--bg-card);
+  --el-table-header-bg-color: var(--bg-sidebar);
+  --el-table-row-hover-bg-color: var(--bg-hover);
 }
 
 html, body, #app {
@@ -7,6 +87,9 @@ html, body, #app {
   padding: 0;
   height: 100%;
   font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  transition: background 0.3s, color 0.3s;
 }
 
 * {

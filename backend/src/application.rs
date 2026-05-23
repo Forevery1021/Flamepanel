@@ -14,9 +14,12 @@ use crate::domain::{
     NetworkInterface, ServerInfo, UpdateWafRuleRequest, User, WafRule,
 };
 use crate::infrastructure::{
-    LogRepository, SqliteLogRepository, SqliteUserRepository, SqliteWafIpRuleRepository,
-    SqliteWafRuleRepository, SqliteWebsiteRepository, UserRepository, WafIpRuleRepository,
-    WafRuleRepository, WebsiteRepository,
+    AppRepository, CronJobRepository, DatabaseBackupRepository, DatabaseRepository,
+    LogRepository, SettingsRepository, SqliteAppRepository, SqliteCronJobRepository,
+    SqliteDatabaseBackupRepository, SqliteDatabaseRepository, SqliteLogRepository,
+    SqliteSettingsRepository, SqliteUserRepository, SqliteWafIpRuleRepository,
+    SqliteWafRuleRepository, SqliteWebsiteRepository, UserRepository,
+    WafIpRuleRepository, WafRuleRepository, WebsiteRepository,
 };
 use crate::metrics::{MetricsHistory, MetricsSnapshot};
 use crate::middleware::auth::create_jwt;
@@ -39,6 +42,11 @@ pub struct AppState {
     pub waf_repo: Arc<dyn WafRuleRepository>,
     pub waf_ip_repo: Arc<dyn WafIpRuleRepository>,
     pub log_repo: Arc<dyn LogRepository>,
+    pub settings_repo: Arc<dyn SettingsRepository>,
+    pub cron_repo: Arc<dyn CronJobRepository>,
+    pub db_repo: Arc<dyn DatabaseRepository>,
+    pub db_backup_repo: Arc<dyn DatabaseBackupRepository>,
+    pub app_repo: Arc<dyn AppRepository>,
     pub sessions: SessionMap,
     pub metrics_history: Arc<Mutex<MetricsHistory>>,
     pub metrics_tx: broadcast::Sender<MetricsSnapshot>,
@@ -56,6 +64,11 @@ impl AppState {
             waf_repo: Arc::new(SqliteWafRuleRepository::new(db.clone())),
             waf_ip_repo: Arc::new(SqliteWafIpRuleRepository::new(db.clone())),
             log_repo: Arc::new(SqliteLogRepository::new(db.clone())),
+            settings_repo: Arc::new(SqliteSettingsRepository::new(db.clone())),
+            cron_repo: Arc::new(SqliteCronJobRepository::new(db.clone())),
+            db_repo: Arc::new(SqliteDatabaseRepository::new(db.clone())),
+            db_backup_repo: Arc::new(SqliteDatabaseBackupRepository::new(db.clone())),
+            app_repo: Arc::new(SqliteAppRepository::new(db.clone())),
             sessions: SessionMap::default(),
             db,
             metrics_tx,
@@ -894,5 +907,173 @@ impl CleanupService {
             }
         }
         Ok(())
+    }
+}
+
+// ─── Cron 调度服务 ─────────────────────────────────────────────────────────
+
+pub struct CronService;
+
+impl CronService {
+    /// Check if a cron expression matches the given time components.
+    fn cron_matches(expr: &str, min: u32, hour: u32, dom: u32, month: u32, dow: u32) -> bool {
+        let fields: Vec<&str> = expr.split_whitespace().collect();
+        if fields.len() != 5 {
+            return false;
+        }
+        let vals = [min, hour, dom, month, dow];
+        for (i, field) in fields.iter().enumerate() {
+            if !Self::field_matches(field, vals[i]) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn field_matches(field: &str, val: u32) -> bool {
+        if field == "*" {
+            return true;
+        }
+        // */N step
+        if let Some(step_str) = field.strip_prefix("*/") {
+            if let Ok(step) = step_str.parse::<u32>() {
+                return step > 0 && val % step == 0;
+            }
+        }
+        // Comma-separated list
+        for part in field.split(',') {
+            // Range N-M
+            if let Some((lo_str, hi_str)) = part.split_once('-') {
+                if let (Ok(lo), Ok(hi)) = (lo_str.parse::<u32>(), hi_str.parse::<u32>()) {
+                    if val >= lo && val <= hi {
+                        return true;
+                    }
+                }
+            } else if let Ok(n) = part.parse::<u32>() {
+                if val == n {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Compute the next scheduled run time from a cron expression.
+    fn next_run_from(expr: &str, now: chrono::DateTime<chrono::Utc>) -> String {
+        // Walk forward minute by minute (up to 366 days) to find next match
+        let max_steps = 366 * 24 * 60; // 1 year
+        let mut cur = now + chrono::Duration::minutes(1);
+        for _ in 0..max_steps {
+            let min = cur.format("%M").to_string().parse::<u32>().unwrap_or(0);
+            let hr = cur.format("%H").to_string().parse::<u32>().unwrap_or(0);
+            let dom = cur.format("%d").to_string().parse::<u32>().unwrap_or(1);
+            let mon = cur.format("%m").to_string().parse::<u32>().unwrap_or(1);
+            let dow = cur.format("%u").to_string().parse::<u32>().unwrap_or(0);
+            if Self::cron_matches(expr, min, hr, dom, mon, dow) {
+                return cur.format("%Y-%m-%d %H:%M:%S").to_string();
+            }
+            cur = cur + chrono::Duration::minutes(1);
+        }
+        // Fallback
+        (now + chrono::Duration::hours(1)).format("%Y-%m-%d %H:%M:%S").to_string()
+    }
+
+    /// Recalculate next_run for a cron job.
+    pub async fn recalc_next_run(repo: Arc<dyn CronJobRepository>, job_id: i64) -> Result<(), AppError> {
+        if let Some(job) = repo.find_by_id(job_id).await? {
+            let now = chrono::Utc::now();
+            let next = Self::next_run_from(&job.schedule, now);
+            repo.update_run_time(job.id, &job.last_run.unwrap_or_default(), &next).await?;
+        }
+        Ok(())
+    }
+
+    /// Execute a single cron job synchronously, returning (status, output).
+    pub async fn execute_job(job: &crate::domain::CronJob) -> (String, Option<String>) {
+        if let Some(cmd) = &job.command {
+            let output = tokio::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" })
+                .arg(if cfg!(windows) { "/C" } else { "-c" })
+                .arg(cmd)
+                .output()
+                .await;
+            match output {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                    let combined = if stderr.is_empty() { stdout } else { format!("{stdout}\n{stderr}") };
+                    if out.status.success() {
+                        ("success".into(), Some(combined))
+                    } else {
+                        ("failed".into(), Some(combined))
+                    }
+                }
+                Err(e) => ("failed".into(), Some(format!("执行失败: {e}"))),
+            }
+        } else if let Some(url) = &job.url {
+            match reqwest::get(url).await {
+                Ok(resp) => {
+                    let status_code = resp.status().as_u16();
+                    match resp.text().await {
+                        Ok(body) => {
+                            if status_code < 400 {
+                                ("success".into(), Some(format!("HTTP {status_code}\n{body}")))
+                            } else {
+                                ("failed".into(), Some(format!("HTTP {status_code}\n{body}")))
+                            }
+                        }
+                        Err(e) => ("failed".into(), Some(format!("读取响应失败: {e}"))),
+                    }
+                }
+                Err(e) => ("failed".into(), Some(format!("请求失败: {e}"))),
+            }
+        } else {
+            ("failed".into(), Some("无 command 或 url".into()))
+        }
+    }
+
+    /// Background scheduler: checks every 30s for jobs that need to run.
+    pub fn spawn_scheduler(state: AppState) {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                let jobs = match state.cron_repo.list_enabled().await {
+                    Ok(j) => j,
+                    Err(_) => continue,
+                };
+                let now = chrono::Utc::now();
+                let current_min = now.format("%M").to_string().parse::<u32>().unwrap_or(0);
+                let current_hr = now.format("%H").to_string().parse::<u32>().unwrap_or(0);
+                // Check if minute just changed (run within first 30s of a new minute)
+                if now.format("%S").to_string().parse::<u32>().unwrap_or(0) > 30 {
+                    // We're past the 30s mark; check for jobs that match prev minute too
+                }
+
+                for job in &jobs {
+                    let dom = now.format("%d").to_string().parse::<u32>().unwrap_or(1);
+                    let mon = now.format("%m").to_string().parse::<u32>().unwrap_or(1);
+                    let dow = now.format("%u").to_string().parse::<u32>().unwrap_or(0);
+                    if !Self::cron_matches(&job.schedule, current_min, current_hr, dom, mon, dow) {
+                        continue;
+                    }
+                    // Avoid running more than once per minute
+                    if let Some(ref last) = job.last_run {
+                        let last_min = &last[..16]; // "YYYY-MM-DD HH:MM"
+                        let now_min = &now.format("%Y-%m-%d %H:%M").to_string();
+                        if last_min == now_min {
+                            continue;
+                        }
+                    }
+
+                    let started_at = now.format("%Y-%m-%d %H:%M:%S").to_string();
+                    let (status, output) = Self::execute_job(job).await;
+                    let finished_at = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                    let _ = state.cron_repo.log(job.id, &status, output.as_deref(), &started_at, &finished_at).await;
+                    let next = Self::next_run_from(&job.schedule, now);
+                    let _ = state.cron_repo.update_run_time(job.id, &started_at, &next).await;
+                }
+            }
+        });
     }
 }
