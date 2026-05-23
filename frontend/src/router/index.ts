@@ -61,6 +61,11 @@ const router = createRouter({
           name: 'Processes',
           component: () => import('@/views/ProcessView.vue'),
         },
+        {
+          path: 'cleanup',
+          name: 'Cleanup',
+          component: () => import('@/views/CleanupView.vue'),
+        },
       ],
     },
   ],

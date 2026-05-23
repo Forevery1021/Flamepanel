@@ -10,8 +10,8 @@ use tokio::sync::{broadcast, Mutex};
 use crate::config::Config;
 use crate::core::error::AppError;
 use crate::domain::{
-    DashboardInfo, CreateWafRuleRequest, LoadAverage, NetworkInfo, NetworkInterface, ServerInfo,
-    UpdateWafRuleRequest, User, WafRule,
+    CleanupItem, CleanupResult, DashboardInfo, CreateWafRuleRequest, LoadAverage, NetworkInfo,
+    NetworkInterface, ServerInfo, UpdateWafRuleRequest, User, WafRule,
 };
 use crate::infrastructure::{
     LogRepository, SqliteLogRepository, SqliteUserRepository, SqliteWafIpRuleRepository,
@@ -412,5 +412,487 @@ impl WafService {
             "block" | "allow" | "log" => Ok(()),
             _ => Err(AppError::BadRequest("action 必须为 block/allow/log".into())),
         }
+    }
+}
+
+// ─── Cleanup Service ─────────────────────────────────────────────────────────
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
+    let mut size = bytes as f64;
+    let mut unit_idx = 0;
+    while size >= 1024.0 && unit_idx < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit_idx += 1;
+    }
+    format!("{:.2} {}", size, UNITS[unit_idx])
+}
+
+fn dir_size(path: &std::path::Path) -> u64 {
+    fn walk(dir: &std::path::Path) -> u64 {
+        let mut total = 0u64;
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Ok(meta) = path.symlink_metadata() {
+                    if meta.is_dir() {
+                        total += walk(&path);
+                    } else {
+                        total += meta.len();
+                    }
+                }
+            }
+        }
+        total
+    }
+    walk(path)
+}
+
+pub struct CleanupService;
+
+impl CleanupService {
+    pub fn format_size(bytes: u64) -> String {
+        format_bytes(bytes)
+    }
+
+    pub async fn scan() -> Vec<CleanupItem> {
+        let mut items = Vec::new();
+
+        items.extend(Self::scan_temp_files());
+        items.extend(Self::scan_docker_cache().await);
+        items.extend(Self::scan_package_cache());
+        items.extend(Self::scan_log_files());
+        items.extend(Self::scan_cargo_target());
+        items.extend(Self::scan_npm_cache());
+
+        items
+    }
+
+    fn scan_temp_files() -> Vec<CleanupItem> {
+        let mut items = Vec::new();
+        let temp_dirs: &[&str] = if cfg!(unix) {
+            &["/tmp"]
+        } else {
+            &[]
+        };
+
+        for dir in temp_dirs {
+            let path = std::path::Path::new(dir);
+            if path.exists() {
+                let size = dir_size(path);
+                items.push(CleanupItem {
+                    category: "temp".into(),
+                    name: "系统临时文件".into(),
+                    description: "操作系统临时目录中的文件".into(),
+                    path: dir.to_string(),
+                    size_bytes: size,
+                    size_display: format_bytes(size),
+                    can_clean: true,
+                });
+            }
+        }
+        items
+    }
+
+    async fn scan_docker_cache() -> Vec<CleanupItem> {
+        let mut items = Vec::new();
+
+        // Docker dangling images
+        if let Ok(output) = tokio::process::Command::new("docker")
+            .args(["images", "-f", "dangling=true", "--format", "{{.Size}}"])
+            .output()
+            .await
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let count = text.lines().filter(|l| !l.is_empty()).count();
+                if count > 0 {
+                    items.push(CleanupItem {
+                        category: "docker".into(),
+                        name: "Docker 悬空镜像".into(),
+                        description: format!("{} 个无标签的悬空镜像", count),
+                        path: "docker image prune".into(),
+                        size_bytes: 0,
+                        size_display: format!("{} 个镜像", count),
+                        can_clean: true,
+                    });
+                }
+            }
+        }
+
+        // Docker build cache
+        if let Ok(output) = tokio::process::Command::new("docker")
+            .args(["builder", "prune", "--force", "--keep-storage", "0"])
+            .output()
+            .await
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                if let Some(line) = text.lines().find(|l| l.contains("Total:")) {
+                    items.push(CleanupItem {
+                        category: "docker".into(),
+                        name: "Docker 构建缓存".into(),
+                        description: "Docker build 缓存层".into(),
+                        path: "docker builder prune".into(),
+                        size_bytes: 0,
+                        size_display: line.replace("Total:", "").trim().to_string(),
+                        can_clean: true,
+                    });
+                }
+            }
+        }
+
+        // Stopped containers
+        if let Ok(output) = tokio::process::Command::new("docker")
+            .args(["ps", "-a", "-f", "status=exited", "--format", "{{.ID}}"])
+            .output()
+            .await
+        {
+            if output.status.success() {
+                let count = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .filter(|l| !l.is_empty())
+                    .count();
+                if count > 0 {
+                    items.push(CleanupItem {
+                        category: "docker".into(),
+                        name: "已停止容器".into(),
+                        description: format!("{} 个已退出的容器", count),
+                        path: "docker container prune".into(),
+                        size_bytes: 0,
+                        size_display: format!("{} 个容器", count),
+                        can_clean: true,
+                    });
+                }
+            }
+        }
+
+        items
+    }
+
+    fn scan_package_cache() -> Vec<CleanupItem> {
+        let mut items = Vec::new();
+
+        if cfg!(unix) {
+            // apt cache
+            let apt_cache = std::path::Path::new("/var/cache/apt/archives");
+            if apt_cache.exists() {
+                let size = dir_size(apt_cache);
+                if size > 0 {
+                    items.push(CleanupItem {
+                        category: "package".into(),
+                        name: "APT 包缓存".into(),
+                        description: "apt 下载的 deb 包缓存文件".into(),
+                        path: "/var/cache/apt/archives".to_string(),
+                        size_bytes: size,
+                        size_display: format_bytes(size),
+                        can_clean: true,
+                    });
+                }
+            }
+
+            // yum/dnf cache
+            for cache_dir in &["/var/cache/yum", "/var/cache/dnf"] {
+                let path = std::path::Path::new(cache_dir);
+                if path.exists() {
+                    let size = dir_size(path);
+                    if size > 0 {
+                        items.push(CleanupItem {
+                            category: "package".into(),
+                            name: "YUM/DNF 包缓存".into(),
+                            description: "RPM 包管理器缓存".into(),
+                            path: cache_dir.to_string(),
+                            size_bytes: size,
+                            size_display: format_bytes(size),
+                            can_clean: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        // pip cache
+        let home = std::env::var("HOME").unwrap_or_else(|_| String::new());
+        let pip_cache = std::path::Path::new(&home).join(".cache/pip");
+        if pip_cache.exists() {
+            let size = dir_size(&pip_cache);
+            if size > 0 {
+                items.push(CleanupItem {
+                    category: "package".into(),
+                    name: "pip 缓存".into(),
+                    description: "Python pip 下载缓存".into(),
+                    path: pip_cache.to_string_lossy().to_string(),
+                    size_bytes: size,
+                    size_display: format_bytes(size),
+                    can_clean: true,
+                });
+            }
+        }
+
+        items
+    }
+
+    fn scan_log_files() -> Vec<CleanupItem> {
+        let mut items = Vec::new();
+
+        if cfg!(unix) {
+            // systemd journal
+            let journal = std::path::Path::new("/var/log/journal");
+            if journal.exists() {
+                let size = dir_size(journal);
+                if size > 0 {
+                    items.push(CleanupItem {
+                        category: "logs".into(),
+                        name: "systemd 日志".into(),
+                        description: "systemd journal 日志文件".into(),
+                        path: "/var/log/journal".to_string(),
+                        size_bytes: size,
+                        size_display: format_bytes(size),
+                        can_clean: true,
+                    });
+                }
+            }
+
+            // Regular log files in /var/log
+            let var_log = std::path::Path::new("/var/log");
+            if var_log.exists() {
+                if let Ok(entries) = std::fs::read_dir(var_log) {
+                    let mut total_size = 0u64;
+                    let mut count = 0u64;
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if let Ok(meta) = path.symlink_metadata() {
+                            if meta.is_file() &&
+                               path.extension().map_or(false, |e| e == "gz" || e == "old") {
+                                total_size += meta.len();
+                                count += 1;
+                            }
+                        }
+                    }
+                    if total_size > 0 {
+                        items.push(CleanupItem {
+                            category: "logs".into(),
+                            name: "旧日志文件".into(),
+                            description: format!("{} 个轮转/压缩的旧日志文件", count),
+                            path: "/var/log".to_string(),
+                            size_bytes: total_size,
+                            size_display: format_bytes(total_size),
+                            can_clean: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        items
+    }
+
+    fn scan_cargo_target() -> Vec<CleanupItem> {
+        let mut items = Vec::new();
+
+        // Look for Rust target directories
+        let home = std::env::var("HOME").unwrap_or_else(|_| String::new());
+        for check in &[
+            std::path::PathBuf::from("target"),
+            std::path::PathBuf::from(&home).join(".cargo/registry/cache"),
+        ] {
+            if check.exists() {
+                let size = dir_size(&check);
+                if size > 0 {
+                    items.push(CleanupItem {
+                        category: "dev".into(),
+                        name: "Rust 构建产物".into(),
+                        description: "cargo build target 目录".into(),
+                        path: check.to_string_lossy().to_string(),
+                        size_bytes: size,
+                        size_display: format_bytes(size),
+                        can_clean: true,
+                    });
+                }
+            }
+        }
+
+        items
+    }
+
+    fn scan_npm_cache() -> Vec<CleanupItem> {
+        let mut items = Vec::new();
+
+        let home = std::env::var("HOME").unwrap_or_else(|_| String::new());
+        let npm_cache = std::path::Path::new(&home).join(".npm/_cacache");
+        if npm_cache.exists() {
+            let size = dir_size(&npm_cache);
+            if size > 0 {
+                items.push(CleanupItem {
+                    category: "dev".into(),
+                    name: "npm 缓存".into(),
+                    description: "Node.js npm 包缓存".into(),
+                    path: npm_cache.to_string_lossy().to_string(),
+                    size_bytes: size,
+                    size_display: format_bytes(size),
+                    can_clean: true,
+                });
+            }
+        }
+
+        items
+    }
+
+    pub async fn clean(categories: &[String]) -> CleanupResult {
+        let mut cleaned = Vec::new();
+        let mut errors = Vec::new();
+        let mut freed = 0u64;
+
+        for category in categories {
+            match category.as_str() {
+                "temp" => match Self::clean_temp_files() {
+                    Ok(n) => { freed += n; cleaned.push("系统临时文件已清理".into()); }
+                    Err(e) => errors.push(format!("临时文件清理失败: {e}")),
+                },
+                "docker" => match Self::clean_docker().await {
+                    Ok(msg) => cleaned.push(msg),
+                    Err(e) => errors.push(format!("Docker 清理失败: {e}")),
+                },
+                "package" => match Self::clean_package_cache() {
+                    Ok(n) => { freed += n; cleaned.push("包管理器缓存已清理".into()); }
+                    Err(e) => errors.push(format!("包缓存清理失败: {e}")),
+                },
+                "logs" => match Self::clean_log_files() {
+                    Ok(n) => { freed += n; cleaned.push("旧日志文件已清理".into()); }
+                    Err(e) => errors.push(format!("日志清理失败: {e}")),
+                },
+                "dev" => match Self::clean_dev_artifacts() {
+                    Ok(n) => { freed += n; cleaned.push("开发构建产物已清理".into()); }
+                    Err(e) => errors.push(format!("构建产物清理失败: {e}")),
+                },
+                _ => errors.push(format!("未知的清理类别: {category}")),
+            }
+        }
+
+        CleanupResult {
+            cleaned_items: cleaned,
+            freed_bytes: freed,
+            freed_display: format_bytes(freed),
+            errors,
+        }
+    }
+
+    fn clean_temp_files() -> Result<u64, String> {
+        let path = std::path::Path::new("/tmp");
+        if !path.exists() {
+            return Ok(0);
+        }
+        let original = dir_size(path);
+        // Only remove files older than 1 day to be safe
+        let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(86400);
+        Self::clean_dir_older_than(path, cutoff)?;
+        let after = dir_size(path);
+        Ok(original.saturating_sub(after))
+    }
+
+    async fn clean_docker() -> Result<String, String> {
+        let cmds = [
+            vec!["container", "prune", "-f"],
+            vec!["image", "prune", "-f"],
+            vec!["builder", "prune", "-f"],
+        ];
+
+        let mut count = 0;
+        for args in cmds.iter() {
+            let output = tokio::process::Command::new("docker")
+                .args(args)
+                .output()
+                .await
+                .map_err(|e| format!("执行 docker prune 失败: {e}"))?;
+            if output.status.success() {
+                count += 1;
+            }
+        }
+        Ok(format!("Docker 清理完成 ({} 项)", count))
+    }
+
+    fn clean_package_cache() -> Result<u64, String> {
+        let mut freed = 0u64;
+        for dir in &[
+            "/var/cache/apt/archives",
+            "/var/cache/yum",
+            "/var/cache/dnf",
+        ] {
+            let path = std::path::Path::new(dir);
+            if path.exists() {
+                freed += dir_size(path);
+                let _ = std::fs::remove_dir_all(path);
+            }
+        }
+        // pip cache
+        if let Ok(home) = std::env::var("HOME") {
+            let pip_cache = std::path::Path::new(&home).join(".cache/pip");
+            if pip_cache.exists() {
+                freed += dir_size(&pip_cache);
+                let _ = std::fs::remove_dir_all(&pip_cache);
+            }
+        }
+        Ok(freed)
+    }
+
+    fn clean_log_files() -> Result<u64, String> {
+        let mut freed = 0u64;
+        if cfg!(unix) {
+            let var_log = std::path::Path::new("/var/log");
+            if var_log.exists() {
+                if let Ok(entries) = std::fs::read_dir(var_log) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if let Ok(meta) = path.symlink_metadata() {
+                            if meta.is_file() &&
+                               path.extension().map_or(false, |e| e == "gz" || e == "old") {
+                                freed += meta.len();
+                                let _ = std::fs::remove_file(&path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(freed)
+    }
+
+    fn clean_dev_artifacts() -> Result<u64, String> {
+        let mut freed = 0u64;
+        // Clean local target directory
+        let target = std::path::Path::new("target");
+        if target.exists() {
+            freed += dir_size(target);
+            let _ = std::fs::remove_dir_all(target);
+        }
+        // npm cache
+        if let Ok(home) = std::env::var("HOME") {
+            let npm_cache = std::path::Path::new(&home).join(".npm/_cacache");
+            if npm_cache.exists() {
+                freed += dir_size(&npm_cache);
+                let _ = std::fs::remove_dir_all(&npm_cache);
+            }
+        }
+        Ok(freed)
+    }
+
+    fn clean_dir_older_than(dir: &std::path::Path, cutoff: std::time::SystemTime) -> Result<(), String> {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Ok(meta) = path.symlink_metadata() {
+                    if let Ok(modified) = meta.modified() {
+                        if modified < cutoff {
+                            if meta.is_dir() {
+                                let _ = std::fs::remove_dir_all(&path);
+                            } else {
+                                let _ = std::fs::remove_file(&path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }

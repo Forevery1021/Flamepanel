@@ -19,6 +19,7 @@
 - **Web 终端**：基于 xterm.js + WebSocket 的浏览器终端
 - **仪表盘**：系统概览 + 容器 / 网站 / WAF 统计 + 操作日志
 - **安全认证**：JWT + bcrypt 密码哈希，中间件保护
+- **系统清理**：扫描并清理系统缓存、Docker 缓存、包管理器缓存、日志文件、构建产物
 
 ## 技术栈
 
@@ -40,8 +41,8 @@ Flamepanel/
 ├── backend/
 │   ├── migrations/          # SQLite 数据库迁移
 │   ├── src/
-│   │   ├── api/             # HTTP handlers (auth, dashboard, docker, file, system, waf, website)
-│   │   ├── application.rs   # AppState, AuthService, DashboardService, WafService
+│   │   ├── api/             # HTTP handlers (auth, cleanup, dashboard, docker, file, system, waf, website)
+│   │   ├── application.rs   # AppState, AuthService, DashboardService, WafService, CleanupService
 │   │   ├── config.rs        # 配置加载 (figment: TOML + 环境变量)
 │   │   ├── core/            # AppError, 错误处理
 │   │   ├── domain.rs        # 领域实体 (User, Website, WafRule, ServerInfo, etc.)
@@ -60,7 +61,7 @@ Flamepanel/
 │       ├── router/          # Vue Router 配置
 │       ├── stores/          # Pinia 状态管理 (auth, dashboard, system, docker)
 │       ├── types/           # TypeScript 类型定义
-│       └── views/           # 页面组件 (7 个视图)
+│       └── views/           # 页面组件 (9 个视图)
 ├── docker-compose.yml
 ├── Dockerfile
 ├── install.sh
@@ -78,23 +79,22 @@ Flamepanel/
   - `docker` — 容器列表 / 启动 / 停止 / 重启 / 日志 / 镜像列表
   - `file` — 文件浏览 / 读取 / 写入 / 创建目录 / 删除 / 上传
   - `system` — 系统信息 / 进程列表
-  - `waf` — WAF 规则 CRUD + 启用 / 禁用
+  - `cleanup` — 系统垃圾扫描 / 分类清理（temp / docker / package / logs / dev）
+  - `waf` — WAF 规则 CRUD + 启用 / 禁用 + IP 黑白名单
   - `website` — Nginx 站点 CRUD + 启用 / 禁用 + SSL
 - **P6 WebSocket**：交互式 Web 终端（bash / sh）
 - **P6 插件系统**：插件清单加载、启动 / 停止管理框架
 - **P7 WAF 防火墙**：正则规则引擎 + 5 条默认安全规则
 - **P7 仪表盘**：Dashboard 数据聚合服务
-- **前端界面**：7 个完整视图（登录 / 仪表盘 / Docker / 文件管理 / 网站 / WAF / 终端）
-- **数据库表**：users, websites, operation_logs, waf_rules
+- **前端界面**：9 个视图（登录 / 仪表盘 / Docker / 文件管理 / 网站 / WAF / 终端 / 进程管理 / 系统清理）
+- **数据库表**：users, websites, operation_logs, waf_rules, waf_ip_rules
 
 ### 待开发
 
 - 集成测试（axum-test + sqlx）
 - utoipa OpenAPI 文档
-- 角色权限系统（RBAC）
 - 告警通知（邮件 / Telegram / Webhook）
 - 多服务器集中管理
-- 多引擎 Web 服务器支持（Nginx / Apache / Lighttpd / Caddy）
 - CI/CD（GitHub Actions）
 - Docker 镜像发布
 

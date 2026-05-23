@@ -190,6 +190,39 @@ pub struct OperationLogEntry {
     pub created_at: String,
 }
 
+// ─── 系统清理 ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanupItem {
+    pub category: String,
+    pub name: String,
+    pub description: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub size_display: String,
+    pub can_clean: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanupScanResult {
+    pub items: Vec<CleanupItem>,
+    pub total_bytes: u64,
+    pub total_display: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanupRequest {
+    pub categories: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanupResult {
+    pub cleaned_items: Vec<String>,
+    pub freed_bytes: u64,
+    pub freed_display: String,
+    pub errors: Vec<String>,
+}
+
 // ─── 分页 / 通用 ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

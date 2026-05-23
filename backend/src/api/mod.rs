@@ -1,6 +1,7 @@
 use axum::{middleware, Router};
 
 pub mod auth;
+pub mod cleanup;
 pub mod dashboard;
 pub mod docker;
 pub mod file;
@@ -31,6 +32,7 @@ pub fn routes() -> Router<AppState> {
         .nest("/waf", waf::routes())
         .nest("/users", users::routes())
         .nest("/logs", logs::routes())
+        .nest("/cleanup", cleanup::routes())
         .layer(middleware::from_fn(auth_middleware));
 
     Router::new()

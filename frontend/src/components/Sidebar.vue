@@ -11,6 +11,7 @@ import {
   User,
   Document,
   Cpu,
+  Delete,
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -27,6 +28,7 @@ const menuItems = [
   { path: '/users', name: '用户管理', icon: User },
   { path: '/logs', name: '操作日志', icon: Document },
   { path: '/processes', name: '进程管理', icon: Cpu },
+  { path: '/cleanup', name: '系统清理', icon: Delete },
 ]
 
 const handleLogout = () => {

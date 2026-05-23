@@ -218,3 +218,32 @@ export interface User {
 export interface TerminalSession {
   id: string
 }
+
+// ─── Cleanup ──────────────────────────────────────────────────────────────────
+
+export interface CleanupItem {
+  category: string
+  name: string
+  description: string
+  path: string
+  size_bytes: number
+  size_display: string
+  can_clean: boolean
+}
+
+export interface CleanupScanResult {
+  items: CleanupItem[]
+  total_bytes: number
+  total_display: string
+}
+
+export interface CleanupRequest {
+  categories: string[]
+}
+
+export interface CleanupResult {
+  cleaned_items: string[]
+  freed_bytes: number
+  freed_display: string
+  errors: string[]
+}
