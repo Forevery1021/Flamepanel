@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory, RouterView } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
@@ -8,25 +8,49 @@ const router = createRouter({
       path: '/login',
       name: 'Login',
       component: () => import('@/views/LoginView.vue'),
-      meta: { requiresAuth: false }
+      meta: { requiresAuth: false },
     },
     {
       path: '/',
-      // Use RouterView as the layout placeholder to avoid missing Layout.vue
-      component: RouterView,
+      component: () => import('@/layout/Layout.vue'),
       redirect: '/dashboard',
       meta: { requiresAuth: true },
       children: [
-        { path: 'dashboard', name: 'Dashboard', component: () => import('@/views/DashboardView.vue') },
-        { path: 'file', name: 'FileManager', component: () => import('@/views/FileManagerView.vue') },
-        { path: 'docker', name: 'Docker', component: () => import('@/views/DockerView.vue') },
-        { path: 'terminal', name: 'Terminal', component: () => import('@/views/TerminalView.vue') },
-      ]
-    }
-  ]
+        {
+          path: 'dashboard',
+          name: 'Dashboard',
+          component: () => import('@/views/DashboardView.vue'),
+        },
+        {
+          path: 'file',
+          name: 'FileManager',
+          component: () => import('@/views/FileManagerView.vue'),
+        },
+        {
+          path: 'docker',
+          name: 'Docker',
+          component: () => import('@/views/DockerView.vue'),
+        },
+        {
+          path: 'website',
+          name: 'Website',
+          component: () => import('@/views/WebsiteView.vue'),
+        },
+        {
+          path: 'waf',
+          name: 'Waf',
+          component: () => import('@/views/WafView.vue'),
+        },
+        {
+          path: 'terminal',
+          name: 'Terminal',
+          component: () => import('@/views/TerminalView.vue'),
+        },
+      ],
+    },
+  ],
 })
 
-// 路由守卫
 router.beforeEach((to, _, next) => {
   const auth = useAuthStore()
   if (to.meta.requiresAuth && !auth.token) {

@@ -9,7 +9,7 @@ const auth = useAuthStore()
 
 const form = ref({
   username: 'admin',
-  password: 'admin123'
+  password: 'admin123',
 })
 const loading = ref(false)
 
@@ -35,32 +35,32 @@ const handleLogin = async () => {
 <template>
   <div class="login-page">
     <div class="login-box">
-      <h1>Ops Panel</h1>
+      <h1>Flamepanel</h1>
       <p class="subtitle">Rust 高性能运维管理面板</p>
 
       <el-form @submit.prevent="handleLogin">
         <el-form-item>
-          <el-input 
-            v-model="form.username" 
-            placeholder="用户名" 
+          <el-input
+            v-model="form.username"
+            placeholder="用户名"
             size="large"
             clearable
           />
         </el-form-item>
         <el-form-item>
-          <el-input 
-            v-model="form.password" 
-            type="password" 
-            placeholder="密码" 
+          <el-input
+            v-model="form.password"
+            type="password"
+            placeholder="密码"
             size="large"
             show-password
             @keyup.enter="handleLogin"
           />
         </el-form-item>
 
-        <el-button 
-          type="primary" 
-          size="large" 
+        <el-button
+          type="primary"
+          size="large"
           style="width: 100%; margin-top: 10px"
           :loading="loading"
           @click="handleLogin"
@@ -92,11 +92,6 @@ const handleLogin = async () => {
   width: 380px;
   box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
   text-align: center;
-}
-
-.dark .login-box {
-  background: #1e1e1e;
-  color: #e5e5e5;
 }
 
 h1 {

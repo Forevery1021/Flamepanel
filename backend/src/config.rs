@@ -34,7 +34,7 @@ impl Default for Config {
             database_url: "sqlite:data/ops_panel.db?mode=rwc".to_string(),
             jwt_secret: "your-super-secret-jwt-key-change-in-production".to_string(),
             admin_username: "admin".to_string(),
-            admin_password: "$2b$12$...".to_string(), // bcrypt hash
+            admin_password: "admin123".to_string(),
         }
     }
 }

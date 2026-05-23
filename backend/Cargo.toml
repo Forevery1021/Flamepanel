@@ -5,14 +5,14 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.44", features = ["full"] }
-axum = { version = "0.8.9", features = ["json", "ws"] }
+axum = { version = "0.8.9", features = ["json", "ws", "multipart"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
-sqlx = { version = "0.9.0", features = ["runtime-tokio", "sqlite", "macros", "migrate"] }
+sqlx = { version = "0.9.0", features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-jsonwebtoken = "10.4.0"
+jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
 bcrypt = "0.19.1"
 sysinfo = "0.39.2"
 utoipa = { version = "5", features = ["axum_extras"] }
@@ -23,3 +23,10 @@ figment = { version = "0.10", features = ["env", "toml"] }
 tera = "1.20"
 lazy_static = "1.4"
 async-trait = "0.1"
+uuid = { version = "1", features = ["v4"] }
+futures-util = "0.3"
+toml = "0.8"
+regex = "1"
+clap = { version = "4", features = ["derive"] }
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

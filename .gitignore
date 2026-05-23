@@ -1,0 +1,31 @@
+# Rust build artifacts
+target/
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/src/**/*.js
+frontend/src/**/*.js.map
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+backend/data/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log

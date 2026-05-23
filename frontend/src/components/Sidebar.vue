@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { 
-  House, 
-  Folder, 
-  Grid, 
-  Monitor as TerminalIcon, 
+import {
+  House,
+  Folder,
+  Grid,
+  Monitor,
   Link,
-  User
+  Lock,
+  User,
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -15,31 +16,12 @@ const route = useRoute()
 const auth = useAuthStore()
 
 const menuItems = [
-  { 
-    path: '/dashboard', 
-    name: '仪表盘', 
-    icon: House 
-  },
-  { 
-    path: '/file', 
-    name: '文件管理', 
-    icon: Folder 
-  },
-  { 
-    path: '/docker', 
-    name: 'Docker 管理', 
-    icon: Grid 
-  },
-  { 
-    path: '/terminal', 
-    name: 'Web 终端', 
-    icon: TerminalIcon 
-  },
-  { 
-    path: '/website', 
-    name: '网站管理', 
-    icon: Link 
-  },
+  { path: '/dashboard', name: '仪表盘', icon: House },
+  { path: '/file', name: '文件管理', icon: Folder },
+  { path: '/docker', name: 'Docker 管理', icon: Grid },
+  { path: '/website', name: '网站管理', icon: Link },
+  { path: '/waf', name: 'WAF 防火墙', icon: Lock },
+  { path: '/terminal', name: 'Web 终端', icon: Monitor },
 ]
 
 const handleLogout = () => {
@@ -56,8 +38,8 @@ const handleLogout = () => {
     </div>
 
     <div class="menu">
-      <div 
-        v-for="item in menuItems" 
+      <div
+        v-for="item in menuItems"
         :key="item.path"
         class="menu-item"
         :class="{ active: route.path === item.path }"
@@ -83,6 +65,7 @@ const handleLogout = () => {
 <style scoped>
 .sidebar {
   width: 240px;
+  min-width: 240px;
   background: #ffffff;
   border-right: 1px solid #e4e7ed;
   display: flex;
@@ -108,6 +91,7 @@ const handleLogout = () => {
 .menu {
   flex: 1;
   padding: 16px 8px;
+  overflow-y: auto;
 }
 .menu-item {
   display: flex;

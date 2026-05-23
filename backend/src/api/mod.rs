@@ -1,27 +1,30 @@
-use axum::Router;
+use axum::{middleware, Router};
 
 pub mod auth;
-pub mod system;
+pub mod dashboard;
 pub mod docker;
 pub mod file;
+pub mod system;
+pub mod waf;
 pub mod website;
 
+use crate::application::AppState;
 use crate::middleware::auth::auth_middleware;
 
-pub fn routes() -> Router {
-    Router::new()
-        // 公开接口
-        .nest("/api/auth", auth::routes())
+pub fn routes() -> Router<AppState> {
+    let public = Router::new()
+        .nest("/auth", auth::public_routes());
 
-        // 需要认证的接口
-        .nest("/api", protected_routes())
-}
-
-fn protected_routes() -> Router {
-    Router::new()
+    let protected = Router::new()
+        .nest("/auth", auth::protected_routes())
+        .nest("/dashboard", dashboard::routes())
         .nest("/system", system::routes())
         .nest("/docker", docker::routes())
         .nest("/file", file::routes())
         .nest("/website", website::routes())
-        .layer(axum::middleware::from_fn(auth_middleware))
+        .nest("/waf", waf::routes())
+        .layer(middleware::from_fn(auth_middleware));
+
+    Router::new()
+        .nest("/api", public.merge(protected))
 }
