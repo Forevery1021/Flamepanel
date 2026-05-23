@@ -1,3 +1,5 @@
+pub mod metrics;
+
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -40,6 +42,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/terminal", get(terminal_handler))
         .route("/terminal/sessions", get(list_sessions))
+        .route("/metrics", get(metrics::metrics_handler))
 }
 
 async fn terminal_handler(

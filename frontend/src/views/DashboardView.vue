@@ -1,15 +1,23 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useDashboardStore } from '@/stores/dashboard'
+import { useMetricsWebSocket } from '@/composables/useMetricsWebSocket'
+import SystemChart from '@/components/SystemChart.vue'
 import { ElRow, ElCol, ElCard, ElProgress, ElTable, ElTableColumn, ElTag } from 'element-plus'
 
 const dashboard = useDashboardStore()
+const metrics = useMetricsWebSocket()
 const loading = ref(false)
 
 onMounted(async () => {
   loading.value = true
   await dashboard.fetchDashboard()
   loading.value = false
+  metrics.connect()
+})
+
+onUnmounted(() => {
+  metrics.disconnect()
 })
 
 function formatBytes(mb: number): string {
@@ -140,6 +148,39 @@ function uptimeDisplay(seconds: number): string {
             </p>
             <p class="sub">1m / 5m / 15m</p>
           </div>
+        </ElCard>
+      </ElCol>
+    </ElRow>
+
+    <!-- 实时监控图表 -->
+    <ElRow :gutter="20" style="margin-top: 20px">
+      <ElCol :span="12">
+        <ElCard>
+          <SystemChart title="CPU 使用率 (%)" :history="metrics.history.value"
+            value-key="cpu_usage" color="#409eff" />
+        </ElCard>
+      </ElCol>
+      <ElCol :span="12">
+        <ElCard>
+          <SystemChart title="内存使用率 (%)" :history="metrics.history.value"
+            value-key="memory_usage_percent" color="#67c23a" />
+        </ElCard>
+      </ElCol>
+    </ElRow>
+
+    <ElRow :gutter="20" style="margin-top: 20px">
+      <ElCol :span="12">
+        <ElCard>
+          <SystemChart title="磁盘使用率 (%)" :history="metrics.history.value"
+            value-key="disk_usage_percent" color="#e6a23c" />
+        </ElCard>
+      </ElCol>
+      <ElCol :span="12">
+        <ElCard>
+          <SystemChart title="系统负载" :history="metrics.history.value"
+            :value-keys="['load_one', 'load_five', 'load_fifteen']"
+            :series-names="['1m', '5m', '15m']"
+            :colors="['#409eff', '#67c23a', '#e6a23c']" unit="" />
         </ElCard>
       </ElCol>
     </ElRow>

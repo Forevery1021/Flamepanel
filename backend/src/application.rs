@@ -5,7 +5,7 @@ use bcrypt::{hash, verify, DEFAULT_COST};
 use regex::Regex;
 use sqlx::SqlitePool;
 use tokio::process::Child;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 
 use crate::config::Config;
 use crate::core::error::AppError;
@@ -17,6 +17,7 @@ use crate::infrastructure::{
     LogRepository, SqliteLogRepository, SqliteUserRepository, SqliteWafRuleRepository,
     SqliteWebsiteRepository, UserRepository, WafRuleRepository, WebsiteRepository,
 };
+use crate::metrics::{MetricsHistory, MetricsSnapshot};
 use crate::middleware::auth::create_jwt;
 
 // ─── AppState ─────────────────────────────────────────────────────────────────
@@ -37,10 +38,16 @@ pub struct AppState {
     pub waf_repo: Arc<dyn WafRuleRepository>,
     pub log_repo: Arc<dyn LogRepository>,
     pub sessions: SessionMap,
+    pub metrics_history: Arc<Mutex<MetricsHistory>>,
+    pub metrics_tx: broadcast::Sender<MetricsSnapshot>,
 }
 
 impl AppState {
-    pub fn new(db: SqlitePool) -> Self {
+    pub fn new(
+        db: SqlitePool,
+        metrics_tx: broadcast::Sender<MetricsSnapshot>,
+        metrics_history: Arc<Mutex<MetricsHistory>>,
+    ) -> Self {
         Self {
             user_repo: Arc::new(SqliteUserRepository::new(db.clone())),
             website_repo: Arc::new(SqliteWebsiteRepository::new(db.clone())),
@@ -48,6 +55,8 @@ impl AppState {
             log_repo: Arc::new(SqliteLogRepository::new(db.clone())),
             sessions: SessionMap::default(),
             db,
+            metrics_tx,
+            metrics_history,
         }
     }
 }
@@ -160,6 +169,13 @@ impl AuthService {
 
 pub struct SystemService;
 
+fn clamp_f32(v: f32) -> f32 {
+    if v.is_finite() { v } else { 0.0 }
+}
+fn clamp_f64(v: f64) -> f64 {
+    if v.is_finite() { v } else { 0.0 }
+}
+
 impl SystemService {
     pub fn get_info() -> ServerInfo {
         use sysinfo::{System, Networks, Disks};
@@ -167,7 +183,7 @@ impl SystemService {
         let mut sys = System::new_all();
         sys.refresh_all();
 
-        let cpu_usage = sys.global_cpu_usage();
+        let cpu_usage = clamp_f32(sys.global_cpu_usage());
         let cpu_cores = sys.cpus().len();
         let memory_total = sys.total_memory() / 1024 / 1024;
         let memory_used = sys.used_memory() / 1024 / 1024;
@@ -206,14 +222,14 @@ impl SystemService {
             memory_total_mb: memory_total,
             memory_used_mb: memory_used,
             memory_free_mb: memory_total - memory_used,
-            disk_total_gb,
-            disk_used_gb,
-            disk_free_gb,
+            disk_total_gb: clamp_f64(disk_total_gb),
+            disk_used_gb: clamp_f64(disk_used_gb),
+            disk_free_gb: clamp_f64(disk_free_gb),
             uptime_seconds: uptime,
             load_average: LoadAverage {
-                one: load_avg.one,
-                five: load_avg.five,
-                fifteen: load_avg.fifteen,
+                one: clamp_f64(load_avg.one),
+                five: clamp_f64(load_avg.five),
+                fifteen: clamp_f64(load_avg.fifteen),
             },
             network: NetworkInfo {
                 hostname,

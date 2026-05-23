@@ -9,6 +9,7 @@ mod config;
 mod core;
 mod domain;
 mod infrastructure;
+mod metrics;
 mod middleware;
 mod plugin;
 mod utils;
@@ -58,7 +59,13 @@ pub async fn start_server() {
         .await
         .expect("初始化管理员账号失败");
 
-    let state = AppState::new(db);
+    let (metrics_tx, _rx) = tokio::sync::broadcast::channel::<metrics::MetricsSnapshot>(16);
+    let metrics_history = std::sync::Arc::new(tokio::sync::Mutex::new(
+        metrics::MetricsHistory::new(60),
+    ));
+    metrics::spawn_metrics_collector(metrics_history.clone(), metrics_tx.clone());
+
+    let state = AppState::new(db, metrics_tx, metrics_history);
 
     let app = axum::Router::new()
         .merge(api::routes())
