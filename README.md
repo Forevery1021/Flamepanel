@@ -79,7 +79,7 @@ Flamepanel/
 │   │   ├── config.rs        # 配置加载 (figment: TOML + 环境变量)
 │   │   ├── core/            # AppError, 错误处理
 │   │   ├── domain.rs        # 领域实体 (User, Website, WafRule, CronJob, DatabaseInstance, InstalledApp, GpuInfo, NodeInfo, Role, Permission, etc.)
-│   │   ├── infrastructure.rs # 14 个 Repository 实现 (SQLite + bollard Docker SDK)
+│   │   ├── infrastructure.rs # 18 个 Repository 实现 (SQLite + bollard Docker SDK)
 │   │   ├── main.rs          # 入口
 │   │   ├── middleware/       # JWT 认证 + RBAC 权限 + 限流 + WAF 中间件
 │   │   ├── plugin/          # 插件系统 (MCP/Skills 工具框架 + WASM 运行时 + 插件管理器)
@@ -93,7 +93,7 @@ Flamepanel/
 │       ├── composables/     # useTheme, useMetricsWebSocket
 │       ├── layout/          # 主布局
 │       ├── i18n/           # 国际化 (zh-CN / en-US, vue-i18n 10)
-│       ├── router/          # Vue Router 配置 (18 条路由)
+│       ├── router/          # Vue Router 配置 (22 条路由)
 │       ├── stores/          # Pinia 状态管理 (auth, dashboard, system, docker)
 │       ├── types/           # TypeScript 类型定义 (24 组接口)
 │       └── views/           # 页面组件 (21 个视图)
@@ -108,7 +108,7 @@ Flamepanel/
 ### Phase 1 + 2 已完成（v0.2.x）
 
 - **核心基础**：Clean Architecture 分层、错误处理、配置加载、JWT 中间件、限流中间件、SQLite Repository
-- **API 层（16 个模块）**：
+- **API 层（23 个模块）**：
   - `auth` — 登录 / 注册 / 修改密码 / 当前用户
   - `dashboard` — 系统概览聚合（CPU / 内存 / 磁盘 / GPU / Docker / 网站 / WAF / 日志）
   - `docker` — 容器列表 / 启动 / 停止 / 重启 / 日志 / 镜像列表
@@ -135,7 +135,7 @@ Flamepanel/
 - **WebSocket**：交互式 Web 终端（bash / sh）+ 实时指标推送
 - **前沿特性**：深色主题、中英文切换、RBAC 权限、Cron 调度器、应用商店、数据库管理、Prometheus 导出
 - **前端界面**：21 个视图（登录 / 仪表盘 / Docker / 文件管理 / 网站 / WAF / 终端 / 用户管理 / 角色权限 / 操作日志 / 进程管理 / 系统清理 / 面板设置 / 计划任务 / 数据库管理 / 应用商店 / AI 助手 / 节点管理 / 备份管理 / 告警管理 / 插件扩展）
-- **数据库表**：users, websites, operation_logs, waf_rules, waf_ip_rules, settings, cron_jobs, cron_job_logs, database_instances, database_backups, installed_apps, ai_conversations, nodes, backup_configs, backup_records, roles, permissions, role_permissions
+- **数据库表**：users, websites, operation_logs, waf_rules, waf_ip_rules, settings, cron_jobs, cron_job_logs, database_instances, database_backups, installed_apps, ai_conversations, nodes, backup_configs, backup_records, notification_channels, alert_rules, alert_histories, roles, permissions, role_permissions
 
 ### 待开发（Phase 3 剩余 + 未来）
 
