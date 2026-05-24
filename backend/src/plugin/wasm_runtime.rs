@@ -40,6 +40,7 @@ struct LoadedPlugin {
 }
 
 /// WASM plugin runtime — loads, compiles, and executes .wasm plugins
+#[allow(dead_code)]
 pub struct WasmRuntime {
     plugins: Arc<RwLock<HashMap<String, LoadedPlugin>>>,
     plugins_dir: PathBuf,

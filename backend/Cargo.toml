@@ -38,7 +38,6 @@ sha1 = "0.10"
 base64 = "0.22"
 bollard = "0.18"
 wasmtime = "31"
-mimalloc = "0.1.52"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
