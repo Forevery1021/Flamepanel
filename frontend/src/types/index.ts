@@ -50,6 +50,7 @@ export interface SystemInfoResponse {
   load_fifteen: number
   hostname: string
   network_interfaces: NetworkInterfaceResponse[]
+  gpu_info: GpuInfo[]
 }
 
 export interface NetworkInterfaceResponse {
@@ -67,6 +68,16 @@ export interface ProcessInfo {
   status: string
 }
 
+export interface GpuInfo {
+  name: string
+  temperature_celsius: number
+  utilization_percent: number
+  memory_total_mb: number
+  memory_used_mb: number
+  memory_free_mb: number
+  fan_speed_percent: number
+}
+
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export interface DashboardInfo {
@@ -78,6 +89,7 @@ export interface DashboardInfo {
   recent_logs: OperationLogEntry[]
   waf_rules_count: number
   waf_rules_enabled: number
+  gpu_info: GpuInfo[]
 }
 
 export interface OperationLogEntry {
@@ -253,11 +265,17 @@ export interface CleanupResult {
 export interface PanelSettings {
   theme: string
   language: string
+  theme_color?: string
+  background_image?: string
+  background_opacity?: number
 }
 
 export interface UpdateSettingsRequest {
   theme?: string
   language?: string
+  theme_color?: string
+  background_image?: string
+  background_opacity?: number
 }
 
 // ─── Cron ──────────────────────────────────────────────────────────────────────
@@ -365,4 +383,252 @@ export interface InstallAppRequest {
   name: string
   port?: number
   extra_env?: Record<string, string>
+}
+
+// ─── AI Assistant ─────────────────────────────────────────────────────────────
+
+export interface AiConversation {
+  id: number
+  title: string
+  model: string
+  messages: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AiMessage {
+  role: string
+  content: string
+}
+
+export interface AiChatRequest {
+  conversation_id?: number
+  model: string
+  message: string
+}
+
+export interface AiChatResponse {
+  conversation_id: number
+  title: string
+  reply: string
+}
+
+export interface AiModelInfo {
+  name: string
+  size: string
+  modified: string
+}
+
+export interface AiAnalyzeRequest {
+  log_content: string
+  model?: string
+}
+
+// ─── Backup ────────────────────────────────────────────────────────────────────
+
+export interface BackupConfig {
+  id: number
+  name: string
+  backup_type: string
+  target_path: string
+  storage_type: string
+  storage_path: string
+  cron_expr: string | null
+  retention_days: number
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateBackupConfigRequest {
+  name: string
+  backup_type: string
+  target_path: string
+  storage_type?: string
+  storage_path?: string
+  cron_expr?: string
+  retention_days?: number
+}
+
+export interface UpdateBackupConfigRequest {
+  name?: string
+  backup_type?: string
+  target_path?: string
+  storage_type?: string
+  storage_path?: string
+  cron_expr?: string
+  retention_days?: number
+  enabled?: boolean
+}
+
+export interface BackupRecord {
+  id: number
+  config_id: number
+  file_name: string
+  file_size: number
+  status: string
+  error_message: string | null
+  started_at: string
+  finished_at: string | null
+}
+
+// ─── Nodes ─────────────────────────────────────────────────────────────────────
+
+export interface NodeInfo {
+  id: number
+  name: string
+  host: string
+  agent_port: number
+  auth_token: string
+  status: string
+  cpu_usage: number
+  memory_usage_percent: number
+  disk_usage_percent: number
+  load_one: number
+  last_heartbeat: string
+  created_at: string
+  updated_at: string
+}
+
+// ─── MCP / Skills ──────────────────────────────────────────────────────────────
+
+export interface ToolInfo {
+  name: string
+  description: string
+  parameters: Record<string, any>
+}
+
+export interface ToolCallRequest {
+  name: string
+  arguments?: Record<string, any>
+}
+
+export interface ToolCallResponse {
+  name: string
+  result: string
+}
+
+// ─── Alerts ────────────────────────────────────────────────────────────────────
+
+export interface NotificationChannel {
+  id: number
+  name: string
+  channel_type: string
+  config: string
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateNotificationChannelRequest {
+  name: string
+  channel_type: string
+  config: Record<string, any>
+}
+
+export interface UpdateNotificationChannelRequest {
+  name?: string
+  channel_type?: string
+  config?: Record<string, any>
+  enabled?: boolean
+}
+
+export interface AlertRule {
+  id: number
+  name: string
+  metric_type: string
+  condition: string
+  threshold: number
+  duration_seconds: number
+  channel_ids: string
+  enabled: boolean
+  cooldown_minutes: number
+  last_triggered: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAlertRuleRequest {
+  name: string
+  metric_type: string
+  condition: string
+  threshold: number
+  duration_seconds?: number
+  channel_ids: number[]
+  cooldown_minutes?: number
+}
+
+export interface UpdateAlertRuleRequest {
+  name?: string
+  metric_type?: string
+  condition?: string
+  threshold?: number
+  duration_seconds?: number
+  channel_ids?: number[]
+  enabled?: boolean
+  cooldown_minutes?: number
+}
+
+export interface AlertHistory {
+  id: number
+  rule_id: number
+  rule_name: string
+  metric_type: string
+  metric_value: number
+  threshold: number
+  status: string
+  message: string
+  created_at: string
+}
+
+// ─── RBAC ─────────────────────────────────────────────────────────────────────
+
+export interface Role {
+  id: number
+  name: string
+  description: string
+  is_system: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface Permission {
+  id: number
+  name: string
+  resource: string
+  action: string
+  description: string
+}
+
+export interface RoleWithPermissions {
+  id: number
+  name: string
+  description: string
+  is_system: boolean
+  permissions: Permission[]
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateRoleRequest {
+  name: string
+  description?: string
+  permission_ids: number[]
+}
+
+export interface UpdateRoleRequest {
+  name?: string
+  description?: string
+  permission_ids?: number[]
+}
+
+export interface AssignRoleRequest {
+  user_id: number
+  role: string
+}
+
+export interface MyPermissionsResponse {
+  role: string
+  username: string
+  permissions: string[]
 }

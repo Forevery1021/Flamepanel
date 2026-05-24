@@ -152,6 +152,65 @@ function uptimeDisplay(seconds: number): string {
       </ElCol>
     </ElRow>
 
+    <!-- GPU 监控 -->
+    <ElRow v-if="dashboard.gpuInfo.length > 0" :gutter="20" style="margin-top: 20px">
+      <template v-for="(gpu, idx) in dashboard.gpuInfo" :key="idx">
+        <ElCol :span="6">
+          <ElCard>
+            <div class="stat">
+              <h3>GPU{{ dashboard.gpuInfo.length > 1 ? `#${idx}` : '' }} 使用率</h3>
+              <ElProgress
+                type="dashboard"
+                :percentage="Math.round(gpu.utilization_percent)"
+                :color="gpu.utilization_percent > 80 ? '#f56c6c' : '#409eff'"
+                :width="140"
+              />
+              <p class="sub">{{ gpu.name }}</p>
+            </div>
+          </ElCard>
+        </ElCol>
+        <ElCol :span="6">
+          <ElCard>
+            <div class="stat">
+              <h3>GPU 显存</h3>
+              <ElProgress
+                type="dashboard"
+                :percentage="Math.round(gpu.memory_total_mb > 0 ? (gpu.memory_used_mb / gpu.memory_total_mb) * 100 : 0)"
+                :color="gpu.memory_total_mb > 0 && (gpu.memory_used_mb / gpu.memory_total_mb) * 100 > 80 ? '#f56c6c' : '#67c23a'"
+                :width="140"
+              />
+              <p class="sub">
+                {{ gpu.memory_used_mb >= 1024 ? (gpu.memory_used_mb / 1024).toFixed(1) + ' GB' : gpu.memory_used_mb + ' MB' }} /
+                {{ gpu.memory_total_mb >= 1024 ? (gpu.memory_total_mb / 1024).toFixed(1) + ' GB' : gpu.memory_total_mb + ' MB' }}
+              </p>
+            </div>
+          </ElCard>
+        </ElCol>
+        <ElCol :span="6">
+          <ElCard>
+            <div class="stat">
+              <h3>GPU 温度</h3>
+              <p class="value" :style="{ color: gpu.temperature_celsius > 80 ? '#f56c6c' : gpu.temperature_celsius > 60 ? '#e6a23c' : '#67c23a' }">
+                {{ gpu.temperature_celsius }}°C
+              </p>
+              <p class="sub">{{ gpu.fan_speed_percent }}% 风扇转速</p>
+            </div>
+          </ElCard>
+        </ElCol>
+        <ElCol :span="6">
+          <ElCard>
+            <div class="stat">
+              <h3>GPU 显存使用率</h3>
+              <p class="value">{{ gpu.memory_total_mb > 0 ? ((gpu.memory_used_mb / gpu.memory_total_mb) * 100).toFixed(1) : '0' }}%</p>
+              <p class="sub">
+                空闲 {{ gpu.memory_free_mb >= 1024 ? (gpu.memory_free_mb / 1024).toFixed(1) + ' GB' : gpu.memory_free_mb + ' MB' }}
+              </p>
+            </div>
+          </ElCard>
+        </ElCol>
+      </template>
+    </ElRow>
+
     <!-- 实时监控图表 -->
     <ElRow :gutter="20" style="margin-top: 20px">
       <ElCol :span="12">
@@ -176,7 +235,11 @@ function uptimeDisplay(seconds: number): string {
         </ElCard>
       </ElCol>
       <ElCol :span="12">
-        <ElCard>
+        <ElCard v-if="metrics.history.value.length > 0 && metrics.history.value[0].gpu_usage_percent != null">
+          <SystemChart title="GPU 使用率 (%)" :history="metrics.history.value"
+            value-key="gpu_usage_percent" color="#9b59b6" />
+        </ElCard>
+        <ElCard v-else>
           <SystemChart title="系统负载" :history="metrics.history.value"
             :value-keys="['load_one', 'load_five', 'load_fifteen']"
             :series-names="['1m', '5m', '15m']"

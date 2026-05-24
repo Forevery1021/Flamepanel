@@ -86,6 +86,36 @@ const router = createRouter({
           name: 'AppStore',
           component: () => import('@/views/AppStoreView.vue'),
         },
+        {
+          path: 'ai',
+          name: 'AiAssistant',
+          component: () => import('@/views/AiAssistantView.vue'),
+        },
+        {
+          path: 'nodes',
+          name: 'Nodes',
+          component: () => import('@/views/NodesView.vue'),
+        },
+        {
+          path: 'backup',
+          name: 'Backup',
+          component: () => import('@/views/BackupView.vue'),
+        },
+        {
+          path: 'alerts',
+          name: 'Alerts',
+          component: () => import('@/views/AlertsView.vue'),
+        },
+        {
+          path: 'plugins',
+          name: 'Plugins',
+          component: () => import('@/views/PluginsView.vue'),
+        },
+        {
+          path: 'roles',
+          name: 'Roles',
+          component: () => import('@/views/RolesView.vue'),
+        },
       ],
     },
   ],

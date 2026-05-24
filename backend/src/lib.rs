@@ -15,7 +15,12 @@ pub mod plugin;
 pub mod utils;
 pub mod websocket;
 
+use std::sync::Arc;
+
 use application::AppState;
+use plugin::manager::PluginManager;
+use plugin::mcp::{ToolRegistry, register_builtin_tools};
+use plugin::wasm_runtime::{WasmRuntime, SandboxConfig};
 
 pub async fn start_server() {
     tracing_subscriber::fmt()
@@ -51,10 +56,55 @@ pub async fn start_server() {
     ));
     metrics::spawn_metrics_collector(metrics_history.clone(), metrics_tx.clone());
 
-    let state = AppState::new(db, metrics_tx, metrics_history);
+    // Initialize plugin manager
+    let plugin_manager = Arc::new(tokio::sync::RwLock::new(
+        PluginManager::new(".".to_string()),
+    ));
+    {
+        let mut pm = plugin_manager.write().await;
+        let _ = pm.load_all().await;
+    }
+    tracing::info!("插件管理器初始化完成");
+
+    // Initialize MCP tool registry with built-in skills
+    let tool_registry = Arc::new(ToolRegistry::new());
+    register_builtin_tools(&tool_registry).await;
+    tracing::info!("MCP 工具注册完成");
+
+    let docker = bollard::Docker::connect_with_local_defaults()
+        .expect("Docker 连接失败，请确认 Docker 服务已启动");
+
+    tracing::info!("Docker 客户端连接成功");
+
+    // Initialize WASM plugin runtime
+    let wasm_runtime = Arc::new(WasmRuntime::new(
+        std::path::PathBuf::from("plugins"),
+        SandboxConfig::default(),
+    ));
+    let _wasm_plugins = wasm_runtime.load_all().await.unwrap_or_default();
+    tracing::info!("WASM 插件运行时初始化完成");
+
+    let state = AppState::new(
+        db,
+        metrics_tx,
+        metrics_history,
+        tool_registry,
+        plugin_manager.clone(),
+        wasm_runtime,
+        docker,
+    );
 
     // Spawn cron scheduler background task
     application::CronService::spawn_scheduler(state.clone());
+
+    // Spawn alert checker background task
+    let alert_service = Arc::new(application::AlertService::new(
+        state.notification_repo.clone(),
+        state.alert_rule_repo.clone(),
+        state.alert_history_repo.clone(),
+        state.metrics_tx.subscribe(),
+    ));
+    alert_service.start_checker().await;
 
     let app = axum::Router::new()
         .merge(api::routes())

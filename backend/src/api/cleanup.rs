@@ -16,10 +16,10 @@ pub fn routes() -> Router<AppState> {
 }
 
 async fn scan(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     CurrentUser(_claims): CurrentUser,
 ) -> Result<Json<CleanupScanResult>, AppError> {
-    let items: Vec<CleanupItem> = CleanupService::scan().await;
+    let items: Vec<CleanupItem> = CleanupService::scan(&state.docker).await;
 
     let total_bytes: u64 = items.iter().map(|i| i.size_bytes).sum();
     let total_display = crate::application::CleanupService::format_size(total_bytes);
@@ -34,7 +34,7 @@ async fn scan(
 }
 
 async fn run_cleanup(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     CurrentUser(_claims): CurrentUser,
     Json(payload): Json<CleanupRequest>,
 ) -> Result<Json<CleanupResult>, AppError> {
@@ -44,6 +44,6 @@ async fn run_cleanup(
 
     tracing::info!("用户 '{}' 执行清理: {:?}", _claims.sub, payload.categories);
 
-    let result = CleanupService::clean(&payload.categories).await;
+    let result = CleanupService::clean(&payload.categories, &state.docker).await;
     Ok(Json(result))
 }

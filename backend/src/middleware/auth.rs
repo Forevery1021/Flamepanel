@@ -1,5 +1,5 @@
 use axum::{
-    extract::FromRequestParts,
+    extract::{FromRequestParts, State},
     http::header::AUTHORIZATION,
     http::request::Parts,
     middleware::Next,
@@ -9,8 +9,9 @@ use axum::{
 };
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use std::{future::Future, sync::Arc};
+use std::{future::Future, pin::Pin, sync::Arc};
 
+use crate::application::AppState;
 use crate::core::error::AppError;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -118,5 +119,45 @@ where
 
             Ok(RequireAdmin(claims))
         }
+    }
+}
+
+/// 提取器：要求当前用户拥有指定权限（admin 角色自动通过）
+///
+/// 在 handler 中使用：先提取 CurrentUser，再调用 check_perm 验证权限
+pub async fn check_perm(claims: &Claims, state: &AppState, perm: &str) -> Result<(), AppError> {
+    if claims.role == "admin" {
+        return Ok(());
+    }
+    let perms = state.role_repo.get_user_permissions(&claims.role).await?;
+    if perms.contains(&perm.to_string()) {
+        Ok(())
+    } else {
+        Err(AppError::Forbidden)
+    }
+}
+
+/// Permission guard middleware — checks specific permission via Axum State
+pub fn require_perm(
+    perm: &'static str,
+) -> impl Fn(State<AppState>, Request<Body>, Next) -> Pin<Box<dyn Future<Output = Result<Response, AppError>> + Send>> + Clone {
+    move |State(state): State<AppState>, req: Request<Body>, next: Next| {
+        let perm = perm;
+        Box::pin(async move {
+            let claims = req
+                .extensions()
+                .get::<Arc<Claims>>()
+                .cloned()
+                .ok_or(AppError::Unauthorized)?;
+
+            if claims.role != "admin" {
+                let perms = state.role_repo.get_user_permissions(&claims.role).await?;
+                if !perms.contains(&perm.to_string()) {
+                    return Err(AppError::Forbidden);
+                }
+            }
+
+            Ok(next.run(req).await)
+        })
     }
 }

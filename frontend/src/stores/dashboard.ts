@@ -17,6 +17,7 @@ export const useDashboardStore = defineStore('dashboard', {
     wafRulesCount: (s) => s.data?.waf_rules_count ?? 0,
     wafRulesEnabled: (s) => s.data?.waf_rules_enabled ?? 0,
     recentLogs: (s) => s.data?.recent_logs ?? [],
+    gpuInfo: (s) => s.data?.gpu_info ?? [],
   },
 
   actions: {

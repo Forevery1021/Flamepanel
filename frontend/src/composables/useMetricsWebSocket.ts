@@ -13,6 +13,10 @@ export interface MetricsSnapshot {
   load_one: number
   load_five: number
   load_fifteen: number
+  gpu_usage_percent?: number
+  gpu_memory_used_mb?: number
+  gpu_memory_total_mb?: number
+  gpu_temperature?: number
 }
 
 export function useMetricsWebSocket() {

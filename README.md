@@ -12,18 +12,29 @@
 ## 核心特性
 
 - **系统监控**：实时 CPU、内存、磁盘、负载、网络接口监控 + ECharts 趋势图表
-- **Docker 管理**：容器列表、启动 / 停止 / 重启、日志查看、镜像管理
+- **Docker 管理**：容器列表、启动 / 停止 / 重启、日志流式查看、镜像管理（bollard Rust SDK 原生集成）
 - **数据库管理**：一键部署 MySQL、PostgreSQL、Redis、MongoDB / MariaDB，自动备份
 - **应用商店**：内置 8 款应用，Docker Compose 一键部署（WordPress / Gitea / Portainer 等）
 - **网站托管**：Nginx 站点一键创建、启用 / 禁用、SSL 管理
-- **WAF 防火墙**：正则规则引擎，支持 URL / Header / Body / Cookie 匹配 + IP 黑白名单
+- **WAF 防火墙**：正则规则引擎 + 规则测试端点，URL / Header / Body / Cookie 匹配 + IP 黑白名单 + 安全扫描
 - **计划任务**：Cron 表达式调度，支持 Shell 命令和 URL 请求，自动执行日志记录
 - **文件管理**：可视化文件浏览、编辑、上传、新建文件夹
 - **Web 终端**：基于 xterm.js + WebSocket 的浏览器终端
 - **仪表盘**：系统概览 + 容器 / 网站 / WAF / 数据库统计 + 操作日志
-- **安全认证**：JWT + bcrypt 密码哈希，中间件保护
-- **面板设置**：亮色 / 深色主题切换，CSS 变量驱动
+- **安全认证**：JWT + bcrypt 密码哈希，中间件保护，RBAC 角色权限（roles + permissions，19 权限点）
+- **面板设置**：亮色 / 深色主题切换，CSS 变量驱动，中英文语言切换（vue-i18n）
 - **系统清理**：扫描并清理系统缓存、Docker 缓存、包管理器缓存、日志文件、构建产物
+- **AI 助手**：Ollama 本地 LLM 集成，SSE 流式响应，智能对话 + 日志分析，多轮对话历史管理
+- **GPU 监控**：NVIDIA GPU 温度、利用率、显存、风扇转速监控 + 实时图表
+- **MCP / Skills**：Model Context Protocol 工具框架，6 个内置运维工具，AI 可调用系统操作
+- **多节点管理**：轻量 Rust Agent（二进制 < 5MB），自动注册 + 心跳上报，多节点统一监控
+- **备份系统**：tar.gz 文件备份 + 保留策略 + 定时表达式调度，一键执行与恢复
+- **Prometheus 集成**：/api/metrics 端点导出 CPU / 内存 / 磁盘 / GPU / Docker 指标，可直接对接 Grafana
+- **WASM 插件运行时**：wasmtime 沙箱，支持加载/执行/卸载 .wasm 插件，内存限制 + 执行超时
+- **系统安全扫描**：开放端口检测 / SSH 配置审计 / 操作系统信息收集
+- **防火墙管理**：ufw / firewalld 状态查看，启用 / 禁用，规则增删查
+- **Grafana 集成**：一键导出仪表盘 JSON（10 面板：CPU / 内存 / 磁盘 / 负载 / Docker），直接导入 Grafana
+- **告警通知**：邮件（SMTP）/ Telegram Bot / Webhook 三通道，支持告警规则 + 通知渠道管理
 
 ## 技术栈
 
@@ -32,31 +43,46 @@
 | 后端框架 | Rust + Axum 0.8 |
 | 数据库 | SQLite (sqlx 0.9, 运行时迁移) |
 | 认证 | jsonwebtoken 10 + bcrypt 0.19 |
-| 容器编排 | Docker CLI + Docker Compose |
+| 容器编排 | bollard 0.18 (Rust SDK) + Docker Compose (CLI) |
 | 前端框架 | Vue 3.5 + TypeScript 6.0 |
-| UI 组件 | Element Plus 2.9 |
+| UI 组件 | Element Plus 2.14 |
 | 图表 | ECharts 6.1 |
 | 终端 | xterm.js 5.5 + WebSocket |
 | 构建 | Vite 8 + vue-tsc |
+| AI 集成 | Ollama (本地 LLM) |
+| GPU 监控 | nvml-wrapper 0.10 |
+| MCP 框架 | 内置 ToolRegistry + Ollama function calling |
+| 多节点 | 轻量 Rust Agent |
 | 系统信息 | sysinfo 0.39 |
+| 国际化 | vue-i18n 10 |
+| 权限控制 | RBAC (roles + permissions) |
+| 监控导出 | Prometheus text format (/api/metrics) |
+| WASM 运行时 | wasmtime 31 |
+| 安全扫描 | 端口检测 + SSH 审计 |
+| 防火墙 | ufw + firewalld 管理 |
+| Grafana | 10 面板仪表盘 JSON 模型 |
+| 告警通知 | Email (SMTP) + Telegram + Webhook |
 
 ## 项目结构
 
 ```
 Flamepanel/
+├── agent/
+│   ├── src/main.rs          # 轻量 Rust Agent（系统指标采集 + 心跳上报）
+│   └── Cargo.toml
 ├── backend/
-│   ├── migrations/          # 7 组 SQLite 数据库迁移
+│   ├── migrations/          # 10 组 SQLite 数据库迁移
 │   ├── src/
-│   │   ├── api/             # 14 个 HTTP handler (auth, appstore, cleanup, cron, dashboard, database, docker, file, logs, settings, system, users, waf, website)
+│   │   ├── api/             # 21 个 HTTP handler (auth, ai, alerts, appstore, backup, cleanup, cron, dashboard, database, docker, file, firewall, grafana, logs, metrics_endpoint, nodes, plugins, roles, settings, system, users, waf, website)
 │   │   ├── app_catalog.rs   # 内置应用目录 (8 款应用 + Docker Compose 模板)
-│   │   ├── application.rs   # AppState + Auth/System/Dashboard/Waf/Cleanup/Cron 服务
+│   │   ├── application.rs   # AppState + Auth/System/Dashboard/Waf/Cleanup/Cron/AI/Node/Backup/Alert/Role 服务
 │   │   ├── config.rs        # 配置加载 (figment: TOML + 环境变量)
 │   │   ├── core/            # AppError, 错误处理
-│   │   ├── domain.rs        # 领域实体 (User, Website, WafRule, CronJob, DatabaseInstance, InstalledApp, etc.)
-│   │   ├── infrastructure.rs # 10 个 Repository 实现 (SQLite + Docker CLI)
+│   │   ├── domain.rs        # 领域实体 (User, Website, WafRule, CronJob, DatabaseInstance, InstalledApp, GpuInfo, NodeInfo, Role, Permission, etc.)
+│   │   ├── infrastructure.rs # 14 个 Repository 实现 (SQLite + bollard Docker SDK)
 │   │   ├── main.rs          # 入口
-│   │   ├── middleware/       # JWT 认证 + 限流 + WAF 中间件
-│   │   ├── plugin/          # 插件系统框架
+│   │   ├── middleware/       # JWT 认证 + RBAC 权限 + 限流 + WAF 中间件
+│   │   ├── plugin/          # 插件系统 (MCP/Skills 工具框架 + WASM 运行时 + 插件管理器)
 │   │   ├── utils.rs
 │   │   └── websocket/       # Web 终端 + 指标推送 WebSocket
 │   └── Cargo.toml
@@ -66,10 +92,11 @@ Flamepanel/
 │       ├── components/      # Sidebar, SystemChart, Terminal 等共享组件
 │       ├── composables/     # useTheme, useMetricsWebSocket
 │       ├── layout/          # 主布局
-│       ├── router/          # Vue Router 配置 (14 条路由)
+│       ├── i18n/           # 国际化 (zh-CN / en-US, vue-i18n 10)
+│       ├── router/          # Vue Router 配置 (18 条路由)
 │       ├── stores/          # Pinia 状态管理 (auth, dashboard, system, docker)
-│       ├── types/           # TypeScript 类型定义 (15 组接口)
-│       └── views/           # 页面组件 (12 个视图)
+│       ├── types/           # TypeScript 类型定义 (24 组接口)
+│       └── views/           # 页面组件 (21 个视图)
 ├── docker-compose.yml
 ├── Dockerfile
 ├── install.sh
@@ -81,35 +108,47 @@ Flamepanel/
 ### Phase 1 + 2 已完成（v0.2.x）
 
 - **核心基础**：Clean Architecture 分层、错误处理、配置加载、JWT 中间件、限流中间件、SQLite Repository
-- **API 层（14 个模块）**：
+- **API 层（16 个模块）**：
   - `auth` — 登录 / 注册 / 修改密码 / 当前用户
-  - `dashboard` — 系统概览聚合（CPU / 内存 / 磁盘 / Docker / 网站 / WAF / 日志）
+  - `dashboard` — 系统概览聚合（CPU / 内存 / 磁盘 / GPU / Docker / 网站 / WAF / 日志）
   - `docker` — 容器列表 / 启动 / 停止 / 重启 / 日志 / 镜像列表
   - `database` — MySQL / MariaDB / PostgreSQL / Redis / MongoDB 一键部署 + 备份
   - `appstore` — 应用目录 + Docker Compose 安装 / 启停 / 卸载 / 日志
   - `cron` — 计划任务 CRUD + Cron 调度器 + 执行日志
   - `file` — 文件浏览 / 读取 / 写入 / 创建目录 / 删除 / 上传
-  - `system` — 系统信息 / 进程列表
+  - `system` — 系统信息 / 进程列表 / GPU 信息
   - `settings` — 面板设置（主题 / 密码 / 关于）
   - `cleanup` — 系统垃圾扫描 / 分类清理（temp / docker / package / logs / dev）
   - `waf` — WAF 规则 CRUD + 启用 / 禁用 + IP 黑白名单
   - `website` — Nginx 站点 CRUD + 启用 / 禁用 + SSL
   - `users` — 用户列表 / 角色管理 / 密码重置
   - `logs` — 操作日志分页查看
+  - `ai` — Ollama 模型列表 / AI 对话(SSE) / 日志分析 / 工具列表 / 工具调用
+  - `nodes` — 节点注册 / 心跳 / 列表 / 详情 / 删除
+  - `backup` — 备份配置 CRUD / 执行备份 / 备份记录 / 一键恢复
+  - `roles` — 角色 CRUD / 权限列表 / 角色分配 / 我的权限
+  - `plugins` — 插件列表 / 启停 / WASM 插件执行 / 重载
+  - `alerts` — 告警规则 CRUD / 通知渠道管理
+  - `metrics` — Prometheus /metrics 端点
+  - `firewall` — ufw / firewalld 状态 / 启用禁用 / 规则管理
+  - `grafana` — Grafana 仪表盘 JSON 模型（一键导入）
 - **WebSocket**：交互式 Web 终端（bash / sh）+ 实时指标推送
-- **前沿特性**：深色主题、Cron 调度器、应用商店、数据库管理
-- **前端界面**：12 个视图（登录 / 仪表盘 / Docker / 文件管理 / 网站 / WAF / 终端 / 用户管理 / 操作日志 / 进程管理 / 系统清理 / 面板设置 / 计划任务 / 数据库管理 / 应用商店）
-- **数据库表**：users, websites, operation_logs, waf_rules, waf_ip_rules, settings, cron_jobs, cron_job_logs, database_instances, database_backups, installed_apps
+- **前沿特性**：深色主题、中英文切换、RBAC 权限、Cron 调度器、应用商店、数据库管理、Prometheus 导出
+- **前端界面**：21 个视图（登录 / 仪表盘 / Docker / 文件管理 / 网站 / WAF / 终端 / 用户管理 / 角色权限 / 操作日志 / 进程管理 / 系统清理 / 面板设置 / 计划任务 / 数据库管理 / 应用商店 / AI 助手 / 节点管理 / 备份管理 / 告警管理 / 插件扩展）
+- **数据库表**：users, websites, operation_logs, waf_rules, waf_ip_rules, settings, cron_jobs, cron_job_logs, database_instances, database_backups, installed_apps, ai_conversations, nodes, backup_configs, backup_records, roles, permissions, role_permissions
 
-### 待开发（Phase 3）
+### 待开发（Phase 3 剩余 + 未来）
 
-- 多节点 / 集群管理（轻量 Rust Agent）
-- AI 集成（Ollama 本地 LLM + 日志分析）
 - 集成测试（axum-test + sqlx）
-- 告警通知（邮件 / Telegram / Webhook）
-- 备份与高可用（S3 / 阿里云 OSS）
+- 远程备份存储（S3 / 阿里云 OSS）
+- 节点高级功能（文件传输、批量命令、集群仪表盘）
+- 网络与 Volume 管理（Docker）
+- 自定义仪表盘组件
+- 防火墙可视化管理（ufw/firewalld）
 - CI/CD（GitHub Actions）
 - Docker 镜像发布
+- 多租户支持
+- 审计合规（SOC2 等）
 
 ## 快速开始
 

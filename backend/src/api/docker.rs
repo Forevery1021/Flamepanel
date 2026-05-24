@@ -4,7 +4,13 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use tokio::process::Command;
+
+use bollard::container::{
+    ListContainersOptions, LogsOptions, StartContainerOptions,
+    StopContainerOptions, RestartContainerOptions,
+};
+use bollard::image::ListImagesOptions;
+use futures_util::StreamExt;
 
 use crate::application::AppState;
 use crate::core::error::AppError;
@@ -66,85 +72,129 @@ pub fn routes() -> Router<AppState> {
         .route("/images", get(list_images))
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+fn format_size(bytes: i64) -> String {
+    if bytes > 1_000_000_000 {
+        format!("{:.2} GB", bytes as f64 / 1e9)
+    } else if bytes > 1_000_000 {
+        format!("{:.2} MB", bytes as f64 / 1e6)
+    } else if bytes > 1_000 {
+        format!("{:.2} KB", bytes as f64 / 1e3)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+fn unix_ts_to_string(ts: i64) -> String {
+    if let Some(dt) = chrono::DateTime::from_timestamp(ts, 0) {
+        dt.format("%Y-%m-%d %H:%M:%S").to_string()
+    } else {
+        String::new()
+    }
+}
+
+fn split_image_tag(repo_tags: &[String]) -> (String, String) {
+    let full = repo_tags.first().map(|s| s.as_str()).unwrap_or("<none>");
+    match full.split_once(':') {
+        Some((repo, tag)) => (repo.to_string(), tag.to_string()),
+        None => (full.to_string(), "latest".to_string()),
+    }
+}
+
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
 /// GET /api/docker/containers
-/// 获取所有容器列表（包括已停止的）
 async fn list_containers(
-    State(_state): State<AppState>,
-    CurrentUser(_claims): CurrentUser,
+    State(state): State<AppState>,
+    _user: CurrentUser,
 ) -> Result<Json<Vec<DockerContainer>>, AppError> {
-    let output = Command::new("docker")
-        .args(["ps", "-a", "--format", "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.State}}|{{.Ports}}|{{.CreatedAt}}"])
-        .output()
+    let options = ListContainersOptions::<String> {
+        all: true,
+        ..Default::default()
+    };
+
+    let containers = state
+        .docker
+        .list_containers(Some(options))
         .await
-        .map_err(|e| AppError::Internal(format!("Docker 命令执行失败: {e}")))?;
+        .map_err(|e| AppError::Internal(format!("Docker 容器列表获取失败: {e}")))?;
 
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::Internal(format!("Docker 错误: {err}")));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let containers: Vec<DockerContainer> = stdout
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|line| {
-            let parts: Vec<&str> = line.split('|').collect();
+    let result: Vec<DockerContainer> = containers
+        .into_iter()
+        .map(|c| {
+            let name = c.names
+                .as_ref()
+                .and_then(|n| n.first())
+                .map(|n| n.trim_start_matches('/').to_string())
+                .unwrap_or_default();
+            let ports: Vec<String> = c.ports
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|p| {
+                    p.public_port.map(|pub_port| {
+                        format!("{}:{}", pub_port, p.private_port)
+                    })
+                })
+                .collect();
+            let created_ts = c.created.unwrap_or(0);
             DockerContainer {
-                id: parts.first().map(|s| s.to_string()).unwrap_or_default(),
-                name: parts.get(1).map(|s| s.to_string()).unwrap_or_default(),
-                image: parts.get(2).map(|s| s.to_string()).unwrap_or_default(),
-                status: parts.get(3).map(|s| s.to_string()).unwrap_or_default(),
-                state: parts.get(4).map(|s| s.to_string()).unwrap_or_default(),
-                ports: parts.get(5).map(|s| {
-                    if s.is_empty() { vec![] } else { s.split(',').map(|p| p.trim().to_string()).collect() }
-                }).unwrap_or_default(),
-                created: parts.get(6).map(|s| s.to_string()).unwrap_or_default(),
+                id: c.id.unwrap_or_default(),
+                name,
+                image: c.image.unwrap_or_default(),
+                status: c.status.unwrap_or_default(),
+                state: c.state.unwrap_or_default(),
+                ports,
+                created: unix_ts_to_string(created_ts),
             }
         })
         .collect();
 
-    Ok(Json(containers))
+    Ok(Json(result))
 }
 
 /// POST /api/docker/containers/action
-/// 对容器执行 start / stop / restart 操作
 async fn container_action(
-    State(_state): State<AppState>,
-    CurrentUser(_claims): CurrentUser,
+    State(state): State<AppState>,
+    _user: CurrentUser,
     Json(req): Json<ContainerActionRequest>,
 ) -> Result<Json<ActionResponse>, AppError> {
-    let action = req.action.as_str();
-    match action {
-        "start" | "stop" | "restart" => {}
+    let docker = &state.docker;
+
+    match req.action.as_str() {
+        "start" => {
+            docker
+                .start_container(&req.id, None::<StartContainerOptions<String>>)
+                .await
+                .map_err(|e| AppError::Internal(format!("启动容器失败: {e}")))?;
+        }
+        "stop" => {
+            docker
+                .stop_container(&req.id, None::<StopContainerOptions>)
+                .await
+                .map_err(|e| AppError::Internal(format!("停止容器失败: {e}")))?;
+        }
+        "restart" => {
+            docker
+                .restart_container(&req.id, None::<RestartContainerOptions>)
+                .await
+                .map_err(|e| AppError::Internal(format!("重启容器失败: {e}")))?;
+        }
         _ => return Err(AppError::BadRequest("不支持的操作，可用: start/stop/restart".into())),
     }
 
-    let output = Command::new("docker")
-        .args([action, &req.id])
-        .output()
-        .await
-        .map_err(|e| AppError::Internal(format!("Docker 命令执行失败: {e}")))?;
-
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::Internal(format!("操作失败: {err}")));
-    }
-
-    tracing::info!("用户 '{}' 对容器 {} 执行了 {}", _claims.sub, req.id, action);
+    tracing::info!("用户 '{}' 对容器 {} 执行了 {}", _user.0.sub, req.id, req.action);
 
     Ok(Json(ActionResponse {
         success: true,
-        message: format!("容器 {} 操作成功", action),
+        message: format!("容器 {} 操作成功", req.action),
     }))
 }
 
 /// GET /api/docker/containers/logs?id=xxx&tail=200
-/// 获取容器日志
 async fn container_logs(
-    State(_state): State<AppState>,
-    CurrentUser(_claims): CurrentUser,
+    State(state): State<AppState>,
+    _user: CurrentUser,
     Query(query): Query<ContainerLogsQuery>,
 ) -> Result<Json<ContainerLogsResponse>, AppError> {
     if query.id.is_empty() {
@@ -152,52 +202,66 @@ async fn container_logs(
     }
 
     let tail = query.tail.unwrap_or(200).to_string();
-    let output = Command::new("docker")
-        .args(["logs", "--tail", &tail, &query.id])
-        .output()
-        .await
-        .map_err(|e| AppError::Internal(format!("Docker 命令执行失败: {e}")))?;
+    let options = LogsOptions::<String> {
+        stdout: true,
+        stderr: true,
+        tail: tail,
+        ..Default::default()
+    };
 
-    let logs = String::from_utf8_lossy(&output.stdout).to_string();
+    let mut stream = state.docker.logs(&query.id, Some(options));
+
+    let mut logs = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(bollard::container::LogOutput::StdOut { message })
+            | Ok(bollard::container::LogOutput::StdErr { message }) => {
+                logs.push(message);
+            }
+            Ok(_) => {}
+            Err(e) => {
+                return Err(AppError::Internal(format!("读取日志流失败: {e}")));
+            }
+        }
+    }
+
+    let logs_str = String::from_utf8_lossy(&logs.concat()).to_string();
 
     Ok(Json(ContainerLogsResponse {
         container_id: query.id,
-        logs,
+        logs: logs_str,
     }))
 }
 
 /// GET /api/docker/images
-/// 获取本地镜像列表
 async fn list_images(
-    State(_state): State<AppState>,
-    CurrentUser(_claims): CurrentUser,
+    State(state): State<AppState>,
+    _user: CurrentUser,
 ) -> Result<Json<Vec<ImageInfo>>, AppError> {
-    let output = Command::new("docker")
-        .args(["images", "--format", "{{.Repository}}|{{.Tag}}|{{.ID}}|{{.Size}}|{{.CreatedAt}}"])
-        .output()
+    let options = ListImagesOptions::<String> {
+        all: true,
+        ..Default::default()
+    };
+
+    let images = state
+        .docker
+        .list_images(Some(options))
         .await
-        .map_err(|e| AppError::Internal(format!("Docker 命令执行失败: {e}")))?;
+        .map_err(|e| AppError::Internal(format!("Docker 镜像列表获取失败: {e}")))?;
 
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::Internal(format!("Docker 错误: {err}")));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let images: Vec<ImageInfo> = stdout
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|line| {
-            let parts: Vec<&str> = line.split('|').collect();
+    let result: Vec<ImageInfo> = images
+        .into_iter()
+        .map(|img| {
+            let (repository, tag) = split_image_tag(&img.repo_tags);
             ImageInfo {
-                repository: parts.first().map(|s| s.to_string()).unwrap_or_default(),
-                tag: parts.get(1).map(|s| s.to_string()).unwrap_or_default(),
-                id: parts.get(2).map(|s| s.to_string()).unwrap_or_default(),
-                size: parts.get(3).map(|s| s.to_string()).unwrap_or_default(),
-                created: parts.get(4).map(|s| s.to_string()).unwrap_or_default(),
+                repository,
+                tag,
+                id: img.id.chars().take(12).collect(),
+                size: format_size(img.size),
+                created: unix_ts_to_string(img.created),
             }
         })
         .collect();
 
-    Ok(Json(images))
+    Ok(Json(result))
 }

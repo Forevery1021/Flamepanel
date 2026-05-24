@@ -24,6 +24,15 @@ pub async fn update_settings(
     if let Some(language) = &req.language {
         state.settings_repo.set("language", language).await?;
     }
+    if let Some(theme_color) = &req.theme_color {
+        state.settings_repo.set("theme_color", theme_color).await?;
+    }
+    if let Some(bg) = &req.background_image {
+        state.settings_repo.set("background_image", bg).await?;
+    }
+    if let Some(opacity) = req.background_opacity {
+        state.settings_repo.set("background_opacity", &opacity.to_string()).await?;
+    }
     let settings = state.settings_repo.get_all().await?;
     Ok(Json(json!({
         "message": "设置已更新",

@@ -27,6 +27,29 @@ pub struct MessageResponse {
     pub message: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TestRuleRequest {
+    pub pattern: String,
+    pub target: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TestRuleResponse {
+    pub matches: bool,
+    pub captures: Vec<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WafStats {
+    pub total_rules: i64,
+    pub enabled_rules: i64,
+    pub total_ip_rules: i64,
+    pub enabled_ip_rules: i64,
+    pub block_ip_rules: i64,
+    pub allow_ip_rules: i64,
+}
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/rules", get(list_rules))
@@ -35,10 +58,12 @@ pub fn routes() -> Router<AppState> {
         .route("/rules/update", put(update_rule))
         .route("/rules/delete", delete(delete_rule))
         .route("/rules/toggle", post(toggle_rule))
+        .route("/rules/test", post(test_rule))
         .route("/ip-rules", get(list_ip_rules))
         .route("/ip-rules/create", post(create_ip_rule))
         .route("/ip-rules/toggle", post(toggle_ip_rule))
         .route("/ip-rules/delete", delete(delete_ip_rule))
+        .route("/stats", get(waf_stats))
 }
 
 async fn list_rules(
@@ -196,5 +221,60 @@ async fn delete_ip_rule(
     Ok(Json(MessageResponse {
         success: true,
         message: "IP 规则删除成功".into(),
+    }))
+}
+
+/// POST /api/waf/rules/test
+/// Test a regex pattern against sample input text
+async fn test_rule(
+    State(_state): State<AppState>,
+    CurrentUser(_claims): CurrentUser,
+    Json(payload): Json<TestRuleRequest>,
+) -> Result<Json<TestRuleResponse>, AppError> {
+    match regex::Regex::new(&payload.pattern) {
+        Ok(re) => {
+            let mut captures = Vec::new();
+            for cap in re.captures_iter(&payload.target) {
+                for (i, m) in cap.iter().enumerate() {
+                    if let Some(m) = m {
+                        captures.push(format!("${}={}", i, m.as_str()));
+                    }
+                }
+            }
+            let matched = re.is_match(&payload.target);
+            Ok(Json(TestRuleResponse {
+                matches: matched,
+                captures,
+                error: None,
+            }))
+        }
+        Err(e) => Ok(Json(TestRuleResponse {
+            matches: false,
+            captures: vec![],
+            error: Some(format!("正则表达式错误: {e}")),
+        })),
+    }
+}
+
+/// GET /api/waf/stats
+/// Get WAF statistics summary
+async fn waf_stats(
+    State(state): State<AppState>,
+    CurrentUser(_claims): CurrentUser,
+) -> Result<Json<WafStats>, AppError> {
+    let (total, enabled) = state.waf_repo.count().await.unwrap_or((0, 0));
+    let ip_rules = state.waf_ip_repo.list_all().await.unwrap_or_default();
+    let total_ip = ip_rules.len() as i64;
+    let enabled_ip = ip_rules.iter().filter(|r| r.enabled).count() as i64;
+    let block_count = ip_rules.iter().filter(|r| r.action == "block").count() as i64;
+    let allow_count = ip_rules.iter().filter(|r| r.action == "allow").count() as i64;
+
+    Ok(Json(WafStats {
+        total_rules: total,
+        enabled_rules: enabled,
+        total_ip_rules: total_ip,
+        enabled_ip_rules: enabled_ip,
+        block_ip_rules: block_count,
+        allow_ip_rules: allow_count,
     }))
 }

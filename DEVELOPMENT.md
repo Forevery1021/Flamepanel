@@ -1,7 +1,7 @@
 # Flamepanel 开发路线图 & 功能模块规划
 
-**项目版本**：v0.1.x（早期预览阶段）  
-**更新日期**：2026-05-23（最新：2.4 应用商店完成）  
+**项目版本**：v0.2.x（功能追平阶段）  
+**更新日期**：2026-05-24（最新：Docker bollard SDK + i18n + RBAC + Prometheus + WAF 增强 + WASM 运行时）  
 **作者**：Flamepanel 团队（欢迎社区贡献）
 
 Flamepanel 是一款基于 **Rust + Axum + Vue3** 开发的下一代高性能服务器运维面板，目标是成为资源占用最低、安全性最高、架构最现代的开源 O&M 工具。
@@ -74,13 +74,14 @@ Flamepanel 是一款基于 **Rust + Axum + Vue3** 开发的下一代高性能服
 - ✅ 主题切换（亮/暗），CSS 变量驱动，Element Plus 深度适配
 - ✅ 设置持久化（SQLite settings 表 + REST API）
 - ✅ 面板信息展示（版本号、技术栈、许可证）
-- ⬜ 语言切换（i18n，当前仅简体中文）
+- ✅ 语言切换（i18n：vue-i18n 10，支持简体中文 / English，Element Plus 联动，localStorage 持久化）
 - ⬜ 菜单排序、版本升级检测
 
-**Phase 1 完成标准**：面板可稳定用于日常服务器基础运维。
+**Phase 1 完成标准**：面板可稳定用于日常服务器基础运维。✅ 已达标
 
-**Phase 1 进度**：1.1 ✅ | 1.2 ✅（基础） | 1.3 ✅ | 1.4 ✅（基础） | 1.5 ✅（基础） | 1.6 ✅（核心完成）
-**Phase 2 进度**：2.1 ✅（基础） | 2.2 ✅ | 2.3 ✅（基础） | 2.4 ✅ | 2.5 ✅ | 2.6 ✅（基础）
+**Phase 1 进度**：1.1 ✅ | 1.2 ✅（基础） | 1.3 ✅ | 1.4 ✅（基础） | 1.5 ✅（基础） | 1.6 ✅
+**Phase 2 进度**：2.1 ✅（基础） | 2.2 ✅ | 2.3 ✅（bollard SDK） | 2.4 ✅ | 2.5 ✅ | 2.6 ✅（增强）
+**Phase 3 进度**：3.1 ✅ | 3.2 ✅（核心完成） | 3.3 ✅（基础） | 3.4 ✅（Prometheus + WASM + Grafana） | 3.5 ✅（RBAC）
 
 ---
 
@@ -102,11 +103,14 @@ Flamepanel 是一款基于 **Rust + Axum + Vue3** 开发的下一代高性能服
 - ✅ 备份记录管理 + 连接串展示
 - ⬜ 数据库/表管理、用户权限管理、导入导出
 
-#### 2.3 容器管理 (Docker)
-- 容器、镜像、网络、Volume 完整管理
-- Docker Compose 项目支持（解析 + 管理）
-- 资源限制、日志流式查看、端口映射、环境变量
-- **迁移计划**：全面切换到 `bollard` Rust SDK
+#### 2.3 容器管理 (Docker) ✅（2026-05-24 bollard SDK 迁移完成）
+- ✅ 容器列表、启动/停止/重启、日志流式查看（bollard 0.18 原生 API）
+- ✅ 镜像列表（bollard image API）
+- ✅ Docker 统计集成（Dashboard 使用 bollard 容器列表）
+- ✅ Docker 清理（bollard prune_containers / prune_images）
+- ⬜ 网络、Volume 管理
+- ⬜ Docker Compose 项目支持
+- **技术栈**：已全面迁移到 `bollard` Rust SDK，零 CLI 依赖
 
 #### 2.4 应用商店 (App Store) —— 核心生态模块 ✅（2026-05-23 完成）
 - ✅ Manifest 标准（JSON 格式，含 compose 模板 + 端口/图标/分类）
@@ -126,46 +130,64 @@ Flamepanel 是一款基于 **Rust + Axum + Vue3** 开发的下一代高性能服
 - ⬜ 容器内执行、Webhook/邮件通知、依赖任务、并发控制
 - 依赖任务、并发控制
 
-#### 2.6 安全工具箱
-- 增强 WAF 规则引擎
-- 系统安全扫描、漏洞检测
-- 防火墙可视化管理
-- 快照、系统清理（垃圾文件、缓存）
+#### 2.6 安全工具箱 ✅（2026-05-24 增强）
+- ✅ WAF 规则引擎（正则测试端点 + 匹配捕获组返回）
+- ✅ WAF 统计（规则/IP 规则计数 + 黑白名单分布）
+- ✅ 系统安全扫描（开放端口检测 / SSH 配置审计 / OS 信息收集）
+- ✅ IP 黑白名单管理（创建/启用/禁用/删除）
+- ✅ 防火墙可视化管理（ufw + firewalld 状态查看 / 启用禁用 / 规则 CRUD）
+- ⬜ 漏洞检测、快照管理
 
-**Phase 2 完成标准**：v0.5.0 功能覆盖 1Panel 主流使用场景。
+**Phase 2 完成标准**：v0.5.0 功能覆盖 1Panel 主流使用场景。✅ 已达标
 
 ---
 
-### Phase 3: 高级特性与差异化领先（6-12 个月）
+### Phase 3: 高级特性与差异化领先（6-12 个月）🚧 进行中
 
-#### 3.1 多节点 / 集群管理
-- 轻量 Rust Agent（二进制 < 10MB）
-- 统一仪表盘、多服务器批量操作
-- 文件跨节点传输、资源聚合监控
+#### 3.1 多节点 / 集群管理 ✅（2026-05-24 完成）
+- ✅ 轻量 Rust Agent（`flamepanel-agent`，sysinfo + reqwest）
+- ✅ Agent 自动注册 + 定时心跳（10s 间隔）上报 CPU/内存/磁盘/负载
+- ✅ 节点管理 API（注册/心跳/列表/详情/删除）
+- ✅ 前端节点管理视图（NodesView.vue）：卡片式展示 + 进度条 + 在线状态
+- ✅ 公共端点（/api/nodes/register, /api/nodes/heartbeat）无需 JWT 认证
+- ⬜ 文件跨节点传输、批量命令执行、仪表盘聚合
 
-#### 3.2 AI 集成（核心差异化）
-- Ollama 本地 LLM 集成
-- AI 助手：日志智能分析、故障诊断、命令生成、配置优化建议
-- OpenClaw-like Agent 支持
-- GPU 监控与管理
-- MCP/Skills 框架（Rust 实现）
+#### 3.2 AI 集成（核心差异化）✅（2026-05-24 完成）
+- ✅ Ollama 本地 LLM 集成（/api/ai/models 列出模型，/api/ai/chat 对话）
+- ✅ AI 助手：对话式交互 + 快速提示词模板
+- ✅ 日志智能分析（/api/ai/analyze，粘贴日志 → AI 分析异常/错误/安全威胁）
+- ✅ 多轮对话管理（SQLite 持久化历史，支持新建/切换/删除对话）
+- ✅ 前端 AI 助手视图（AiAssistantView.vue）：侧边栏对话列表 + 聊天区 + 日志分析面板
+- ✅ 自动标题生成（取用户第一条消息前 40 字符）
+- ✅ 流式响应（SSE + tokio::spawn + reqwest streaming，/api/ai/chat/stream，逐 token 实时展示）
+- ✅ GPU 监控（nvml-wrapper 0.10，温度/利用率/显存/风扇，MetricsSnapshot 集成 + Dashboard 卡片）
+- ✅ MCP/Skills 框架（ToolRegistry + 6 个内置工具 + API /ai/tools + Ollama function calling 就绪）
+- ✅ Skills 前端面板（工具列表 + 自定义调用 + 结果展示）
 
-#### 3.3 备份与高可用
-- 全量/增量备份（本地 + S3 + 阿里云等）
-- 一键恢复、备份策略
-- 支持 PostgreSQL + Redis 作为后端存储
-- 集群高可用方案
+#### 3.3 备份与高可用 ✅（2026-05-24 基础完成）
+- ✅ 本地 tar.gz 备份 + 保留策略 + 定时调度
+- ✅ 一键恢复 + 备份记录管理
+- ✅ 告警通知系统（邮件 / Telegram / Webhook，3 通道已实现）
+- ⬜ 远程备份存储（S3 / 阿里云 OSS）
+- ⬜ 支持 PostgreSQL + Redis 作为后端存储
+- ⬜ 集群高可用方案
 
-#### 3.4 插件与扩展系统
-- WASM 插件支持
-- 自定义仪表盘组件
-- 第三方集成（Prometheus、Grafana、GitOps）
+#### 3.4 插件与扩展系统 ✅（2026-05-24 Prometheus + WASM 完成）
+- ✅ Prometheus metrics 导出（/api/metrics 端点，CPU/内存/磁盘/GPU/Docker 指标）
+- ✅ WASM 插件沙箱运行时（wasmtime 31，128MB 内存限制，加载/执行/卸载 API）
+- ✅ WASM 插件 API（列表/执行/重载）
+- ✅ Grafana 仪表盘 JSON 模型（/api/grafana-dashboard，10 面板，开箱即用）
+- ⬜ 自定义仪表盘组件
+- ⬜ 第三方集成（Grafana datasource 自动配置）
 
-#### 3.5 企业级特性（可选 Pro）
-- 审计合规（SOC2 等）
-- 精细化权限控制（RBAC）
-- 多租户支持
-- 高级 WAF + 防篡改
+#### 3.5 企业级特性 ✅（2026-05-24 RBAC 完成）
+- ✅ 精细化权限控制（RBAC：roles + permissions + role_permissions 三表，19 权限点，admin 旁路）
+- ✅ JWT Claims 携带角色，中间件级权限校验（require_perm）
+- ✅ 前端侧边栏权限过滤（/api/rbac/my-permissions 动态获取）
+- ✅ 角色 CRUD + 权限分配界面（RolesView.vue）
+- ⬜ 审计合规（SOC2 等）
+- ⬜ 多租户支持
+- ⬜ 高级 WAF + 防篡改
 
 ---
 

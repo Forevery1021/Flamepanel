@@ -21,6 +21,7 @@ async fn dashboard_overview(
         state.website_repo.clone(),
         state.waf_repo.clone(),
         state.db.clone(),
+        state.docker.clone(),
     );
 
     let dashboard = service.get_dashboard().await?;

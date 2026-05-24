@@ -20,7 +20,7 @@ import Sidebar from '@/components/Sidebar.vue'
 .main-content {
   flex: 1;
   overflow: auto;
-  padding: 20px;
+  padding: 24px;
   background: var(--bg-page);
 }
 </style>

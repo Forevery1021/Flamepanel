@@ -6,6 +6,9 @@ frontend/node_modules/
 frontend/dist/
 frontend/src/**/*.js
 frontend/src/**/*.js.map
+frontend/vite.config.js
+frontend/vite.config.js.map
+*.tsbuildinfo
 
 # IDE
 .vscode/

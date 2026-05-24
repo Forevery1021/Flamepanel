@@ -3,15 +3,16 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Key } from '@element-plus/icons-vue'
 import api from '@/api/client'
-import type { User } from '@/types'
+import type { User, Role } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const users = ref<User[]>([])
+const roles = ref<Role[]>([])
 const loading = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('')
-const form = ref({ username: '', password: '', role: 'user' })
+const form = ref({ username: '', password: '', role: 'viewer' })
 
 const fetchUsers = async () => {
   loading.value = true
@@ -25,9 +26,20 @@ const fetchUsers = async () => {
   }
 }
 
+const fetchRoles = async () => {
+  try {
+    if (auth.role === 'admin') {
+      const resp = await fetch('/api/rbac/roles', {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      })
+      if (resp.ok) roles.value = await resp.json()
+    }
+  } catch { /* ignore */ }
+}
+
 const openCreate = () => {
   dialogTitle.value = '创建用户'
-  form.value = { username: '', password: '', role: 'user' }
+  form.value = { username: '', password: '', role: roles.value[0]?.name || 'viewer' }
   dialogVisible.value = true
 }
 
@@ -63,7 +75,14 @@ const handleDelete = async (user: User) => {
 
 const handleRoleChange = async (user: User, newRole: string) => {
   try {
-    await api.put('/users/update-role', null, { params: { id: user.id, role: newRole } })
+    await fetch(`/api/rbac/assign-role`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${auth.token}`,
+      },
+      body: JSON.stringify({ user_id: user.id, role: newRole }),
+    })
     ElMessage.success('角色更新成功')
     fetchUsers()
   } catch {
@@ -82,7 +101,7 @@ const handleResetPassword = async (user: User) => {
   } catch { /* canceled */ }
 }
 
-onMounted(fetchUsers)
+onMounted(() => { fetchUsers(); fetchRoles() })
 </script>
 
 <template>
@@ -106,8 +125,12 @@ onMounted(fetchUsers)
             style="width: 100px"
             :disabled="auth.role !== 'admin' || row.username === auth.username"
           >
-            <el-option label="管理员" value="admin" />
-            <el-option label="用户" value="user" />
+            <el-option
+              v-for="r in roles"
+              :key="r.name"
+              :label="r.description || r.name"
+              :value="r.name"
+            />
           </el-select>
         </template>
       </el-table-column>
@@ -145,8 +168,12 @@ onMounted(fetchUsers)
         </el-form-item>
         <el-form-item label="角色">
           <el-select v-model="form.role" style="width: 100%">
-            <el-option label="管理员" value="admin" />
-            <el-option label="用户" value="user" />
+            <el-option
+              v-for="r in roles"
+              :key="r.name"
+              :label="r.description || r.name"
+              :value="r.name"
+            />
           </el-select>
         </el-form-item>
       </el-form>

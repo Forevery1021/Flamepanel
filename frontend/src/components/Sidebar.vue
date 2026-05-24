@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import {
   House,
@@ -16,28 +18,87 @@ import {
   Timer,
   Coin,
   ShoppingCart,
+  Promotion,
+  Clock,
+  Bell,
+  Box,
+  Avatar,
 } from '@element-plus/icons-vue'
 
+const { t } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 
-const menuItems = [
-  { path: '/dashboard', name: '仪表盘', icon: House },
-  { path: '/file', name: '文件管理', icon: Folder },
-  { path: '/docker', name: 'Docker 管理', icon: Grid },
-  { path: '/databases', name: '数据库管理', icon: Coin },
-  { path: '/website', name: '网站管理', icon: Link },
-  { path: '/waf', name: 'WAF 防火墙', icon: Lock },
-  { path: '/terminal', name: 'Web 终端', icon: Monitor },
-  { path: '/users', name: '用户管理', icon: User },
-  { path: '/logs', name: '操作日志', icon: Document },
-  { path: '/processes', name: '进程管理', icon: Cpu },
-  { path: '/cleanup', name: '系统清理', icon: Delete },
-  { path: '/settings', name: '面板设置', icon: Setting },
-  { path: '/cron', name: '计划任务', icon: Timer },
-  { path: '/appstore', name: '应用商店', icon: ShoppingCart },
+const permMap: Record<string, string> = {
+  '/dashboard': 'dashboard:view',
+  '/file': 'file:manage',
+  '/docker': 'docker:manage',
+  '/databases': 'database:manage',
+  '/website': 'website:manage',
+  '/waf': 'waf:manage',
+  '/terminal': 'terminal:access',
+  '/users': 'users:manage',
+  '/roles': 'users:manage',
+  '/logs': 'logs:view',
+  '/processes': 'process:view',
+  '/cleanup': 'system:cleanup',
+  '/settings': 'settings:manage',
+  '/cron': 'cron:manage',
+  '/appstore': 'appstore:manage',
+  '/ai': 'ai:access',
+  '/nodes': 'nodes:manage',
+  '/backup': 'backup:manage',
+  '/alerts': 'alerts:manage',
+  '/plugins': 'plugins:manage',
+}
+
+type MenuItem = { path: string; i18nKey: string; icon: any }
+
+const allMenuItems: MenuItem[] = [
+  { path: '/dashboard', i18nKey: 'menu.dashboard', icon: House },
+  { path: '/file', i18nKey: 'menu.fileManager', icon: Folder },
+  { path: '/docker', i18nKey: 'menu.docker', icon: Grid },
+  { path: '/databases', i18nKey: 'menu.databases', icon: Coin },
+  { path: '/website', i18nKey: 'menu.websites', icon: Link },
+  { path: '/waf', i18nKey: 'menu.waf', icon: Lock },
+  { path: '/terminal', i18nKey: 'menu.terminal', icon: Monitor },
+  { path: '/users', i18nKey: 'menu.users', icon: User },
+  { path: '/roles', i18nKey: 'menu.roles', icon: Avatar },
+  { path: '/logs', i18nKey: 'menu.logs', icon: Document },
+  { path: '/processes', i18nKey: 'menu.system', icon: Cpu },
+  { path: '/cleanup', i18nKey: 'menu.cleanup', icon: Delete },
+  { path: '/settings', i18nKey: 'menu.settings', icon: Setting },
+  { path: '/cron', i18nKey: 'menu.cronJobs', icon: Timer },
+  { path: '/appstore', i18nKey: 'menu.appStore', icon: ShoppingCart },
+  { path: '/ai', i18nKey: 'menu.aiAssistant', icon: Promotion },
+  { path: '/nodes', i18nKey: 'menu.nodes', icon: Monitor },
+  { path: '/backup', i18nKey: 'menu.backup', icon: Clock },
+  { path: '/alerts', i18nKey: 'menu.alerts', icon: Bell },
+  { path: '/plugins', i18nKey: 'menu.plugins', icon: Box },
 ]
+
+const menuItems = ref(allMenuItems)
+
+onMounted(async () => {
+  if (auth.token && auth.role !== 'admin') {
+    try {
+      const resp = await fetch('/api/rbac/my-permissions', {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      })
+      if (resp.ok) {
+        const data = await resp.json()
+        const perms = data.permissions as string[]
+        menuItems.value = allMenuItems.filter((item) => {
+          const required = permMap[item.path]
+          return !required || perms.includes(required)
+        })
+      }
+    } catch {
+      // On error, show all items
+    }
+  }
+})
 
 const handleLogout = () => {
   auth.logout()
@@ -49,7 +110,7 @@ const handleLogout = () => {
   <div class="sidebar">
     <div class="logo">
       <h2>Ops Panel</h2>
-      <p class="subtitle">Rust 运维面板</p>
+      <p class="subtitle">Rust O&M Panel</p>
     </div>
 
     <div class="menu">
@@ -61,7 +122,7 @@ const handleLogout = () => {
         @click="router.push(item.path)"
       >
         <el-icon class="icon"><component :is="item.icon" /></el-icon>
-        <span>{{ item.name }}</span>
+        <span>{{ t(item.i18nKey) }}</span>
       </div>
     </div>
 
@@ -71,7 +132,7 @@ const handleLogout = () => {
         <span>{{ auth.username || 'admin' }}</span>
       </div>
       <el-button type="danger" size="small" @click="handleLogout">
-        退出登录
+        {{ t('common.logout') }}
       </el-button>
     </div>
   </div>
@@ -82,21 +143,27 @@ const handleLogout = () => {
   width: 240px;
   min-width: 240px;
   background: var(--bg-sidebar);
-  border-right: 1px solid var(--border-color);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-right: 1px solid var(--glass-border);
   display: flex;
   flex-direction: column;
   height: 100vh;
-  transition: background 0.3s, border-color 0.3s;
+  transition: background 0.4s ease, border-color 0.4s ease;
 }
 
 .logo {
   padding: 24px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-light);
 }
 .logo h2 {
   margin: 0;
   font-size: 24px;
-  color: #409eff;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--el-color-primary), var(--el-color-primary-light-3));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 .subtitle {
   margin: 4px 0 0;
@@ -122,16 +189,17 @@ const handleLogout = () => {
 }
 .menu-item:hover {
   background: var(--bg-hover);
-  color: #409eff;
+  color: var(--el-color-primary);
 }
 .menu-item.active {
-  background: #409eff;
+  background: var(--el-color-primary);
   color: white;
+  box-shadow: 0 4px 12px hsla(var(--hue), var(--sat), 55%, 0.4);
 }
 
 .footer {
   padding: 20px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-light);
 }
 
 .user {

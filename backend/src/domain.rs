@@ -53,6 +53,19 @@ pub struct NetworkInterface {
     pub mac: String,
 }
 
+// ─── GPU 信息 ──────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct GpuInfo {
+    pub name: String,
+    pub temperature_celsius: f32,
+    pub utilization_percent: f32,
+    pub memory_total_mb: u64,
+    pub memory_used_mb: u64,
+    pub memory_free_mb: u64,
+    pub fan_speed_percent: f32,
+}
+
 // ─── Website 领域实体（Nginx 站点）─────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
@@ -179,6 +192,7 @@ pub struct DashboardInfo {
     pub recent_logs: Vec<OperationLogEntry>,
     pub waf_rules_count: i64,
     pub waf_rules_enabled: i64,
+    pub gpu_info: Vec<GpuInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
@@ -235,12 +249,21 @@ pub struct Setting {
 pub struct UpdateSettingsRequest {
     pub theme: Option<String>,
     pub language: Option<String>,
+    pub theme_color: Option<String>,
+    pub background_image: Option<String>,
+    pub background_opacity: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PanelSettings {
     pub theme: String,
     pub language: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme_color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_image: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background_opacity: Option<f64>,
 }
 
 // ─── 计划任务 (Cron) ─────────────────────────────────────────────────────────
@@ -346,6 +369,312 @@ pub struct InstallAppRequest {
     pub name: String,
     pub port: Option<i32>,
     pub extra_env: Option<std::collections::HashMap<String, String>>,
+}
+
+// ─── 备份系统 ──────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BackupConfig {
+    pub id: i64,
+    pub name: String,
+    pub backup_type: String,
+    pub target_path: String,
+    pub storage_type: String,
+    pub storage_path: String,
+    pub cron_expr: Option<String>,
+    pub retention_days: i64,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateBackupConfigRequest {
+    pub name: String,
+    pub backup_type: String,
+    pub target_path: String,
+    pub storage_type: Option<String>,
+    pub storage_path: Option<String>,
+    pub cron_expr: Option<String>,
+    pub retention_days: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateBackupConfigRequest {
+    pub name: Option<String>,
+    pub backup_type: Option<String>,
+    pub target_path: Option<String>,
+    pub storage_type: Option<String>,
+    pub storage_path: Option<String>,
+    pub cron_expr: Option<String>,
+    pub retention_days: Option<i64>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BackupRecord {
+    pub id: i64,
+    pub config_id: i64,
+    pub file_name: String,
+    pub file_size: i64,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+}
+
+// ─── AI 助手 ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct AiConversation {
+    pub id: i64,
+    pub title: String,
+    pub model: String,
+    pub messages: String, // JSON array of {role, content}
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiMessage {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiChatRequest {
+    pub conversation_id: Option<i64>,
+    pub model: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiChatResponse {
+    pub conversation_id: i64,
+    pub title: String,
+    pub reply: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiModelInfo {
+    pub name: String,
+    pub size: String,
+    pub modified: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiAnalyzeRequest {
+    pub log_content: String,
+    pub model: Option<String>,
+}
+
+// ─── 多节点管理 ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct NodeInfo {
+    pub id: i64,
+    pub name: String,
+    pub host: String,
+    pub agent_port: i64,
+    pub auth_token: String,
+    pub status: String,
+    pub cpu_usage: f32,
+    pub memory_usage_percent: f32,
+    pub disk_usage_percent: f32,
+    pub load_one: f32,
+    pub last_heartbeat: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeRegisterRequest {
+    pub name: String,
+    pub host: String,
+    pub agent_port: Option<i64>,
+    pub auth_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeHeartbeatRequest {
+    pub cpu_usage: f32,
+    pub memory_usage_percent: f32,
+    pub disk_usage_percent: f32,
+    pub load_one: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ClusterDashboard {
+    pub total_nodes: i64,
+    pub online_nodes: i64,
+    pub offline_nodes: i64,
+    pub avg_cpu: f32,
+    pub avg_memory: f32,
+    pub avg_disk: f32,
+    pub avg_load: f32,
+    pub nodes: Vec<NodeInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeExecRequest {
+    pub command: String,
+    pub timeout_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeExecResponse {
+    pub node_id: i64,
+    pub node_name: String,
+    pub output: String,
+    pub exit_code: i32,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchExecRequest {
+    pub node_ids: Vec<i64>,
+    pub command: String,
+    pub timeout_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileEntry {
+    pub name: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub modified: String,
+}
+
+// ─── 告警通知 ──────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct NotificationChannel {
+    pub id: i64,
+    pub name: String,
+    pub channel_type: String,
+    pub config: String,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateNotificationChannelRequest {
+    pub name: String,
+    pub channel_type: String,
+    pub config: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateNotificationChannelRequest {
+    pub name: Option<String>,
+    pub channel_type: Option<String>,
+    pub config: Option<serde_json::Value>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct AlertRule {
+    pub id: i64,
+    pub name: String,
+    pub metric_type: String,
+    pub condition: String,
+    pub threshold: f64,
+    pub duration_seconds: i64,
+    pub channel_ids: String,
+    pub enabled: bool,
+    pub cooldown_minutes: i64,
+    pub last_triggered: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateAlertRuleRequest {
+    pub name: String,
+    pub metric_type: String,
+    pub condition: String,
+    pub threshold: f64,
+    pub duration_seconds: Option<i64>,
+    pub channel_ids: Vec<i64>,
+    pub cooldown_minutes: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateAlertRuleRequest {
+    pub name: Option<String>,
+    pub metric_type: Option<String>,
+    pub condition: Option<String>,
+    pub threshold: Option<f64>,
+    pub duration_seconds: Option<i64>,
+    pub channel_ids: Option<Vec<i64>>,
+    pub enabled: Option<bool>,
+    pub cooldown_minutes: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct AlertHistory {
+    pub id: i64,
+    pub rule_id: i64,
+    pub rule_name: String,
+    pub metric_type: String,
+    pub metric_value: f64,
+    pub threshold: f64,
+    pub status: String,
+    pub message: String,
+    pub created_at: String,
+}
+
+// ─── RBAC 角色权限 ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct Role {
+    pub id: i64,
+    pub name: String,
+    pub description: String,
+    pub is_system: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct Permission {
+    pub id: i64,
+    pub name: String,
+    pub resource: String,
+    pub action: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RoleWithPermissions {
+    pub id: i64,
+    pub name: String,
+    pub description: String,
+    pub is_system: bool,
+    pub permissions: Vec<Permission>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateRoleRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub permission_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateRoleRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub permission_ids: Option<Vec<i64>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssignRoleRequest {
+    pub user_id: i64,
+    pub role: String,
 }
 
 // ─── 分页 / 通用 ──────────────────────────────────────────────────────────────
