@@ -182,22 +182,43 @@ echo -e "${GREEN}  -> $INSTALL_DIR${NC}"
 # ─── 部署二进制 ────────────────────────────────────────────────────────────────
 echo -e "${CYAN}[3/4] 部署应用...${NC}"
 
-# 如果本地有编译好的二进制，直接复制；否则从 GitHub Releases 下载
+# 查找本地编译好的二进制（支持 workspace 和子 crate 两种构建路径）
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOCAL_BINARY="$SCRIPT_DIR/target/release/ops-panel-backend"
+LOCAL_BINARY=""
+for try_path in \
+    "$SCRIPT_DIR/target/release/flame-kernel" \
+    "$SCRIPT_DIR/target/release/flame-kernel.exe" \
+    "$SCRIPT_DIR/flame-kernel/target/release/flame-kernel" \
+    "$SCRIPT_DIR/flame-kernel/target/release/flame-kernel.exe"; do
+    if [[ -f "$try_path" ]]; then
+        LOCAL_BINARY="$try_path"
+        break
+    fi
+done
 
-if [[ -f "$LOCAL_BINARY" ]]; then
-    echo "  使用本地编译产物..."
+if [[ -n "$LOCAL_BINARY" ]]; then
+    echo "  使用本地编译产物: $LOCAL_BINARY"
     cp "$LOCAL_BINARY" /usr/local/bin/flamepanel
+    chmod +x /usr/local/bin/flamepanel
 else
     echo "  从 GitHub Releases 下载..."
-    # TODO: 替换为实际发布地址
-    # ARCH=$(uname -m)
-    # DOWNLOAD_URL="https://github.com/Forevery1021/Flamepanel/releases/latest/download/flamepanel-linux-${ARCH}.tar.gz"
-    # curl -L "$DOWNLOAD_URL" -o /tmp/flamepanel.tar.gz
-    # tar -xzf /tmp/flamepanel.tar.gz -C /usr/local/bin/
-    # rm -f /tmp/flamepanel.tar.gz
-    echo -e "${YELLOW}  警告: 未找到预编译二进制，请手动复制到 /usr/local/bin/flamepanel${NC}"
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64)  ARCH="amd64" ;;
+        aarch64) ARCH="arm64" ;;
+    esac
+    DOWNLOAD_URL="https://github.com/Forevery1021/Flamepanel/releases/latest/download/flamepanel-linux-${ARCH}.tar.gz"
+    echo "  下载地址: $DOWNLOAD_URL"
+    if curl -L --connect-timeout 10 "$DOWNLOAD_URL" -o /tmp/flamepanel.tar.gz 2>/dev/null; then
+        tar -xzf /tmp/flamepanel.tar.gz -C /usr/local/bin/ 2>/dev/null
+        rm -f /tmp/flamepanel.tar.gz
+        chmod +x /usr/local/bin/flamepanel
+        echo -e "${GREEN}  -> 下载部署完成${NC}"
+    else
+        echo -e "${YELLOW}  警告: 未找到预编译二进制，请手动编译:${NC}"
+        echo -e "    cd flame-kernel && cargo build --release"
+        echo -e "    cp target/release/flame-kernel /usr/local/bin/flamepanel"
+    fi
 fi
 
 chmod +x /usr/local/bin/flamepanel 2>/dev/null || true
