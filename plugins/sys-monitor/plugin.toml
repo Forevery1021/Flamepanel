@@ -1,7 +1,0 @@
-name = "sys-monitor"
-version = "1.0.0"
-author = "Flamepanel"
-description = "系统监控扩展插件：提供自定义监控指标收集"
-entry = "monitor.sh"
-api_prefix = "sys-monitor"
-permissions = ["read", "system"]

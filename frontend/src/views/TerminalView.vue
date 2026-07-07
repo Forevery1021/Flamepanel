@@ -1,112 +1,168 @@
+<template>
+  <div class="view-container" style="height: calc(100vh - 116px); display: flex; flex-direction: column;">
+    <el-card shadow="hover" class="terminal-card" style="flex: 1; display: flex; flex-direction: column;">
+      <template #header>
+        <div class="card-header-title">
+          <span>Web 终端</span>
+          <div class="header-right">
+            <el-tag :type="connected ? 'success' : 'danger'" size="small" effect="dark">
+              {{ connected ? '已连接' : '未连接' }}
+            </el-tag>
+            <el-button size="small" :disabled="!connected" @click="sendEof">Ctrl+D</el-button>
+            <el-button size="small" :disabled="!connected" @click="sendInterrupt">Ctrl+C</el-button>
+            <el-button size="small" @click="reconnect" :loading="reconnecting">重新连接</el-button>
+            <el-button size="small" type="danger" @click="handleClear">清屏</el-button>
+          </div>
+        </div>
+      </template>
+      <div ref="terminalContainer" class="terminal-container" />
+    </el-card>
+  </div>
+</template>
+
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { ElCard, ElMessage } from 'element-plus'
 
-const terminalRef = ref<HTMLElement | null>(null)
-let term: Terminal
-let fitAddon: FitAddon
+const terminalContainer = ref<HTMLElement>()
+const connected = ref(false)
+const reconnecting = ref(false)
+
+let term: Terminal | null = null
+let fitAddon: FitAddon | null = null
 let ws: WebSocket | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
-onMounted(() => {
-  if (!terminalRef.value) return
+function initTerminal() {
+  if (!terminalContainer.value) return
 
   term = new Terminal({
     cursorBlink: true,
+    cursorStyle: 'block',
     fontSize: 14,
-    fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+    fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace",
     theme: {
-      background: '#1e1e1e',
-      foreground: '#d4d4d4',
-      cursor: '#ffffff',
+      background: '#1a1b1e',
+      foreground: '#cdd6f4',
+      cursor: '#f5e0dc',
+      selectionBackground: '#585b70',
+      black: '#45475a',
+      red: '#f38ba8',
+      green: '#a6e3a1',
+      yellow: '#f9e2af',
+      blue: '#89b4fa',
+      magenta: '#f5c2e7',
+      cyan: '#94e2d5',
+      white: '#bac2de',
+      brightBlack: '#585b70',
+      brightRed: '#f38ba8',
+      brightGreen: '#a6e3a1',
+      brightYellow: '#f9e2af',
+      brightBlue: '#89b4fa',
+      brightMagenta: '#f5c2e7',
+      brightCyan: '#94e2d5',
+      brightWhite: '#a6adc8',
     },
-    rows: 30,
-    cols: 120,
+    allowTransparency: true,
   })
 
   fitAddon = new FitAddon()
   term.loadAddon(fitAddon)
-  term.open(terminalRef.value)
+  term.open(terminalContainer.value)
 
-  fitAddon.fit()
+  term.onData((data: string) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data }))
+    }
+  })
 
-  const token = localStorage.getItem('token') || ''
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  ws = new WebSocket(
-    `${protocol}//${window.location.host}/ws/terminal?cols=120&rows=30`
-  )
+  nextTick(() => fitAddon?.fit())
+}
+
+function connect() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  ws = new WebSocket(`${protocol}//${location.host}/ws/terminal`)
 
   ws.onopen = () => {
-    term.writeln('\x1b[32m✓ 终端已成功连接\x1b[0m')
-    term.writeln('\x1b[33m欢迎使用 Flamepanel Web 终端\x1b[0m')
-    term.writeln('')
-  }
-
-  ws.onmessage = (event) => {
-    try {
-      const data =
-        typeof event.data === 'string'
-          ? event.data
-          : new TextDecoder().decode(event.data as ArrayBuffer)
-      term.write(data)
-    } catch (e) {
-      console.error('终端数据解析失败', e)
-    }
-  }
-
-  ws.onerror = () => {
-    ElMessage.error('WebSocket 连接失败，后端是否已启动？')
+    connected.value = true
+    term?.focus()
   }
 
   ws.onclose = () => {
-    term.writeln('\r\n\x1b[31m终端连接已断开\x1b[0m')
+    connected.value = false
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    reconnectTimer = setTimeout(() => {
+      if (!connected.value) connect()
+    }, 3000)
   }
 
-  term.onData((data) => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(data)
-    }
-  })
+  ws.onerror = () => {
+    connected.value = false
+  }
 
-  const resizeObserver = new ResizeObserver(() => {
-    fitAddon.fit()
-  })
-  resizeObserver.observe(terminalRef.value)
+  ws.onmessage = (ev: MessageEvent) => {
+    try {
+      const msg = JSON.parse(ev.data)
+      if (msg.type === 'output' && msg.data && term) {
+        term.write(msg.data)
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function reconnect() {
+  reconnecting.value = true
+  ws?.close()
+  if (reconnectTimer) clearTimeout(reconnectTimer)
+  setTimeout(() => {
+    connect()
+    reconnecting.value = false
+  }, 500)
+}
+
+function sendEof() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'input', data: '\x04' }))
+  }
+}
+
+function sendInterrupt() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'input', data: '\x03' }))
+  }
+}
+
+function handleClear() {
+  term?.clear()
+}
+
+function handleResize() {
+  nextTick(() => fitAddon?.fit())
+}
+
+onMounted(() => {
+  initTerminal()
+  connect()
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
   ws?.close()
+  if (reconnectTimer) clearTimeout(reconnectTimer)
   term?.dispose()
 })
 </script>
 
-<template>
-  <div class="terminal-page">
-    <ElCard class="terminal-card">
-      <template #header>
-        <div style="display: flex; justify-content: space-between; align-items: center">
-          <span>Web 终端 (Linux Shell)</span>
-          <span style="font-size: 12px; color: #909399">
-            按 Ctrl+C 可中断当前命令 | 支持 bash/sh
-          </span>
-        </div>
-      </template>
-      <div ref="terminalRef" class="terminal-container"></div>
-    </ElCard>
-  </div>
-</template>
-
 <style scoped>
-.terminal-card {
-  height: calc(100vh - 60px);
-}
-
-.terminal-container {
-  height: calc(100vh - 150px);
-  background: #1e1e1e;
-  padding: 8px;
-  border-radius: 4px;
-}
+.terminal-card { margin: 0; }
+.terminal-container { flex: 1; min-height: 0; }
+.header-right { display: flex; gap: 8px; align-items: center; }
+.card-header-title { display: flex; justify-content: space-between; align-items: center; }
+.card-header-title span { font-size: 16px; font-weight: 600; }
 </style>

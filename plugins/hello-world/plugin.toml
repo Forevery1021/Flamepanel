@@ -1,7 +1,0 @@
-name = "hello-world"
-version = "1.0.0"
-author = "Flamepanel"
-description = "示例插件：输出 Hello World"
-entry = "hello.sh"
-api_prefix = "hello"
-permissions = ["read"]

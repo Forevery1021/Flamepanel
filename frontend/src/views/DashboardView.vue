@@ -1,328 +1,183 @@
-<script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
-import { useDashboardStore } from '@/stores/dashboard'
-import { useMetricsWebSocket } from '@/composables/useMetricsWebSocket'
-import SystemChart from '@/components/SystemChart.vue'
-import { ElRow, ElCol, ElCard, ElProgress, ElTable, ElTableColumn, ElTag } from 'element-plus'
-
-const dashboard = useDashboardStore()
-const metrics = useMetricsWebSocket()
-const loading = ref(false)
-
-onMounted(async () => {
-  loading.value = true
-  await dashboard.fetchDashboard()
-  loading.value = false
-  metrics.connect()
-})
-
-onUnmounted(() => {
-  metrics.disconnect()
-})
-
-function formatBytes(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`
-  return `${mb.toFixed(0)} MB`
-}
-
-function uptimeDisplay(seconds: number): string {
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
-  const mins = Math.floor((seconds % 3600) / 60)
-  return `${days}d ${hours}h ${mins}m`
-}
-</script>
-
 <template>
-  <div class="dashboard" v-loading="loading">
-    <h1 style="margin-top: 0">系统概览</h1>
-
-    <ElRow :gutter="20">
-      <ElCol :span="6">
-        <ElCard>
+  <div class="view-container">
+    <el-row :gutter="16">
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
           <div class="stat">
-            <h3>CPU 使用率</h3>
-            <ElProgress
-              type="dashboard"
-              :percentage="Math.round(dashboard.serverInfo?.cpu_usage ?? 0)"
-              :color="(dashboard.serverInfo?.cpu_usage ?? 0) > 80 ? '#f56c6c' : '#409eff'"
-            />
-            <p class="sub">{{ dashboard.serverInfo?.cpu_cores ?? 0 }} 核心</p>
+            <div class="stat-icon" style="background:#e6f7ff;color:#1890ff">CPU</div>
+            <div class="stat-body">
+              <div class="stat-label">CPU 使用率</div>
+              <div class="stat-value">{{ snap.cpu_usage.toFixed(1) }}%</div>
+              <el-progress :percentage="Math.round(snap.cpu_usage)" :color="cpuColor" :stroke-width="6" />
+              <div class="stat-detail">{{ snap.cpu_cores }} 核心</div>
+            </div>
           </div>
-        </ElCard>
-      </ElCol>
-      <ElCol :span="6">
-        <ElCard>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
           <div class="stat">
-            <h3>内存使用率</h3>
-            <ElProgress
-              type="dashboard"
-              :percentage="Math.round(dashboard.serverInfo ? (dashboard.serverInfo.memory_used_mb / dashboard.serverInfo.memory_total_mb) * 100 : 0)"
-              :color="(dashboard.serverInfo ? (dashboard.serverInfo.memory_used_mb / dashboard.serverInfo.memory_total_mb) * 100 : 0) > 80 ? '#f56c6c' : '#67c23a'"
-            />
-            <p class="sub">
-              {{ formatBytes(dashboard.serverInfo?.memory_used_mb ?? 0) }} /
-              {{ formatBytes(dashboard.serverInfo?.memory_total_mb ?? 0) }}
-            </p>
+            <div class="stat-icon" style="background:#f0f5ff;color:#2f54eb">MEM</div>
+            <div class="stat-body">
+              <div class="stat-label">内存使用率</div>
+              <div class="stat-value">{{ snap.memory_usage_percent.toFixed(1) }}%</div>
+              <el-progress :percentage="Math.round(snap.memory_usage_percent)" :color="memColor" :stroke-width="6" />
+              <div class="stat-detail">{{ (snap.memory_used_mb / 1024).toFixed(1) }} / {{ (snap.memory_total_mb / 1024).toFixed(1) }} GB</div>
+            </div>
           </div>
-        </ElCard>
-      </ElCol>
-      <ElCol :span="6">
-        <ElCard>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
           <div class="stat">
-            <h3>磁盘使用率</h3>
-            <ElProgress
-              type="dashboard"
-              :percentage="Math.round(dashboard.serverInfo ? (dashboard.serverInfo.disk_used_gb / dashboard.serverInfo.disk_total_gb) * 100 : 0)"
-              :color="(dashboard.serverInfo ? (dashboard.serverInfo.disk_used_gb / dashboard.serverInfo.disk_total_gb) * 100 : 0) > 80 ? '#f56c6c' : '#e6a23c'"
-            />
-            <p class="sub">
-              {{ (dashboard.serverInfo?.disk_used_gb ?? 0).toFixed(0) }} /
-              {{ (dashboard.serverInfo?.disk_total_gb ?? 0).toFixed(0) }} GB
-            </p>
+            <div class="stat-icon" style="background:#fff7e6;color:#fa8c16">DSK</div>
+            <div class="stat-body">
+              <div class="stat-label">磁盘使用率</div>
+              <div class="stat-value">{{ snap.disk_usage_percent.toFixed(1) }}%</div>
+              <el-progress :percentage="Math.round(snap.disk_usage_percent)" :color="diskColor" :stroke-width="6" />
+              <div class="stat-detail">{{ snap.disk_used_gb.toFixed(1) }} / {{ snap.disk_total_gb.toFixed(1) }} GB</div>
+            </div>
           </div>
-        </ElCard>
-      </ElCol>
-      <ElCol :span="6">
-        <ElCard>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
           <div class="stat">
-            <h3>系统运行时间</h3>
-            <p class="value">{{ uptimeDisplay(dashboard.serverInfo?.uptime_seconds ?? 0) }}</p>
-            <p class="sub">{{ dashboard.serverInfo?.network?.hostname || '-' }}</p>
-          </div>
-        </ElCard>
-      </ElCol>
-    </ElRow>
-
-    <!-- 概览卡片 -->
-    <ElRow :gutter="20" style="margin-top: 20px">
-      <ElCol :span="6">
-        <ElCard class="overview-card">
-          <div class="overview-stat">
-            <h3>Docker 容器</h3>
-            <p class="big-value">
-              <span class="green">{{ dashboard.dockerRunning }}</span>
-              /
-              <span>{{ dashboard.dockerTotal }}</span>
-            </p>
-            <p class="sub">运行中 / 总计</p>
-          </div>
-        </ElCard>
-      </ElCol>
-      <ElCol :span="6">
-        <ElCard class="overview-card">
-          <div class="overview-stat">
-            <h3>网站</h3>
-            <p class="big-value">
-              <span class="green">{{ dashboard.websitesRunning }}</span>
-              /
-              <span>{{ dashboard.websitesTotal }}</span>
-            </p>
-            <p class="sub">运行中 / 总计</p>
-          </div>
-        </ElCard>
-      </ElCol>
-      <ElCol :span="6">
-        <ElCard class="overview-card">
-          <div class="overview-stat">
-            <h3>WAF 规则</h3>
-            <p class="big-value">
-              <span class="green">{{ dashboard.wafRulesEnabled }}</span>
-              /
-              <span>{{ dashboard.wafRulesCount }}</span>
-            </p>
-            <p class="sub">启用 / 总计</p>
-          </div>
-        </ElCard>
-      </ElCol>
-      <ElCol :span="6">
-        <ElCard class="overview-card">
-          <div class="overview-stat">
-            <h3>系统负载</h3>
-            <p class="value-text">
-              {{ dashboard.serverInfo?.load_average?.one?.toFixed(2) ?? '-' }}
-              /
-              {{ dashboard.serverInfo?.load_average?.five?.toFixed(2) ?? '-' }}
-              /
-              {{ dashboard.serverInfo?.load_average?.fifteen?.toFixed(2) ?? '-' }}
-            </p>
-            <p class="sub">1m / 5m / 15m</p>
-          </div>
-        </ElCard>
-      </ElCol>
-    </ElRow>
-
-    <!-- GPU 监控 -->
-    <ElRow v-if="dashboard.gpuInfo.length > 0" :gutter="20" style="margin-top: 20px">
-      <template v-for="(gpu, idx) in dashboard.gpuInfo" :key="idx">
-        <ElCol :span="6">
-          <ElCard>
-            <div class="stat">
-              <h3>GPU{{ dashboard.gpuInfo.length > 1 ? `#${idx}` : '' }} 使用率</h3>
-              <ElProgress
-                type="dashboard"
-                :percentage="Math.round(gpu.utilization_percent)"
-                :color="gpu.utilization_percent > 80 ? '#f56c6c' : '#409eff'"
-                :width="140"
-              />
-              <p class="sub">{{ gpu.name }}</p>
+            <div class="stat-icon" style="background:#f6ffed;color:#52c41a">LD</div>
+            <div class="stat-body">
+              <div class="stat-label">系统负载</div>
+              <div class="stat-value">{{ snap.load_one.toFixed(2) }}</div>
+              <div class="stat-detail">1m: {{ snap.load_one.toFixed(2) }} | 5m: {{ snap.load_five.toFixed(2) }} | 15m: {{ snap.load_fifteen.toFixed(2) }}</div>
             </div>
-          </ElCard>
-        </ElCol>
-        <ElCol :span="6">
-          <ElCard>
-            <div class="stat">
-              <h3>GPU 显存</h3>
-              <ElProgress
-                type="dashboard"
-                :percentage="Math.round(gpu.memory_total_mb > 0 ? (gpu.memory_used_mb / gpu.memory_total_mb) * 100 : 0)"
-                :color="gpu.memory_total_mb > 0 && (gpu.memory_used_mb / gpu.memory_total_mb) * 100 > 80 ? '#f56c6c' : '#67c23a'"
-                :width="140"
-              />
-              <p class="sub">
-                {{ gpu.memory_used_mb >= 1024 ? (gpu.memory_used_mb / 1024).toFixed(1) + ' GB' : gpu.memory_used_mb + ' MB' }} /
-                {{ gpu.memory_total_mb >= 1024 ? (gpu.memory_total_mb / 1024).toFixed(1) + ' GB' : gpu.memory_total_mb + ' MB' }}
-              </p>
-            </div>
-          </ElCard>
-        </ElCol>
-        <ElCol :span="6">
-          <ElCard>
-            <div class="stat">
-              <h3>GPU 温度</h3>
-              <p class="value" :style="{ color: gpu.temperature_celsius > 80 ? '#f56c6c' : gpu.temperature_celsius > 60 ? '#e6a23c' : '#67c23a' }">
-                {{ gpu.temperature_celsius }}°C
-              </p>
-              <p class="sub">{{ gpu.fan_speed_percent }}% 风扇转速</p>
-            </div>
-          </ElCard>
-        </ElCol>
-        <ElCol :span="6">
-          <ElCard>
-            <div class="stat">
-              <h3>GPU 显存使用率</h3>
-              <p class="value">{{ gpu.memory_total_mb > 0 ? ((gpu.memory_used_mb / gpu.memory_total_mb) * 100).toFixed(1) : '0' }}%</p>
-              <p class="sub">
-                空闲 {{ gpu.memory_free_mb >= 1024 ? (gpu.memory_free_mb / 1024).toFixed(1) + ' GB' : gpu.memory_free_mb + ' MB' }}
-              </p>
-            </div>
-          </ElCard>
-        </ElCol>
-      </template>
-    </ElRow>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
 
-    <!-- 实时监控图表 -->
-    <ElRow :gutter="20" style="margin-top: 20px">
-      <ElCol :span="12">
-        <ElCard>
-          <SystemChart title="CPU 使用率 (%)" :history="metrics.history.value"
-            value-key="cpu_usage" color="#409eff" />
-        </ElCard>
-      </ElCol>
-      <ElCol :span="12">
-        <ElCard>
-          <SystemChart title="内存使用率 (%)" :history="metrics.history.value"
-            value-key="memory_usage_percent" color="#67c23a" />
-        </ElCard>
-      </ElCol>
-    </ElRow>
-
-    <ElRow :gutter="20" style="margin-top: 20px">
-      <ElCol :span="12">
-        <ElCard>
-          <SystemChart title="磁盘使用率 (%)" :history="metrics.history.value"
-            value-key="disk_usage_percent" color="#e6a23c" />
-        </ElCard>
-      </ElCol>
-      <ElCol :span="12">
-        <ElCard v-if="metrics.history.value.length > 0 && metrics.history.value[0].gpu_usage_percent != null">
-          <SystemChart title="GPU 使用率 (%)" :history="metrics.history.value"
-            value-key="gpu_usage_percent" color="#9b59b6" />
-        </ElCard>
-        <ElCard v-else>
-          <SystemChart title="系统负载" :history="metrics.history.value"
-            :value-keys="['load_one', 'load_five', 'load_fifteen']"
-            :series-names="['1m', '5m', '15m']"
-            :colors="['#409eff', '#67c23a', '#e6a23c']" unit="" />
-        </ElCard>
-      </ElCol>
-    </ElRow>
-
-    <!-- 最近操作日志 -->
-    <ElCard style="margin-top: 20px">
-      <template #header>
-        <span>最近操作日志</span>
-      </template>
-      <ElTable :data="dashboard.recentLogs" stripe size="small" max-height="300">
-        <ElTableColumn prop="username" label="用户" width="120" />
-        <ElTableColumn prop="action" label="操作" width="180">
-          <template #default="{ row }">
-            <ElTag size="small" type="primary">{{ row.action }}</ElTag>
+    <el-row :gutter="16" style="margin-top:16px">
+      <el-col :span="16">
+        <el-card shadow="hover">
+          <template #header>
+            <div class="card-header">
+              <span>系统指标趋势</span>
+              <span class="header-tip">实时更新</span>
+            </div>
           </template>
-        </ElTableColumn>
-        <ElTableColumn prop="target" label="目标" />
-        <ElTableColumn prop="ip" label="IP" width="140" />
-        <ElTableColumn prop="created_at" label="时间" width="180" />
-      </ElTable>
-    </ElCard>
+          <div ref="chartRef" style="height:320px" />
+        </el-card>
+      </el-col>
+      <el-col :span="8">
+        <el-card shadow="hover">
+          <template #header>
+            <div class="card-header">
+              <span>连接状态</span>
+              <span class="header-tip">{{ wsConnected ? '已连接' : '已断开' }}</span>
+            </div>
+          </template>
+          <div class="ws-status">
+            <span class="dot" :class="wsConnected ? 'green' : 'red'" />
+            {{ wsConnected ? 'WebSocket 已连接' : 'WebSocket 已断开' }}
+          </div>
+          <el-divider />
+          <div class="info-row"><span>数据点数</span><span>{{ history.length }}</span></div>
+          <div class="info-row"><span>最后更新</span><span>{{ lastUpdate }}</span></div>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
+<script setup lang="ts">
+import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
+import * as echarts from 'echarts'
+import type { MetricsSnapshot } from '@/types'
+
+const snap = reactive<MetricsSnapshot>({
+  timestamp: 0, cpu_usage: 0, cpu_cores: 0, memory_usage_percent: 0,
+  memory_total_mb: 0, memory_used_mb: 0, disk_usage_percent: 0,
+  disk_total_gb: 0, disk_used_gb: 0, load_one: 0, load_five: 0, load_fifteen: 0,
+})
+
+const history = ref<MetricsSnapshot[]>([])
+const chartRef = ref<HTMLElement>()
+const wsConnected = ref(false)
+const lastUpdate = ref('')
+let chart: echarts.ECharts | null = null
+let ws: WebSocket | null = null
+
+function cpuColor(p: number) { return p > 80 ? '#f56c6c' : p > 50 ? '#e6a23c' : '#67c23a' }
+const memColor = cpuColor
+const diskColor = cpuColor
+
+function initChart() {
+  if (!chartRef.value) return
+  chart = echarts.init(chartRef.value)
+  chart.setOption({
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['CPU %', 'Memory %', 'Disk %'], bottom: 0 },
+    grid: { left: 50, right: 20, top: 20, bottom: 40 },
+    xAxis: { type: 'time', axisLabel: { fontSize: 11 } },
+    yAxis: { type: 'value', max: 100, axisLabel: { fontSize: 11 } },
+    series: [
+      { name: 'CPU %', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 2 }, data: [] },
+      { name: 'Memory %', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 2 }, data: [] },
+      { name: 'Disk %', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 2 }, data: [] },
+    ],
+  })
+}
+
+function updateChart() {
+  if (!chart || history.value.length < 2) return
+  chart.setOption({
+    xAxis: { data: history.value.map(s => new Date(s.timestamp * 1000)) },
+    series: [
+      { data: history.value.map(s => s.cpu_usage) },
+      { data: history.value.map(s => s.memory_usage_percent) },
+      { data: history.value.map(s => s.disk_usage_percent) },
+    ],
+  })
+}
+
+onMounted(() => {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  ws = new WebSocket(`${protocol}//${location.host}/ws/metrics`)
+  ws.onopen = () => { wsConnected.value = true }
+  ws.onclose = () => { wsConnected.value = false }
+  ws.onmessage = (ev: MessageEvent) => {
+    const msg = JSON.parse(ev.data)
+    if (msg.type === 'init') {
+      history.value = msg.data
+    } else if (msg.type === 'tick') {
+      history.value.push(msg.data)
+      if (history.value.length > 60) history.value.shift()
+      Object.assign(snap, msg.data)
+      lastUpdate.value = new Date().toLocaleString('zh-CN')
+    }
+    nextTick(updateChart)
+  }
+  nextTick(initChart)
+})
+
+onUnmounted(() => {
+  ws?.close()
+  chart?.dispose()
+})
+</script>
+
 <style scoped>
-.dashboard h1 {
-  margin-bottom: 20px;
-}
-
-.stat {
-  text-align: center;
-}
-
-.stat h3 {
-  margin: 0 0 12px;
-  font-size: 14px;
-  color: #909399;
-}
-
-.stat .value {
-  font-size: 28px;
-  font-weight: bold;
-  margin: 10px 0;
-}
-
-.stat .sub {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: #c0c4cc;
-}
-
-.overview-card {
-  text-align: center;
-}
-
-.overview-stat h3 {
-  margin: 0 0 12px;
-  font-size: 14px;
-  color: #909399;
-}
-
-.big-value {
-  font-size: 32px;
-  font-weight: bold;
-  margin: 8px 0;
-}
-
-.big-value .green {
-  color: #67c23a;
-}
-
-.value-text {
-  font-size: 18px;
-  font-weight: bold;
-  margin: 8px 0;
-}
-
-.overview-stat .sub {
-  font-size: 12px;
-  color: #c0c4cc;
-}
+.stat-card { height: 140px; }
+.stat { display: flex; gap: 16px; align-items: center; height: 100%; }
+.stat-icon { width: 56px; height: 56px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; flex-shrink: 0; }
+.stat-body { flex: 1; min-width: 0; }
+.stat-label { font-size: 13px; color: #909399; margin-bottom: 2px; }
+.stat-value { font-size: 24px; font-weight: 700; margin-bottom: 6px; color: #303133; }
+.stat-detail { font-size: 12px; color: #909399; margin-top: 4px; }
+.card-header { display: flex; align-items: center; justify-content: space-between; }
+.header-tip { font-size: 12px; color: #909399; background: #f5f7fa; padding: 2px 8px; border-radius: 4px; }
+.ws-status { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.green { background: #67c23a; }
+.dot.red { background: #f56c6c; }
+.info-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; color: #606266; }
+.dark .stat-value { color: #e5eaf3; }
 </style>

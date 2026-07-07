@@ -1,548 +1,258 @@
-<script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { useTheme, type ThemeColor } from '@/composables/useTheme'
-import { useI18n } from 'vue-i18n'
-import { setLocale, getLocale } from '@/i18n'
-import api from '@/api/client'
-import type { PanelSettings } from '@/types'
-import { useAuthStore } from '@/stores/auth'
-import { Upload, Sunny, Moon, Delete, Plus } from '@element-plus/icons-vue'
-
-const { t } = useI18n()
-const {
-  currentTheme, currentColor, backgroundImage, backgroundOpacity,
-  applyColor, applyBackground, removeBackground, toggleTheme
-} = useTheme()
-const auth = useAuthStore()
-
-const settings = ref<PanelSettings>({ theme: 'light', language: 'zh-CN' })
-const currentLanguage = ref(getLocale())
-
-// Change password form
-const passwordForm = ref({
-  current_password: '',
-  new_password: '',
-  confirm_password: '',
-})
-const changingPassword = ref(false)
-const bgUrlInput = ref('')
-const bgOpacity = ref(backgroundOpacity.value)
-const uploadingBg = ref(false)
-
-const colorPresets: { name: ThemeColor; label: string; cssVar: string }[] = [
-  { name: 'blue',   label: '天蓝',  cssVar: '211, 100%, 55%' },
-  { name: 'green',  label: '翠绿',  cssVar: '160, 80%, 45%' },
-  { name: 'purple', label: '魅紫',  cssVar: '270, 70%, 55%' },
-  { name: 'orange', label: '暖橙',  cssVar: '22, 95%, 52%' },
-  { name: 'red',    label: '赤红',  cssVar: '350, 85%, 52%' },
-  { name: 'cyan',   label: '青蓝',  cssVar: '190, 75%, 48%' },
-]
-
-const fetchSettings = async () => {
-  try {
-    const res = await api.get<PanelSettings>('/settings')
-    settings.value = res.data
-  } catch { /* defaults */ }
-}
-
-const handleChangePassword = async () => {
-  if (!passwordForm.value.current_password || !passwordForm.value.new_password) {
-    ElMessage.warning(t('settings.fillAllFields'))
-    return
-  }
-  if (passwordForm.value.new_password !== passwordForm.value.confirm_password) {
-    ElMessage.warning(t('settings.passwordMismatch'))
-    return
-  }
-  if (passwordForm.value.new_password.length < 6) {
-    ElMessage.warning(t('settings.passwordTooShort'))
-    return
-  }
-  changingPassword.value = true
-  try {
-    await api.put('/auth/change-password', {
-      current_password: passwordForm.value.current_password,
-      new_password: passwordForm.value.new_password,
-    })
-    ElMessage.success(t('settings.passwordSuccess'))
-    passwordForm.value = { current_password: '', new_password: '', confirm_password: '' }
-    auth.logout()
-    window.location.href = '/login'
-  } catch (e: any) {
-    ElMessage.error(e.response?.data?.message || t('settings.passwordFailed'))
-  } finally {
-    changingPassword.value = false
-  }
-}
-
-const handleThemeToggle = () => {
-  toggleTheme()
-}
-
-const handleColorChange = (color: ThemeColor) => {
-  applyColor(color)
-  api.put('/settings', { theme_color: color }).catch(() => {})
-}
-
-const handleLanguageChange = (lang: string) => {
-  currentLanguage.value = lang
-  setLocale(lang)
-  api.put('/settings', { language: lang }).catch(() => {})
-  window.location.reload()
-}
-
-const handleApplyBgUrl = () => {
-  const url = bgUrlInput.value.trim()
-  if (!url) {
-    removeBackground()
-    api.put('/settings', { background_image: '', background_opacity: 0 }).catch(() => {})
-  } else {
-    applyBackground(url, bgOpacity.value)
-    api.put('/settings', { background_image: url, background_opacity: bgOpacity.value }).catch(() => {})
-  }
-}
-
-const handleBgFileUpload = () => {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'image/*'
-  input.onchange = async () => {
-    const file = input.files?.[0]
-    if (!file) return
-    uploadingBg.value = true
-    try {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const dataUrl = reader.result as string
-        applyBackground(dataUrl, bgOpacity.value)
-        api.put('/settings', {
-          background_image: dataUrl,
-          background_opacity: bgOpacity.value
-        }).catch(() => {})
-        bgUrlInput.value = dataUrl.substring(0, 60) + '...'
-        uploadingBg.value = false
-        ElMessage.success('背景图片已上传')
-      }
-      reader.readAsDataURL(file)
-    } catch {
-      uploadingBg.value = false
-      ElMessage.error('上传失败')
-    }
-  }
-  input.click()
-}
-
-const handleRemoveBg = () => {
-  bgUrlInput.value = ''
-  removeBackground()
-  api.put('/settings', { background_image: '', background_opacity: 0 }).catch(() => {})
-  ElMessage.success('背景图片已移除')
-}
-
-const handleOpacityChange = (val: number) => {
-  bgOpacity.value = val
-  if (backgroundImage.value) {
-    applyBackground(backgroundImage.value, val)
-    api.put('/settings', { background_opacity: val }).catch(() => {})
-  }
-}
-
-onMounted(() => {
-  fetchSettings()
-  if (backgroundImage.value) {
-    bgUrlInput.value = backgroundImage.value.length > 80
-      ? backgroundImage.value.substring(0, 80) + '...'
-      : backgroundImage.value
-  }
-})
-</script>
-
 <template>
-  <div class="settings-page">
-    <div class="page-header">
-      <h2>{{ t('settings.title') }}</h2>
-      <p class="desc">{{ t('settings.desc') }}</p>
-    </div>
-
-    <div class="settings-sections">
-      <!-- Appearance -->
-      <el-card class="settings-card">
-        <template #header>
-          <div class="card-header">
-            <span class="card-title">{{ t('settings.appearance') }}</span>
-          </div>
-        </template>
-
-        <!-- Dark/Light Toggle -->
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-label">{{ t('settings.theme') }}</span>
-            <span class="setting-desc">{{ t('settings.themeDesc') }}</span>
-          </div>
-          <div class="theme-toggle-group">
-            <button
-              class="theme-toggle-btn"
-              :class="{ active: currentTheme === 'light' }"
-              @click="currentTheme !== 'light' && handleThemeToggle()"
-            >
-              <el-icon><Sunny /></el-icon>
-              <span>{{ t('settings.light') }}</span>
-            </button>
-            <button
-              class="theme-toggle-btn"
-              :class="{ active: currentTheme === 'dark' }"
-              @click="currentTheme !== 'dark' && handleThemeToggle()"
-            >
-              <el-icon><Moon /></el-icon>
-              <span>{{ t('settings.dark') }}</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Language -->
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-label">{{ t('settings.language') }}</span>
-            <span class="setting-desc">{{ t('settings.languageDesc') }}</span>
-          </div>
-          <el-select
-            :model-value="currentLanguage"
-            size="small"
-            style="width: 140px"
-            @change="handleLanguageChange"
-          >
-            <el-option label="简体中文" value="zh-CN" />
-            <el-option label="English" value="en-US" />
-          </el-select>
-        </div>
-
-        <!-- Theme Colors -->
-        <div class="setting-row setting-row-column">
-          <div class="setting-info">
-            <span class="setting-label">主题颜色</span>
-            <span class="setting-desc">选择界面主色调，全局生效</span>
-          </div>
-          <div class="color-presets">
-            <button
-              v-for="c in colorPresets"
-              :key="c.name"
-              class="color-swatch"
-              :class="{ active: currentColor === c.name }"
-              :style="{ backgroundColor: `hsl(${c.cssVar})` }"
-              :title="c.label"
-              @click="handleColorChange(c.name)"
-            >
-              <span v-if="currentColor === c.name" class="check-mark">&#10003;</span>
-            </button>
-          </div>
-        </div>
-      </el-card>
-
-      <!-- Background Image -->
-      <el-card class="settings-card">
-        <template #header>
-          <div class="card-header">
-            <span class="card-title">自定义背景</span>
-          </div>
-        </template>
-
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-label">背景图片</span>
-            <span class="setting-desc">设置个性化背景，支持图片链接或本地文件</span>
-          </div>
-        </div>
-
-        <div class="bg-input-row">
-          <el-input
-            v-model="bgUrlInput"
-            placeholder="输入图片 URL..."
-            size="default"
-            class="bg-url-input"
-            clearable
-            @clear="handleRemoveBg"
-            @keyup.enter="handleApplyBgUrl"
-          >
-            <template #append>
-              <el-button @click="handleApplyBgUrl">应用</el-button>
-            </template>
-          </el-input>
-          <el-button :icon="Upload" :loading="uploadingBg" @click="handleBgFileUpload">
-            本地上传
-          </el-button>
-          <el-button
-            v-if="backgroundImage"
-            :icon="Delete"
-            type="danger"
-            plain
-            @click="handleRemoveBg"
-          >
-            移除
-          </el-button>
-        </div>
-
-        <div v-if="backgroundImage" class="setting-row">
-          <div class="setting-info">
-            <span class="setting-label">背景透明度</span>
-            <span class="setting-desc">{{ Math.round(bgOpacity * 100) }}%</span>
-          </div>
-          <el-slider
-            :model-value="bgOpacity"
-            :min="0.1"
-            :max="0.8"
-            :step="0.05"
-            style="width: 200px"
-            @input="handleOpacityChange"
-          />
-        </div>
-
-        <div v-if="backgroundImage" class="bg-preview">
-          <img :src="backgroundImage" alt="背景预览" />
-        </div>
-      </el-card>
-
-      <!-- Security -->
-      <el-card class="settings-card">
-        <template #header>
-          <div class="card-header">
-            <span class="card-title">{{ t('settings.security') }}</span>
-          </div>
-        </template>
-
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-label">{{ t('settings.account') }}</span>
-            <span class="setting-desc">{{ t('settings.accountDesc') }}</span>
-          </div>
-          <el-tag>{{ auth.username || 'admin' }}</el-tag>
-        </div>
-
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-label">{{ t('settings.role') }}</span>
-            <span class="setting-desc">{{ t('settings.roleDesc') }}</span>
-          </div>
-          <el-tag :type="auth.role === 'admin' ? 'danger' : 'info'">
-            {{ auth.role === 'admin' ? t('settings.admin') : t('settings.user') }}
-          </el-tag>
-        </div>
-
-        <el-divider />
-
-        <div class="password-section">
-          <h4>{{ t('settings.changePassword') }}</h4>
-          <el-form :model="passwordForm" label-width="100px" class="password-form">
-            <el-form-item :label="t('settings.currentPassword')">
-              <el-input
-                v-model="passwordForm.current_password"
-                type="password"
-                show-password
-                :placeholder="t('settings.passwordPlaceholder')"
-              />
+  <div>
+    <h2>面板设置</h2>
+    <el-row :gutter="16" style="margin-top:16px">
+      <el-col :span="12">
+        <el-card shadow="hover">
+          <template #header><span style="font-weight:600">修改密码</span></template>
+          <el-form :model="pwForm" label-width="110px" :rules="pwRules" ref="pwFormRef">
+            <el-form-item label="当前密码" prop="old_password">
+              <el-input v-model="pwForm.old_password" type="password" show-password />
             </el-form-item>
-            <el-form-item :label="t('settings.newPassword')">
-              <el-input
-                v-model="passwordForm.new_password"
-                type="password"
-                show-password
-                :placeholder="t('settings.newPasswordPlaceholder')"
-              />
+            <el-form-item label="新密码" prop="new_password">
+              <el-input v-model="pwForm.new_password" type="password" show-password />
             </el-form-item>
-            <el-form-item :label="t('settings.confirmPassword')">
-              <el-input
-                v-model="passwordForm.confirm_password"
-                type="password"
-                show-password
-                :placeholder="t('settings.confirmPasswordPlaceholder')"
-              />
+            <el-form-item label="确认密码" prop="confirm">
+              <el-input v-model="pwForm.confirm" type="password" show-password />
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" :loading="changingPassword" @click="handleChangePassword">
-                {{ t('settings.passwordBtn') }}
-              </el-button>
+              <el-button type="primary" @click="handleChangePassword" :loading="pwSubmitting">更新密码</el-button>
             </el-form-item>
           </el-form>
-        </div>
-      </el-card>
+        </el-card>
+      </el-col>
+      <el-col :span="12">
+        <el-card shadow="hover">
+          <template #header><span style="font-weight:600">面板信息</span></template>
+          <el-descriptions :column="1" border>
+            <el-descriptions-item label="版本">{{ version }}</el-descriptions-item>
+            <el-descriptions-item label="面板名称">{{ settingsMap['panel_name'] || 'FlamePanel' }}</el-descriptions-item>
+            <el-descriptions-item label="用户名">{{ auth.username }}</el-descriptions-item>
+            <el-descriptions-item label="角色">
+              <el-tag size="small" :type="auth.role === 'admin' ? 'danger' : 'info'">{{ auth.role }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="后端状态"><span class="status-ok">Connected</span></el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+      </el-col>
+    </el-row>
 
-      <!-- About -->
-      <el-card class="settings-card">
-        <template #header>
-          <div class="card-header">
-            <span class="card-title">{{ t('settings.about') }}</span>
-          </div>
-        </template>
+    <el-card shadow="hover" style="margin-top:16px">
+      <template #header><span style="font-weight:600">面板配置</span></template>
+      <el-form :model="settingsForm" label-width="160px" v-loading="loading">
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="面板名称">
+              <el-input v-model="settingsForm.panel_name" placeholder="FlamePanel" />
+              <div class="setting-hint">显示在页面标题和侧边栏</div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="主题">
+              <el-select v-model="settingsForm.theme" style="width:100%">
+                <el-option label="浅色 (Light)" value="light" />
+                <el-option label="深色 (Dark)" value="dark" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="界面语言">
+              <el-select v-model="settingsForm.language" style="width:100%">
+                <el-option label="中文 (简体)" value="zh-CN" />
+                <el-option label="English" value="en-US" />
+                <el-option label="日本語" value="ja-JP" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="面板端口">
+              <el-input-number v-model="settingsForm.panel_port_num" :min="1024" :max="65535" style="width:100%" />
+              <div class="setting-hint">修改后需重启面板生效</div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="会话超时 (分钟)">
+              <el-input-number v-model="settingsForm.session_timeout_num" :min="5" :max="43200" style="width:100%" />
+              <div class="setting-hint">默认 1440 分钟 (24 小时)</div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="日志级别">
+              <el-select v-model="settingsForm.log_level" style="width:100%">
+                <el-option label="Trace" value="trace" />
+                <el-option label="Debug" value="debug" />
+                <el-option label="Info" value="info" />
+                <el-option label="Warn" value="warn" />
+                <el-option label="Error" value="error" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="日志保留天数">
+              <el-input-number v-model="settingsForm.log_retention_num" :min="1" :max="365" style="width:100%" />
+              <div class="setting-hint">超过保留期限的日志将被清理</div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="两步验证 (2FA)">
+              <el-switch v-model="settingsForm.two_factor_enabled_bool" />
+              <div class="setting-hint">需要 TOTP 验证器应用</div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item>
+          <el-button type="primary" @click="handleSaveSettings" :loading="saving">保存配置</el-button>
+          <el-button @click="resetSettings">重置</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
 
-        <div class="about-grid">
-          <div class="about-item">
-            <span class="about-label">{{ t('settings.panelName') }}</span>
-            <span class="about-value">Flamepanel</span>
-          </div>
-          <div class="about-item">
-            <span class="about-label">{{ t('settings.version') }}</span>
-            <span class="about-value">v0.1.0</span>
-          </div>
-          <div class="about-item">
-            <span class="about-label">{{ t('settings.backend') }}</span>
-            <span class="about-value">Rust + Axum 0.8</span>
-          </div>
-          <div class="about-item">
-            <span class="about-label">{{ t('settings.frontend') }}</span>
-            <span class="about-value">Vue 3.5 + Element Plus</span>
-          </div>
-          <div class="about-item">
-            <span class="about-label">{{ t('settings.database') }}</span>
-            <span class="about-value">SQLite</span>
-          </div>
-          <div class="about-item">
-            <span class="about-label">{{ t('settings.license') }}</span>
-            <span class="about-value">MIT</span>
-          </div>
-        </div>
-      </el-card>
-    </div>
+    <el-card shadow="hover" style="margin-top:16px">
+      <template #header><span style="font-weight:600">JWT 密钥</span></template>
+      <el-descriptions :column="1" border>
+        <el-descriptions-item label="当前密钥">
+          <el-tag type="warning" size="small">已设置</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="操作">
+          <el-button type="warning" @click="handleRotateJwtSecret" :loading="rotating">轮换密钥</el-button>
+          <span style="margin-left:8px;font-size:12px;color:#909399">轮换后所有用户需要重新登录</span>
+        </el-descriptions-item>
+      </el-descriptions>
+    </el-card>
   </div>
 </template>
 
+<script setup lang="ts">
+import { ref, reactive, onMounted } from 'vue'
+import { changePassword } from '@/api/auth'
+import { listSettings, updateSetting } from '@/api/settings'
+import { useAuthStore } from '@/stores/auth'
+import { ElMessage } from 'element-plus'
+import type { SettingEntry } from '@/types'
+import type { FormInstance, FormRules } from 'element-plus'
+
+const auth = useAuthStore()
+const version = ref('v0.1.0')
+const loading = ref(false)
+const saving = ref(false)
+const pwSubmitting = ref(false)
+const rotating = ref(false)
+
+const settingsMap = ref<Record<string, string>>({})
+const settingsForm = reactive({
+  panel_name: '',
+  theme: 'light',
+  language: 'zh-CN',
+  panel_port_num: 8080,
+  session_timeout_num: 1440,
+  log_level: 'info',
+  log_retention_num: 30,
+  two_factor_enabled_bool: false,
+})
+
+const pwFormRef = ref<FormInstance>()
+const pwForm = ref({ old_password: '', new_password: '', confirm: '' })
+const pwRules: FormRules = {
+  old_password: [{ required: true, message: '请输入当前密码', trigger: 'blur' }],
+  new_password: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    { min: 6, message: '至少 6 个字符', trigger: 'blur' },
+  ],
+  confirm: [
+    { required: true, message: '请确认新密码', trigger: 'blur' },
+    {
+      validator: (_rule: any, value: string, callback: Function) => {
+        if (value !== pwForm.value.new_password) callback(new Error('两次密码不一致'))
+        else callback()
+      }, trigger: 'blur',
+    },
+  ],
+}
+
+async function fetchSettings() {
+  loading.value = true
+  try {
+    const res = await listSettings()
+    const map: Record<string, string> = {}
+    for (const s of res.data) {
+      map[s.key] = s.value
+    }
+    settingsMap.value = map
+    settingsForm.panel_name = map['panel_name'] || 'FlamePanel'
+    settingsForm.theme = map['theme'] || 'light'
+    settingsForm.language = map['language'] || 'zh-CN'
+    settingsForm.panel_port_num = parseInt(map['panel_port'] || '8080')
+    settingsForm.session_timeout_num = parseInt(map['session_timeout_minutes'] || '1440')
+    settingsForm.log_level = map['log_level'] || 'info'
+    settingsForm.log_retention_num = parseInt(map['log_retention_days'] || '30')
+    settingsForm.two_factor_enabled_bool = map['two_factor_enabled'] === 'true'
+  } catch { ElMessage.error('获取配置失败') }
+  finally { loading.value = false }
+}
+
+async function handleChangePassword() {
+  const valid = await pwFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+  pwSubmitting.value = true
+  try {
+    await changePassword(pwForm.value.old_password, pwForm.value.new_password)
+    ElMessage.success('密码已更新')
+    pwFormRef.value?.resetFields()
+  } catch (e: any) { ElMessage.error(e.response?.data?.message || '更新失败') }
+  finally { pwSubmitting.value = false }
+}
+
+async function handleSaveSettings() {
+  saving.value = true
+  try {
+    await updateSetting('panel_name', settingsForm.panel_name)
+    await updateSetting('theme', settingsForm.theme)
+    await updateSetting('language', settingsForm.language)
+    await updateSetting('panel_port', String(settingsForm.panel_port_num))
+    await updateSetting('session_timeout_minutes', String(settingsForm.session_timeout_num))
+    await updateSetting('log_level', settingsForm.log_level)
+    await updateSetting('log_retention_days', String(settingsForm.log_retention_num))
+    await updateSetting('two_factor_enabled', settingsForm.two_factor_enabled_bool ? 'true' : 'false')
+    ElMessage.success('配置已保存')
+    await fetchSettings()
+  } catch (e: any) { ElMessage.error(e.response?.data?.message || '保存失败') }
+  finally { saving.value = false }
+}
+
+function resetSettings() {
+  settingsForm.panel_name = settingsMap.value['panel_name'] || 'FlamePanel'
+  settingsForm.theme = settingsMap.value['theme'] || 'light'
+  settingsForm.language = settingsMap.value['language'] || 'zh-CN'
+  settingsForm.panel_port_num = parseInt(settingsMap.value['panel_port'] || '8080')
+  settingsForm.session_timeout_num = parseInt(settingsMap.value['session_timeout_minutes'] || '1440')
+  settingsForm.log_level = settingsMap.value['log_level'] || 'info'
+  settingsForm.log_retention_num = parseInt(settingsMap.value['log_retention_days'] || '30')
+  settingsForm.two_factor_enabled_bool = settingsMap.value['two_factor_enabled'] === 'true'
+  ElMessage.info('已重置为当前保存值')
+}
+
+async function handleRotateJwtSecret() {
+  rotating.value = true
+  try {
+    const secret = Array.from({ length: 32 }, () =>
+      'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]
+    ).join('')
+    await updateSetting('jwt_secret', secret)
+    ElMessage.success('JWT 密钥已轮换，所有用户需要重新登录')
+  } catch (e: any) { ElMessage.error(e.response?.data?.message || '轮换失败') }
+  finally { rotating.value = false }
+}
+
+onMounted(fetchSettings)
+</script>
+
 <style scoped>
-.settings-page {
-  max-width: 840px;
-}
-
-.page-header h2 {
-  margin: 0;
-  font-size: 22px;
-  color: var(--text-primary);
-  font-weight: 700;
-}
-.page-header .desc {
-  margin: 4px 0 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.settings-sections {
-  margin-top: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.settings-card {
-  background: var(--bg-card);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--border-radius-lg);
-  box-shadow: var(--shadow-card);
-}
-
-.settings-card :deep(.el-card__header) {
-  background: transparent;
-  border-color: var(--border-color);
-  padding: 16px 20px;
-}
-
-.settings-card :deep(.el-card__body) {
-  padding: 20px;
-}
-
-.card-header { display: flex; align-items: center; justify-content: space-between; }
-.card-title { font-weight: 600; color: var(--text-primary); font-size: 15px; }
-
-.setting-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 0;
-}
-.setting-row + .setting-row { border-top: 1px solid var(--border-light); }
-.setting-row-column { flex-direction: column; align-items: flex-start; gap: 12px; }
-
-.setting-info { display: flex; flex-direction: column; gap: 2px; }
-.setting-label { font-size: 14px; color: var(--text-primary); font-weight: 500; }
-.setting-desc { font-size: 12px; color: var(--text-secondary); }
-
-/* Theme toggle buttons */
-.theme-toggle-group {
-  display: flex;
-  background: var(--bg-hover);
-  border-radius: 10px;
-  padding: 3px;
-  gap: 2px;
-}
-
-.theme-toggle-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 16px;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: transparent;
-  transition: all 0.2s ease;
-}
-.theme-toggle-btn:hover { color: var(--text-primary); }
-.theme-toggle-btn.active {
-  background: var(--bg-card);
-  color: var(--el-color-primary);
-  box-shadow: var(--shadow-sm);
-}
-
-/* Color presets */
-.color-presets {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.color-swatch {
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  border: 3px solid transparent;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-}
-.color-swatch:hover { transform: scale(1.12); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2); }
-.color-swatch.active { border-color: var(--text-primary); transform: scale(1.08); }
-
-.check-mark { color: #fff; font-size: 16px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
-
-/* Background */
-.bg-input-row { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
-.bg-url-input { flex: 1; }
-
-.bg-preview {
-  margin-top: 16px;
-  border-radius: var(--border-radius);
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-  max-height: 200px;
-}
-.bg-preview img {
-  width: 100%;
-  height: 180px;
-  object-fit: cover;
-  display: block;
-}
-
-/* Password */
-.password-section h4 { margin: 0 0 16px; color: var(--text-primary); }
-.password-form { max-width: 420px; }
-
-/* About */
-.about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.about-item { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; }
-.about-label { font-size: 12px; color: var(--text-secondary); }
-.about-value { font-size: 14px; color: var(--text-primary); font-weight: 500; }
+.status-ok { color: #67c23a; font-weight: 600; }
+.setting-hint { font-size: 12px; color: #909399; margin-top: 4px; }
 </style>

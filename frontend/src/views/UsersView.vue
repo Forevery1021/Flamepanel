@@ -1,201 +1,84 @@
-<script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete, Key } from '@element-plus/icons-vue'
-import api from '@/api/client'
-import type { User, Role } from '@/types'
-import { useAuthStore } from '@/stores/auth'
-
-const auth = useAuthStore()
-const users = ref<User[]>([])
-const roles = ref<Role[]>([])
-const loading = ref(false)
-const dialogVisible = ref(false)
-const dialogTitle = ref('')
-const form = ref({ username: '', password: '', role: 'viewer' })
-
-const fetchUsers = async () => {
-  loading.value = true
-  try {
-    const { data } = await api.get<User[]>('/users/list')
-    users.value = data
-  } catch {
-    ElMessage.error('获取用户列表失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-const fetchRoles = async () => {
-  try {
-    if (auth.role === 'admin') {
-      const resp = await fetch('/api/rbac/roles', {
-        headers: { Authorization: `Bearer ${auth.token}` },
-      })
-      if (resp.ok) roles.value = await resp.json()
-    }
-  } catch { /* ignore */ }
-}
-
-const openCreate = () => {
-  dialogTitle.value = '创建用户'
-  form.value = { username: '', password: '', role: roles.value[0]?.name || 'viewer' }
-  dialogVisible.value = true
-}
-
-const handleSubmit = async () => {
-  if (!form.value.username || !form.value.password) {
-    ElMessage.warning('请填写完整信息')
-    return
-  }
-  try {
-    await api.post('/auth/register', form.value)
-    ElMessage.success('用户创建成功')
-    dialogVisible.value = false
-    fetchUsers()
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '创建失败')
-  }
-}
-
-const handleDelete = async (user: User) => {
-  if (user.username === auth.username) {
-    ElMessage.warning('不能删除自己')
-    return
-  }
-  try {
-    await ElMessageBox.confirm(`确定删除用户 "${user.username}"？`, '确认删除', {
-      type: 'warning',
-    })
-    await api.delete('/users/delete', { params: { id: user.id } })
-    ElMessage.success('用户已删除')
-    fetchUsers()
-  } catch { /* canceled */ }
-}
-
-const handleRoleChange = async (user: User, newRole: string) => {
-  try {
-    await fetch(`/api/rbac/assign-role`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${auth.token}`,
-      },
-      body: JSON.stringify({ user_id: user.id, role: newRole }),
-    })
-    ElMessage.success('角色更新成功')
-    fetchUsers()
-  } catch {
-    ElMessage.error('角色更新失败')
-  }
-}
-
-const handleResetPassword = async (user: User) => {
-  try {
-    const { value } = await ElMessageBox.prompt('请输入新密码（至少6位）', '重置密码', {
-      inputType: 'password',
-      inputValidator: (v) => v.length >= 6 ? true : '密码至少6位',
-    })
-    await api.put('/users/reset-password', null, { params: { id: user.id, password: value } })
-    ElMessage.success('密码已重置')
-  } catch { /* canceled */ }
-}
-
-onMounted(() => { fetchUsers(); fetchRoles() })
-</script>
-
 <template>
-  <div class="users-page">
-    <div class="page-header">
-      <h3>用户管理</h3>
-      <el-button type="primary" :icon="Plus" @click="openCreate" v-if="auth.role === 'admin'">
-        创建用户
-      </el-button>
+  <div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2>Users</h2>
+      <el-button type="primary" @click="showCreate = true">Create User</el-button>
     </div>
-
-    <el-table :data="users" v-loading="loading" stripe>
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="username" label="用户名" />
-      <el-table-column prop="role" label="角色">
+    <el-table :data="users" border stripe v-loading="loading" style="margin-top:16px">
+      <el-table-column prop="id" label="ID" width="60" />
+      <el-table-column prop="username" label="Username" />
+      <el-table-column prop="role" label="Role" width="100">
         <template #default="{ row }">
-          <el-select
-            :model-value="row.role"
-            @change="(v: string) => handleRoleChange(row, v)"
-            size="small"
-            style="width: 100px"
-            :disabled="auth.role !== 'admin' || row.username === auth.username"
-          >
-            <el-option
-              v-for="r in roles"
-              :key="r.name"
-              :label="r.description || r.name"
-              :value="r.name"
-            />
-          </el-select>
+          <el-tag :type="row.role === 'admin' ? 'danger' : row.role === 'operator' ? 'warning' : 'info'" size="small">
+            {{ row.role }}
+          </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" width="180" />
-      <el-table-column prop="last_login" label="最后登录" width="180">
-        <template #default="{ row }">
-          {{ row.last_login || '从未登录' }}
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="180" v-if="auth.role === 'admin'">
-        <template #default="{ row }">
-          <el-button :icon="Key" size="small" type="warning" @click="handleResetPassword(row)">
-            重置密码
-          </el-button>
-          <el-button
-            :icon="Delete"
-            size="small"
-            type="danger"
-            @click="handleDelete(row)"
-            :disabled="row.username === auth.username"
-          >
-            删除
-          </el-button>
-        </template>
-      </el-table-column>
+      <el-table-column prop="created_at" label="Created" width="180" />
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="420px">
-      <el-form label-width="80px">
-        <el-form-item label="用户名">
-          <el-input v-model="form.username" placeholder="至少3位" />
+    <el-dialog v-model="showCreate" title="Create User" width="420px" destroy-on-close>
+      <el-form :model="form" label-width="100px" :rules="rules" ref="formRef">
+        <el-form-item label="Username" prop="username">
+          <el-input v-model="form.username" />
         </el-form-item>
-        <el-form-item label="密码">
-          <el-input v-model="form.password" type="password" placeholder="至少6位" show-password />
+        <el-form-item label="Password" prop="password">
+          <el-input v-model="form.password" type="password" show-password />
         </el-form-item>
-        <el-form-item label="角色">
-          <el-select v-model="form.role" style="width: 100%">
-            <el-option
-              v-for="r in roles"
-              :key="r.name"
-              :label="r.description || r.name"
-              :value="r.name"
-            />
+        <el-form-item label="Role" prop="role">
+          <el-select v-model="form.role" style="width:100%">
+            <el-option label="admin" value="admin" />
+            <el-option label="operator" value="operator" />
+            <el-option label="viewer" value="viewer" />
           </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确认</el-button>
+        <el-button @click="showCreate = false">Cancel</el-button>
+        <el-button type="primary" @click="handleCreate" :loading="submitting">Create</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
-<style scoped>
-.users-page {
-  max-width: 1200px;
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { listUsers, createUser } from '@/api/users'
+import { ElMessage } from 'element-plus'
+import type { User } from '@/types'
+import type { FormInstance, FormRules } from 'element-plus'
+
+const users = ref<User[]>([])
+const loading = ref(false)
+const showCreate = ref(false)
+const submitting = ref(false)
+const formRef = ref<FormInstance>()
+const form = ref({ username: '', password: '', role: 'viewer' })
+const rules: FormRules = {
+  username: [{ required: true, message: 'Required', trigger: 'blur' }],
+  password: [{ required: true, message: 'Required', trigger: 'blur' }, { min: 4, message: 'Min 4 chars', trigger: 'blur' }],
+  role: [{ required: true, message: 'Required', trigger: 'change' }],
 }
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+
+async function fetch() {
+  loading.value = true
+  try { users.value = (await listUsers()).data } catch { ElMessage.error('Failed to fetch users') }
+  finally { loading.value = false }
 }
-.page-header h3 {
-  margin: 0;
+
+async function handleCreate() {
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
+  submitting.value = true
+  try {
+    await createUser(form.value.username, form.value.password, form.value.role)
+    ElMessage.success('User created')
+    showCreate.value = false
+    formRef.value?.resetFields()
+    fetch()
+  } catch (e: any) { ElMessage.error(e.response?.data?.message || 'Create failed') }
+  finally { submitting.value = false }
 }
-</style>
+
+onMounted(fetch)
+</script>

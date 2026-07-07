@@ -8,127 +8,35 @@ const router = createRouter({
       path: '/login',
       name: 'Login',
       component: () => import('@/views/LoginView.vue'),
-      meta: { requiresAuth: false },
     },
     {
       path: '/',
-      component: () => import('@/layout/Layout.vue'),
+      component: () => import('@/components/Layout.vue'),
       redirect: '/dashboard',
-      meta: { requiresAuth: true },
       children: [
-        {
-          path: 'dashboard',
-          name: 'Dashboard',
-          component: () => import('@/views/DashboardView.vue'),
-        },
-        {
-          path: 'file',
-          name: 'FileManager',
-          component: () => import('@/views/FileManagerView.vue'),
-        },
-        {
-          path: 'docker',
-          name: 'Docker',
-          component: () => import('@/views/DockerView.vue'),
-        },
-        {
-          path: 'databases',
-          name: 'Databases',
-          component: () => import('@/views/DatabaseView.vue'),
-        },
-        {
-          path: 'website',
-          name: 'Website',
-          component: () => import('@/views/WebsiteView.vue'),
-        },
-        {
-          path: 'waf',
-          name: 'Waf',
-          component: () => import('@/views/WafView.vue'),
-        },
-        {
-          path: 'terminal',
-          name: 'Terminal',
-          component: () => import('@/views/TerminalView.vue'),
-        },
-        {
-          path: 'users',
-          name: 'Users',
-          component: () => import('@/views/UsersView.vue'),
-        },
-        {
-          path: 'logs',
-          name: 'Logs',
-          component: () => import('@/views/LogView.vue'),
-        },
-        {
-          path: 'processes',
-          name: 'Processes',
-          component: () => import('@/views/ProcessView.vue'),
-        },
-        {
-          path: 'cleanup',
-          name: 'Cleanup',
-          component: () => import('@/views/CleanupView.vue'),
-        },
-        {
-          path: 'settings',
-          name: 'Settings',
-          component: () => import('@/views/SettingsView.vue'),
-        },
-        {
-          path: 'cron',
-          name: 'Cron',
-          component: () => import('@/views/CronView.vue'),
-        },
-        {
-          path: 'appstore',
-          name: 'AppStore',
-          component: () => import('@/views/AppStoreView.vue'),
-        },
-        {
-          path: 'ai',
-          name: 'AiAssistant',
-          component: () => import('@/views/AiAssistantView.vue'),
-        },
-        {
-          path: 'nodes',
-          name: 'Nodes',
-          component: () => import('@/views/NodesView.vue'),
-        },
-        {
-          path: 'backup',
-          name: 'Backup',
-          component: () => import('@/views/BackupView.vue'),
-        },
-        {
-          path: 'alerts',
-          name: 'Alerts',
-          component: () => import('@/views/AlertsView.vue'),
-        },
-        {
-          path: 'plugins',
-          name: 'Plugins',
-          component: () => import('@/views/PluginsView.vue'),
-        },
-        {
-          path: 'roles',
-          name: 'Roles',
-          component: () => import('@/views/RolesView.vue'),
-        },
+        { path: 'dashboard', name: 'Dashboard', component: () => import('@/views/DashboardView.vue') },
+        { path: 'users', name: 'Users', component: () => import('@/views/UsersView.vue') },
+        { path: 'nodes', name: 'Nodes', component: () => import('@/views/NodesView.vue') },
+        { path: 'files', name: 'Files', component: () => import('@/views/FilesView.vue') },
+        { path: 'databases', name: 'Databases', component: () => import('@/views/DatabasesView.vue') },
+        { path: 'websites', name: 'Websites', component: () => import('@/views/WebsitesView.vue') },
+        { path: 'docker', name: 'Docker', component: () => import('@/views/DockerView.vue') },
+        { path: 'plugins', name: 'Plugins', component: () => import('@/views/PluginsView.vue') },
+        { path: 'operation-logs', name: 'OperationLogs', component: () => import('@/views/OperationLogsView.vue') },
+        { path: 'system-logs', name: 'SystemLogs', component: () => import('@/views/SystemLogsView.vue') },
+        { path: 'settings', name: 'Settings', component: () => import('@/views/SettingsView.vue') },
+        { path: 'firewall', name: 'Firewall', component: () => import('@/views/FirewallView.vue') },
+        { path: 'terminal', name: 'Terminal', component: () => import('@/views/TerminalView.vue') },
+        { path: 'health', name: 'Health', component: () => import('@/views/HealthView.vue') },
       ],
     },
   ],
 })
 
-router.beforeEach((to, _, next) => {
+router.beforeEach((to, _from) => {
   const auth = useAuthStore()
-  if (to.meta.requiresAuth && !auth.token) {
-    next('/login')
-  } else if (to.path === '/login' && auth.token) {
-    next('/dashboard')
-  } else {
-    next()
+  if (to.name !== 'Login' && !auth.isLoggedIn) {
+    return '/login'
   }
 })
 
