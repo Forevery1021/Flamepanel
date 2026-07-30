@@ -22,6 +22,12 @@ impl UserService {
     pub async fn list_users(&self) -> Result<Vec<User>, AppError> {
         self.user_repo.list().await
     }
+
+    pub async fn delete_user(&self, id: i64) -> Result<(), AppError> {
+        self.user_repo.find_by_id(id).await?
+            .ok_or_else(|| AppError::NotFound(format!("User {} not found", id)))?;
+        self.user_repo.delete(id).await
+    }
 }
 
 pub struct NodeService {
@@ -39,6 +45,12 @@ impl NodeService {
 
     pub async fn list_nodes(&self) -> Result<Vec<ServerNode>, AppError> {
         self.node_repo.list_all().await
+    }
+
+    pub async fn delete_node(&self, id: i64) -> Result<(), AppError> {
+        self.node_repo.find_by_id(id).await?
+            .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
+        self.node_repo.delete(id).await
     }
 }
 

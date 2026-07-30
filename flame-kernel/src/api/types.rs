@@ -10,6 +10,7 @@ use crate::terminal::TerminalManager;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub jwt_secret: String,
     pub user_service: Arc<UserService>,
     pub node_service: Arc<NodeService>,
     pub website_service: Arc<WebsiteService>,
@@ -95,6 +96,7 @@ pub struct CreateWebServerInstanceRequest {
 
 impl AppState {
     pub fn new(
+        jwt_secret: String,
         user_service: UserService,
         node_service: NodeService,
         website_service: WebsiteService,
@@ -115,6 +117,7 @@ impl AppState {
         terminal_manager: TerminalManager,
     ) -> Self {
         Self {
+            jwt_secret,
             user_service: Arc::new(user_service),
             node_service: Arc::new(node_service),
             website_service: Arc::new(website_service),
@@ -145,8 +148,10 @@ pub fn route_permission(method: &axum::http::Method, path: &str) -> Option<(&'st
     match (method.as_str(), path) {
         ("GET", "/api/users") => Some(("user", "read")),
         ("POST", "/api/users") => Some(("user", "create")),
+        ("DELETE", p) if p.starts_with("/api/users/") => Some(("user", "delete")),
         ("GET", "/api/nodes") => Some(("node", "read")),
         ("POST", "/api/nodes") => Some(("node", "create")),
+        ("DELETE", p) if p.starts_with("/api/nodes/") => Some(("node", "delete")),
         ("GET", "/api/websites") => Some(("website", "read")),
         ("POST", "/api/websites") => Some(("website", "create")),
         ("GET", "/api/docker/containers") => Some(("docker", "read")),
@@ -207,7 +212,7 @@ pub fn route_permission(method: &axum::http::Method, path: &str) -> Option<(&'st
         ("POST", "/api/files/write") => Some(("file", "write")),
         ("POST", "/api/files/create-file") => Some(("file", "write")),
         ("POST", "/api/files/create-dir") => Some(("file", "write")),
-        ("GET", "/api/files/delete") => Some(("file", "write")),
+        ("DELETE", "/api/files/delete") => Some(("file", "write")),
         ("POST", "/api/files/rename") => Some(("file", "write")),
         ("POST", "/api/files/chmod") => Some(("file", "write")),
         ("POST", "/api/files/upload") => Some(("file", "upload")),

@@ -1,12 +1,8 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-# ─── 默认值 ────────────────────────────────────────────────────────────────────
-PANEL_USERNAME="admin"
-PANEL_PASSWORD=""
-PANEL_PORT="8080"
-JWT_SECRET=""
-NON_INTERACTIVE=false
+# ─── 版本 ──────────────────────────────────────────────────────────────────────
+VERSION="1.0"
 
 # ─── 颜色 ──────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -15,10 +11,20 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+# ─── 默认值 ────────────────────────────────────────────────────────────────────
+PANEL_USERNAME="admin"
+PANEL_PASSWORD=""
+PANEL_PORT="8080"
+JWT_SECRET=""
+NON_INTERACTIVE=false
+INSTALL_DIR="/opt/flamepanel"
+SERVICE_NAME="flamepanel"
+BINARY_PATH="/usr/local/bin/flamepanel"
+
 # ─── 帮助 ──────────────────────────────────────────────────────────────────────
 usage() {
     cat << EOF
-Flamepanel 安装脚本
+Flamepanel 安装脚本 v${VERSION}
 
 用法: $0 [选项]
 
@@ -35,6 +41,10 @@ Flamepanel 安装脚本
   $0 -u myadmin -p mypass -P 9090             # 自定义账号和端口
   $0 -n                                       # 静默安装，全部使用默认值
   $0 -u ops -p 'Str0ng!P@ss' -P 443 -s 'xxx' # 完整自定义
+
+卸载:
+  sudo ./uninstall.sh                          # 卸载（保留数据）
+  sudo ./uninstall.sh -p                       # 卸载并删除数据
 EOF
     exit 0
 }
@@ -74,7 +84,7 @@ done
 
 # ─── 检查 root ─────────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
-    echo -e "${RED}请使用 root 权限运行此脚本${NC}"
+    echo -e "${RED}请使用 root 权限运行此脚本 (sudo)${NC}"
     exit 1
 fi
 
@@ -82,10 +92,49 @@ fi
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     OS=$ID
+    OS_VERSION=$VERSION_ID
 else
     OS="unknown"
+    OS_VERSION="unknown"
 fi
-echo -e "${CYAN}检测到系统:${NC} $OS"
+echo -e "${CYAN}检测到系统:${NC} $OS $OS_VERSION"
+
+# ─── 依赖检查 ────────────────────────────────────────────────────────────────
+echo -e "${CYAN}检查系统依赖...${NC}"
+missing_deps=()
+for cmd in curl openssl; do
+    if ! command -v "$cmd" &>/dev/null; then
+        missing_deps+=("$cmd")
+    fi
+done
+if [[ ${#missing_deps[@]} -gt 0 ]]; then
+    echo -e "${YELLOW}  缺少依赖: ${missing_deps[*]}${NC}"
+    echo -e "${CYAN}  将自动安装${NC}"
+fi
+
+# ─── 检查现有安装 ────────────────────────────────────────────────────────────
+if [[ -f "$BINARY_PATH" ]] || [[ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]]; then
+    echo -e "${YELLOW}══════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}  检测到现有 Flamepanel 安装${NC}"
+    echo -e "${YELLOW}══════════════════════════════════════════${NC}"
+    echo ""
+    if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+        echo -e "  ${GREEN}服务状态: 运行中${NC}"
+    else
+        echo -e "  ${YELLOW}服务状态: 未运行${NC}"
+    fi
+    echo ""
+    echo -e "  ${YELLOW}建议先运行卸载脚本清理:${NC}"
+    echo -e "    sudo bash uninstall.sh"
+    echo ""
+    if [[ "$NON_INTERACTIVE" == false ]]; then
+        read -p "是否继续安装（将覆盖现有安装）? [y/N] " confirm
+        if [[ "$confirm" != "y" ]] && [[ "$confirm" != "Y" ]]; then
+            echo -e "${YELLOW}安装已取消${NC}"
+            exit 0
+        fi
+    fi
+fi
 
 # ─── 交互式输入 ────────────────────────────────────────────────────────────────
 if [[ "$NON_INTERACTIVE" == false ]]; then
@@ -247,10 +296,16 @@ LimitNPROC=32768
 
 # 环境变量
 Environment=OP_PORT=$PANEL_PORT
+Environment=OP_HOST=0.0.0.0
 Environment=OP_ADMIN_USERNAME=$PANEL_USERNAME
 Environment=OP_ADMIN_PASSWORD=$PANEL_PASSWORD
 Environment=OP_JWT_SECRET=$JWT_SECRET
 Environment=OP_DATABASE_URL=sqlite:$INSTALL_DIR/data/flamepanel.db?mode=rwc
+# Environment=OP_SMTP_HOST=smtp.example.com
+# Environment=OP_SMTP_PORT=587
+# Environment=OP_SMTP_USERNAME=
+# Environment=OP_SMTP_PASSWORD=
+# Environment=OP_SMTP_FROM=noreply@flamepanel.local
 
 [Install]
 WantedBy=multi-user.target
@@ -292,10 +347,14 @@ echo -e "    用户名: ${GREEN}${PANEL_USERNAME}${NC}"
 echo -e "    密码:   ${GREEN}${PANEL_PASSWORD}${NC}"
 echo ""
 echo -e "  ${CYAN}服务管理:${NC}"
-echo -e "    systemctl status  flamepanel   # 查看状态"
-echo -e "    systemctl restart flamepanel   # 重启服务"
-echo -e "    systemctl stop    flamepanel   # 停止服务"
-echo -e "    journalctl -u flamepanel -f    # 实时日志"
+echo -e "    systemctl status  flamepanel           # 查看状态"
+echo -e "    systemctl restart flamepanel           # 重启服务"
+echo -e "    systemctl stop    flamepanel           # 停止服务"
+echo -e "    journalctl -u flamepanel -f            # 实时日志"
+echo ""
+echo -e "  ${CYAN}卸载:${NC}"
+echo -e "    sudo ./uninstall.sh                    # 卸载（保留数据）"
+echo -e "    sudo ./uninstall.sh -p                 # 完全卸载（删除数据）"
 echo ""
 echo -e "  ${YELLOW}请妥善保管以上登录信息！${NC}"
 echo -e "  ${YELLOW}建议首次登录后立即修改密码。${NC}"

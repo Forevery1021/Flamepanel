@@ -1,12 +1,12 @@
 <template>
-  <div class="files-view">
-    <div class="header">
-      <h2>File Manager</h2>
+  <div class="view-container">
+    <div class="card-header-title">
+      <h2>{{ t('nav.files') }}</h2>
       <div class="actions">
-        <el-button @click="showUpload = true">Upload</el-button>
-        <el-button @click="showCreateFile = true">New File</el-button>
-        <el-button @click="showCreateDir = true">New Folder</el-button>
-        <el-button @click="fetch" :loading="loading">Refresh</el-button>
+        <el-button @click="showUpload = true">{{ t('file.upload') }}</el-button>
+        <el-button @click="showCreateFile = true">{{ t('file.createFile') }}</el-button>
+        <el-button @click="showCreateDir = true">{{ t('file.createDir') }}</el-button>
+        <el-button @click="fetch" :loading="loading">{{ t('common.refresh') }}</el-button>
       </div>
     </div>
 
@@ -16,97 +16,99 @@
       </el-breadcrumb-item>
     </el-breadcrumb>
 
-    <el-table :data="entries" v-loading="loading" stripe @row-dblclick="openEntry" style="width: 100%">
-      <el-table-column label="Name" min-width="300">
-        <template #default="{ row }">
-          <span :class="{ 'dir-icon': row.is_dir, 'file-icon': !row.is_dir }">
-            {{ row.is_dir ? '📁' : '📄' }} {{ row.name }}
-          </span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="size" label="Size" width="100">
-        <template #default="{ row }">{{ row.is_dir ? '-' : formatSize(row.size) }}</template>
-      </el-table-column>
-      <el-table-column prop="permissions" label="Perms" width="90" />
-      <el-table-column prop="modified_at" label="Modified" width="180">
-        <template #default="{ row }">{{ formatDate(row.modified_at) }}</template>
-      </el-table-column>
-      <el-table-column label="Actions" width="280" fixed="right">
-        <template #default="{ row }">
-          <el-button size="small" @click="editFile(row)" :disabled="row.is_dir">Edit</el-button>
-          <el-button size="small" @click="showRename(row)">Rename</el-button>
-          <el-button size="small" @click="showChmod(row)">Chmod</el-button>
-          <el-button size="small" type="danger" @click="handleDelete(row)">Delete</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <el-card shadow="hover">
+      <el-table :data="entries" v-loading="loading" stripe @row-dblclick="openEntry" style="width: 100%">
+        <el-table-column :label="t('file.name')" min-width="300">
+          <template #default="{ row }">
+            <span :class="{ 'dir-icon': row.is_dir, 'file-icon': !row.is_dir }">
+              {{ row.is_dir ? '📁' : '📄' }} {{ row.name }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="size" :label="t('file.size')" width="100">
+          <template #default="{ row }">{{ row.is_dir ? '-' : formatSize(row.size) }}</template>
+        </el-table-column>
+        <el-table-column prop="permissions" :label="t('file.permissions')" width="90" />
+        <el-table-column prop="modified_at" :label="t('file.modified')" width="180">
+          <template #default="{ row }">{{ formatDate(row.modified_at) }}</template>
+        </el-table-column>
+        <el-table-column :label="t('file.actions')" width="280" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" @click="editFile(row)" :disabled="row.is_dir">{{ t('file.edit') }}</el-button>
+            <el-button size="small" @click="showRename(row)">{{ t('file.rename') }}</el-button>
+            <el-button size="small" @click="showChmod(row)">{{ t('file.chmod') }}</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row)">{{ t('file.delete') }}</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
 
-    <el-dialog v-model="showEdit" title="Edit File" width="800" top="5vh">
+    <el-dialog v-model="showEdit" :title="t('file.edit')" width="800" top="5vh">
       <el-input v-model="editContent" type="textarea" :rows="20" style="font-family: monospace" />
       <template #footer>
-        <el-button @click="showEdit = false">Cancel</el-button>
-        <el-button type="primary" @click="saveEdit">Save</el-button>
+        <el-button @click="showEdit = false">{{ t('file.cancel') }}</el-button>
+        <el-button type="primary" @click="saveEdit">{{ t('file.save') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showCreateFile" title="Create File" width="400">
+    <el-dialog v-model="showCreateFile" :title="t('file.createFile')" width="400">
       <el-form :model="createForm" label-width="80">
-        <el-form-item label="Path">
+        <el-form-item :label="t('file.path')">
           <el-input v-model="createForm.path" :placeholder="currentPath + '/filename'" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showCreateFile = false">Cancel</el-button>
-        <el-button type="primary" @click="handleCreateFile">Create</el-button>
+        <el-button @click="showCreateFile = false">{{ t('file.cancel') }}</el-button>
+        <el-button type="primary" @click="handleCreateFile">{{ t('file.createFile') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showCreateDir" title="Create Directory" width="400">
+    <el-dialog v-model="showCreateDir" :title="t('file.createDir')" width="400">
       <el-form :model="createForm" label-width="80">
-        <el-form-item label="Path">
+        <el-form-item :label="t('file.path')">
           <el-input v-model="createForm.path" :placeholder="currentPath + '/dirname'" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showCreateDir = false">Cancel</el-button>
-        <el-button type="primary" @click="handleCreateDir">Create</el-button>
+        <el-button @click="showCreateDir = false">{{ t('file.cancel') }}</el-button>
+        <el-button type="primary" @click="handleCreateDir">{{ t('file.createDir') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showRenameDialog" title="Rename" width="400">
+    <el-dialog v-model="showRenameDialog" :title="t('file.rename')" width="400">
       <el-form :model="renameForm" label-width="80">
-        <el-form-item label="New Name">
+        <el-form-item :label="t('file.newName')">
           <el-input v-model="renameForm.newName" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showRenameDialog = false">Cancel</el-button>
-        <el-button type="primary" @click="handleRename">Rename</el-button>
+        <el-button @click="showRenameDialog = false">{{ t('file.cancel') }}</el-button>
+        <el-button type="primary" @click="handleRename">{{ t('file.rename') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showChmodDialog" title="Change Permissions" width="400">
+    <el-dialog v-model="showChmodDialog" :title="t('file.chmod')" width="400">
       <el-form :model="chmodForm" label-width="80">
-        <el-form-item label="Mode">
-          <el-input v-model="chmodForm.mode" placeholder="e.g. 755" />
+        <el-form-item :label="t('file.mode')">
+          <el-input v-model="chmodForm.mode" :placeholder="t('file.mode')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showChmodDialog = false">Cancel</el-button>
-        <el-button type="primary" @click="handleChmod">Apply</el-button>
+        <el-button @click="showChmodDialog = false">{{ t('file.cancel') }}</el-button>
+        <el-button type="primary" @click="handleChmod">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showUpload" title="Upload Files" width="400">
+    <el-dialog v-model="showUpload" :title="t('file.upload')" width="400">
       <el-upload drag :auto-upload="false" :on-change="handleUploadChange" multiple>
-        <div class="el-upload__text">Drop files here or click to browse</div>
+        <div class="el-upload__text">{{ t('file.uploadHere') }}</div>
       </el-upload>
       <div v-if="uploadFiles.length > 0" style="margin-top: 8px">
         <el-tag v-for="(f, i) in uploadFiles" :key="i" closable @close="uploadFiles.splice(i, 1)" style="margin: 2px">{{ f.name }}</el-tag>
       </div>
       <template #footer>
-        <el-button @click="showUpload = false">Cancel</el-button>
-        <el-button type="primary" @click="handleUpload">Upload ({{ uploadFiles.length }})</el-button>
+        <el-button @click="showUpload = false">{{ t('file.cancel') }}</el-button>
+        <el-button type="primary" @click="handleUpload">{{ t('file.upload') }} ({{ uploadFiles.length }})</el-button>
       </template>
     </el-dialog>
   </div>
@@ -114,10 +116,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listFiles, readFile, writeFile, createFile, createDir, deleteFile, renameFile, chmodFile, uploadFile, downloadFile } from '@/api/files'
 import type { FileInfo } from '@/types'
 
+const { t } = useI18n()
 const currentPath = ref('/')
 const entries = ref<FileInfo[]>([])
 const loading = ref(false)
@@ -155,7 +159,7 @@ async function fetch() {
     const res = await listFiles(currentPath.value)
     entries.value = res.data
   } catch {
-    ElMessage.error('Failed to list directory')
+    ElMessage.error(t('common.failed'))
   } finally {
     loading.value = false
   }
@@ -175,7 +179,7 @@ function openEntry(row: FileInfo) {
     readFile(row.path).then(res => {
       editContent.value = res.data
       showEdit.value = true
-    }).catch(() => ElMessage.error('Failed to read file'))
+    }).catch(() => ElMessage.error(t('common.failed')))
   }
 }
 
@@ -185,29 +189,29 @@ function editFile(row: FileInfo) {
 
 function saveEdit() {
   writeFile(editPath.value, editContent.value).then(() => {
-    ElMessage.success('File saved')
+    ElMessage.success(t('common.success'))
     showEdit.value = false
-  }).catch(() => ElMessage.error('Failed to save'))
+  }).catch(() => ElMessage.error(t('common.failed')))
 }
 
 function handleCreateFile() {
   const path = createForm.value.path.startsWith('/') ? createForm.value.path : `${currentPath.value}/${createForm.value.path}`
   createFile(path).then(() => {
-    ElMessage.success('File created')
+    ElMessage.success(t('common.success'))
     showCreateFile.value = false
     createForm.value.path = ''
     fetch()
-  }).catch(() => ElMessage.error('Failed to create file'))
+  }).catch(() => ElMessage.error(t('common.failed')))
 }
 
 function handleCreateDir() {
   const path = createForm.value.path.startsWith('/') ? createForm.value.path : `${currentPath.value}/${createForm.value.path}`
   createDir(path).then(() => {
-    ElMessage.success('Directory created')
+    ElMessage.success(t('common.success'))
     showCreateDir.value = false
     createForm.value.path = ''
     fetch()
-  }).catch(() => ElMessage.error('Failed to create directory'))
+  }).catch(() => ElMessage.error(t('common.failed')))
 }
 
 function showRename(row: FileInfo) {
@@ -218,10 +222,10 @@ function showRename(row: FileInfo) {
 function handleRename() {
   const newPath = renameForm.value.oldPath.replace(/[^/]+$/, renameForm.value.newName)
   renameFile(renameForm.value.oldPath, newPath).then(() => {
-    ElMessage.success('Renamed')
+    ElMessage.success(t('common.success'))
     showRenameDialog.value = false
     fetch()
-  }).catch(() => ElMessage.error('Failed to rename'))
+  }).catch(() => ElMessage.error(t('common.failed')))
 }
 
 function showChmod(row: FileInfo) {
@@ -231,17 +235,17 @@ function showChmod(row: FileInfo) {
 
 function handleChmod() {
   chmodFile(chmodForm.value.path, chmodForm.value.mode).then(() => {
-    ElMessage.success('Permissions changed')
+    ElMessage.success(t('common.success'))
     showChmodDialog.value = false
     fetch()
-  }).catch(() => ElMessage.error('Failed to chmod'))
+  }).catch(() => ElMessage.error(t('common.failed')))
 }
 
 async function handleDelete(row: FileInfo) {
   try {
-    await ElMessageBox.confirm(`Delete ${row.is_dir ? 'directory' : 'file'} ${row.name}?`, 'Confirm')
+    await ElMessageBox.confirm(t('file.deleteConfirm', { name: row.name }), t('common.confirm'))
     await deleteFile(row.path, row.is_dir)
-    ElMessage.success('Deleted')
+    ElMessage.success(t('common.success'))
     await fetch()
   } catch { /* cancelled or failed */ }
 }
@@ -257,9 +261,9 @@ async function handleUpload() {
   for (const file of uploadFiles.value) {
     try {
       await uploadFile(currentPath.value, file.name, file)
-      ElMessage.success(`Uploaded ${file.name}`)
+      ElMessage.success(t('common.success'))
     } catch {
-      ElMessage.error(`Failed to upload ${file.name}`)
+      ElMessage.error(t('common.failed'))
     }
   }
   uploadFiles.value = []
@@ -268,9 +272,9 @@ async function handleUpload() {
 }
 
 function formatSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
+  if (bytes === 0) return '0 ' + t('file.bytes')
   const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const sizes = [t('file.bytes'), t('file.kb'), t('file.mb'), t('file.gb'), 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
@@ -284,8 +288,6 @@ onMounted(fetch)
 </script>
 
 <style scoped>
-.header { display: flex; justify-content: space-between; align-items: center; }
-h2 { margin: 0; }
 .actions { display: flex; gap: 8px; }
 .dir-icon { cursor: pointer; }
 .file-icon { cursor: pointer; }

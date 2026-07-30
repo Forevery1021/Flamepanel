@@ -8,3 +8,7 @@ export function listNodes() {
 export function createNode(node: ServerNode) {
   return api.post<number>('/nodes', { node })
 }
+
+export function deleteNode(id: number) {
+  return api.delete(`/nodes/${id}`)
+}

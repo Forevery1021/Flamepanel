@@ -1,87 +1,87 @@
 <template>
-  <div>
-    <h2>面板设置</h2>
-    <el-row :gutter="16" style="margin-top:16px">
+  <div class="view-container">
+    <div class="card-header-title">
+      <h2>{{ t('settings.title') }}</h2>
+    </div>
+
+    <el-row :gutter="16">
       <el-col :span="12">
         <el-card shadow="hover">
-          <template #header><span style="font-weight:600">修改密码</span></template>
-          <el-form :model="pwForm" label-width="110px" :rules="pwRules" ref="pwFormRef">
-            <el-form-item label="当前密码" prop="old_password">
+          <template #header><span style="font-weight:600">{{ t('settings.changePassword') }}</span></template>
+          <el-form :model="pwForm" :label-width="labelWidth" :rules="pwRules" ref="pwFormRef">
+            <el-form-item :label="t('settings.oldPassword')" prop="old_password">
               <el-input v-model="pwForm.old_password" type="password" show-password />
             </el-form-item>
-            <el-form-item label="新密码" prop="new_password">
+            <el-form-item :label="t('settings.newPassword')" prop="new_password">
               <el-input v-model="pwForm.new_password" type="password" show-password />
             </el-form-item>
-            <el-form-item label="确认密码" prop="confirm">
+            <el-form-item :label="t('settings.confirmPassword')" prop="confirm">
               <el-input v-model="pwForm.confirm" type="password" show-password />
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" @click="handleChangePassword" :loading="pwSubmitting">更新密码</el-button>
+              <el-button type="primary" @click="handleChangePassword" :loading="pwSubmitting">{{ t('common.save') }}</el-button>
             </el-form-item>
           </el-form>
         </el-card>
       </el-col>
       <el-col :span="12">
         <el-card shadow="hover">
-          <template #header><span style="font-weight:600">面板信息</span></template>
+          <template #header><span style="font-weight:600">{{ t('settings.panelInfo') }}</span></template>
           <el-descriptions :column="1" border>
-            <el-descriptions-item label="版本">{{ version }}</el-descriptions-item>
-            <el-descriptions-item label="面板名称">{{ settingsMap['panel_name'] || 'FlamePanel' }}</el-descriptions-item>
-            <el-descriptions-item label="用户名">{{ auth.username }}</el-descriptions-item>
-            <el-descriptions-item label="角色">
+            <el-descriptions-item :label="t('settings.version')">{{ version }}</el-descriptions-item>
+            <el-descriptions-item :label="t('settings.panelName')">{{ settingsMap['panel_name'] || 'FlamePanel' }}</el-descriptions-item>
+            <el-descriptions-item :label="t('settings.username')">{{ auth.username }}</el-descriptions-item>
+            <el-descriptions-item :label="t('settings.role')">
               <el-tag size="small" :type="auth.role === 'admin' ? 'danger' : 'info'">{{ auth.role }}</el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="后端状态"><span class="status-ok">Connected</span></el-descriptions-item>
+            <el-descriptions-item :label="t('settings.backend')"><span class="status-ok">Connected</span></el-descriptions-item>
           </el-descriptions>
         </el-card>
       </el-col>
     </el-row>
 
     <el-card shadow="hover" style="margin-top:16px">
-      <template #header><span style="font-weight:600">面板配置</span></template>
-      <el-form :model="settingsForm" label-width="160px" v-loading="loading">
+      <template #header><span style="font-weight:600">{{ t('settings.panelConfig') }}</span></template>
+      <el-form :model="settingsForm" :label-width="labelWidth" v-loading="loading">
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="面板名称">
+            <el-form-item :label="t('settings.panelName')">
               <el-input v-model="settingsForm.panel_name" placeholder="FlamePanel" />
-              <div class="setting-hint">显示在页面标题和侧边栏</div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="主题">
+            <el-form-item :label="t('settings.theme')">
               <el-select v-model="settingsForm.theme" style="width:100%">
-                <el-option label="浅色 (Light)" value="light" />
-                <el-option label="深色 (Dark)" value="dark" />
+                <el-option :label="t('settings.light')" value="light" />
+                <el-option :label="t('settings.dark')" value="dark" />
               </el-select>
             </el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="界面语言">
-              <el-select v-model="settingsForm.language" style="width:100%">
-                <el-option label="中文 (简体)" value="zh-CN" />
+            <el-form-item :label="t('settings.language')">
+              <el-select v-model="settingsForm.language" style="width:100%" @change="handleLangChange">
+                <el-option label="简体中文" value="zh-CN" />
                 <el-option label="English" value="en-US" />
                 <el-option label="日本語" value="ja-JP" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="面板端口">
+            <el-form-item :label="t('settings.panelPort')">
               <el-input-number v-model="settingsForm.panel_port_num" :min="1024" :max="65535" style="width:100%" />
-              <div class="setting-hint">修改后需重启面板生效</div>
             </el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="会话超时 (分钟)">
+            <el-form-item :label="t('settings.sessionTimeout')">
               <el-input-number v-model="settingsForm.session_timeout_num" :min="5" :max="43200" style="width:100%" />
-              <div class="setting-hint">默认 1440 分钟 (24 小时)</div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="日志级别">
+            <el-form-item :label="t('settings.logLevel')">
               <el-select v-model="settingsForm.log_level" style="width:100%">
                 <el-option label="Trace" value="trace" />
                 <el-option label="Debug" value="debug" />
@@ -94,34 +94,32 @@
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="日志保留天数">
+            <el-form-item :label="t('settings.logRetention')">
               <el-input-number v-model="settingsForm.log_retention_num" :min="1" :max="365" style="width:100%" />
-              <div class="setting-hint">超过保留期限的日志将被清理</div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="两步验证 (2FA)">
+            <el-form-item :label="t('settings.twoFactor')">
               <el-switch v-model="settingsForm.two_factor_enabled_bool" />
-              <div class="setting-hint">需要 TOTP 验证器应用</div>
             </el-form-item>
           </el-col>
         </el-row>
         <el-form-item>
-          <el-button type="primary" @click="handleSaveSettings" :loading="saving">保存配置</el-button>
-          <el-button @click="resetSettings">重置</el-button>
+          <el-button type="primary" @click="handleSaveSettings" :loading="saving">{{ t('settings.save') }}</el-button>
+          <el-button @click="resetSettings">{{ t('common.reset') }}</el-button>
         </el-form-item>
       </el-form>
     </el-card>
 
     <el-card shadow="hover" style="margin-top:16px">
-      <template #header><span style="font-weight:600">JWT 密钥</span></template>
+      <template #header><span style="font-weight:600">JWT {{ t('settings.jwtSecret') }}</span></template>
       <el-descriptions :column="1" border>
-        <el-descriptions-item label="当前密钥">
-          <el-tag type="warning" size="small">已设置</el-tag>
+        <el-descriptions-item :label="t('settings.jwtSecret')">
+          <el-tag type="warning" size="small">{{ t('settings.alreadySet') }}</el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="操作">
-          <el-button type="warning" @click="handleRotateJwtSecret" :loading="rotating">轮换密钥</el-button>
-          <span style="margin-left:8px;font-size:12px;color:#909399">轮换后所有用户需要重新登录</span>
+        <el-descriptions-item :label="t('common.operation')">
+          <el-button type="warning" @click="handleRotateJwtSecret" :loading="rotating">{{ t('settings.rotate') }}</el-button>
+          <span style="margin-left:8px;font-size:12px;color:#909399">{{ t('common.confirmAction') }}</span>
         </el-descriptions-item>
       </el-descriptions>
     </el-card>
@@ -129,15 +127,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { changePassword } from '@/api/auth'
 import { listSettings, updateSetting } from '@/api/settings'
 import { useAuthStore } from '@/stores/auth'
+import { setLanguage } from '@/locales'
 import { ElMessage } from 'element-plus'
-import type { SettingEntry } from '@/types'
 import type { FormInstance, FormRules } from 'element-plus'
 
+const { t, locale } = useI18n()
 const auth = useAuthStore()
+
+const labelWidth = computed(() => t('settings.panelName').length > 4 ? '140px' : '120px')
 const version = ref('v0.1.0')
 const loading = ref(false)
 const saving = ref(false)
@@ -159,16 +161,16 @@ const settingsForm = reactive({
 const pwFormRef = ref<FormInstance>()
 const pwForm = ref({ old_password: '', new_password: '', confirm: '' })
 const pwRules: FormRules = {
-  old_password: [{ required: true, message: '请输入当前密码', trigger: 'blur' }],
+  old_password: [{ required: true, message: t('common.required'), trigger: 'blur' }],
   new_password: [
-    { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, message: '至少 6 个字符', trigger: 'blur' },
+    { required: true, message: t('common.required'), trigger: 'blur' },
+    { min: 6, message: t('settings.passwordLength'), trigger: 'blur' },
   ],
   confirm: [
-    { required: true, message: '请确认新密码', trigger: 'blur' },
+    { required: true, message: t('common.required'), trigger: 'blur' },
     {
       validator: (_rule: any, value: string, callback: Function) => {
-        if (value !== pwForm.value.new_password) callback(new Error('两次密码不一致'))
+        if (value !== pwForm.value.new_password) callback(new Error(t('settings.passwordMismatch')))
         else callback()
       }, trigger: 'blur',
     },
@@ -180,9 +182,7 @@ async function fetchSettings() {
   try {
     const res = await listSettings()
     const map: Record<string, string> = {}
-    for (const s of res.data) {
-      map[s.key] = s.value
-    }
+    for (const s of res.data) { map[s.key] = s.value }
     settingsMap.value = map
     settingsForm.panel_name = map['panel_name'] || 'FlamePanel'
     settingsForm.theme = map['theme'] || 'light'
@@ -192,8 +192,12 @@ async function fetchSettings() {
     settingsForm.log_level = map['log_level'] || 'info'
     settingsForm.log_retention_num = parseInt(map['log_retention_days'] || '30')
     settingsForm.two_factor_enabled_bool = map['two_factor_enabled'] === 'true'
-  } catch { ElMessage.error('获取配置失败') }
+  } catch { ElMessage.error(t('common.failed')) }
   finally { loading.value = false }
+}
+
+function handleLangChange(lang: string) {
+  setLanguage(lang)
 }
 
 async function handleChangePassword() {
@@ -202,9 +206,9 @@ async function handleChangePassword() {
   pwSubmitting.value = true
   try {
     await changePassword(pwForm.value.old_password, pwForm.value.new_password)
-    ElMessage.success('密码已更新')
+    ElMessage.success(t('common.success'))
     pwFormRef.value?.resetFields()
-  } catch (e: any) { ElMessage.error(e.response?.data?.message || '更新失败') }
+  } catch (e: any) { ElMessage.error(e.response?.data?.message || t('common.failed')) }
   finally { pwSubmitting.value = false }
 }
 
@@ -219,9 +223,9 @@ async function handleSaveSettings() {
     await updateSetting('log_level', settingsForm.log_level)
     await updateSetting('log_retention_days', String(settingsForm.log_retention_num))
     await updateSetting('two_factor_enabled', settingsForm.two_factor_enabled_bool ? 'true' : 'false')
-    ElMessage.success('配置已保存')
+    ElMessage.success(t('common.success'))
     await fetchSettings()
-  } catch (e: any) { ElMessage.error(e.response?.data?.message || '保存失败') }
+  } catch { ElMessage.error(t('common.failed')) }
   finally { saving.value = false }
 }
 
@@ -234,7 +238,7 @@ function resetSettings() {
   settingsForm.log_level = settingsMap.value['log_level'] || 'info'
   settingsForm.log_retention_num = parseInt(settingsMap.value['log_retention_days'] || '30')
   settingsForm.two_factor_enabled_bool = settingsMap.value['two_factor_enabled'] === 'true'
-  ElMessage.info('已重置为当前保存值')
+  ElMessage.info(t('common.reset'))
 }
 
 async function handleRotateJwtSecret() {
@@ -244,8 +248,8 @@ async function handleRotateJwtSecret() {
       'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]
     ).join('')
     await updateSetting('jwt_secret', secret)
-    ElMessage.success('JWT 密钥已轮换，所有用户需要重新登录')
-  } catch (e: any) { ElMessage.error(e.response?.data?.message || '轮换失败') }
+    ElMessage.success(t('common.success'))
+  } catch { ElMessage.error(t('common.failed')) }
   finally { rotating.value = false }
 }
 
@@ -254,5 +258,4 @@ onMounted(fetchSettings)
 
 <style scoped>
 .status-ok { color: #67c23a; font-weight: 600; }
-.setting-hint { font-size: 12px; color: #909399; margin-top: 4px; }
 </style>

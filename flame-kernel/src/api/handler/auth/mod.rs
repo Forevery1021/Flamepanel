@@ -30,7 +30,7 @@ pub async fn login(
         return Err(AppError::Unauthorized);
     }
 
-    let jwt = JwtUtils::new("flamepanel-secret", 24);
+    let jwt = JwtUtils::new(&state.jwt_secret, 24);
     let token = jwt.sign(user.id)?;
 
     Ok(Json(LoginResponse { token, username: user.username, role: user.role }))

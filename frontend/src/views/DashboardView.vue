@@ -6,10 +6,10 @@
           <div class="stat">
             <div class="stat-icon" style="background:#e6f7ff;color:#1890ff">CPU</div>
             <div class="stat-body">
-              <div class="stat-label">CPU 使用率</div>
+              <div class="stat-label">{{ t('dashboard.cpu') }}</div>
               <div class="stat-value">{{ snap.cpu_usage.toFixed(1) }}%</div>
               <el-progress :percentage="Math.round(snap.cpu_usage)" :color="cpuColor" :stroke-width="6" />
-              <div class="stat-detail">{{ snap.cpu_cores }} 核心</div>
+              <div class="stat-detail">{{ snap.cpu_cores }} cores</div>
             </div>
           </div>
         </el-card>
@@ -19,7 +19,7 @@
           <div class="stat">
             <div class="stat-icon" style="background:#f0f5ff;color:#2f54eb">MEM</div>
             <div class="stat-body">
-              <div class="stat-label">内存使用率</div>
+              <div class="stat-label">{{ t('dashboard.memory') }}</div>
               <div class="stat-value">{{ snap.memory_usage_percent.toFixed(1) }}%</div>
               <el-progress :percentage="Math.round(snap.memory_usage_percent)" :color="memColor" :stroke-width="6" />
               <div class="stat-detail">{{ (snap.memory_used_mb / 1024).toFixed(1) }} / {{ (snap.memory_total_mb / 1024).toFixed(1) }} GB</div>
@@ -32,7 +32,7 @@
           <div class="stat">
             <div class="stat-icon" style="background:#fff7e6;color:#fa8c16">DSK</div>
             <div class="stat-body">
-              <div class="stat-label">磁盘使用率</div>
+              <div class="stat-label">{{ t('dashboard.disk') }}</div>
               <div class="stat-value">{{ snap.disk_usage_percent.toFixed(1) }}%</div>
               <el-progress :percentage="Math.round(snap.disk_usage_percent)" :color="diskColor" :stroke-width="6" />
               <div class="stat-detail">{{ snap.disk_used_gb.toFixed(1) }} / {{ snap.disk_total_gb.toFixed(1) }} GB</div>
@@ -45,7 +45,7 @@
           <div class="stat">
             <div class="stat-icon" style="background:#f6ffed;color:#52c41a">LD</div>
             <div class="stat-body">
-              <div class="stat-label">系统负载</div>
+              <div class="stat-label">{{ t('dashboard.load') }}</div>
               <div class="stat-value">{{ snap.load_one.toFixed(2) }}</div>
               <div class="stat-detail">1m: {{ snap.load_one.toFixed(2) }} | 5m: {{ snap.load_five.toFixed(2) }} | 15m: {{ snap.load_fifteen.toFixed(2) }}</div>
             </div>
@@ -59,8 +59,8 @@
         <el-card shadow="hover">
           <template #header>
             <div class="card-header">
-              <span>系统指标趋势</span>
-              <span class="header-tip">实时更新</span>
+              <span>{{ t('dashboard.trend') }}</span>
+              <span class="header-tip">{{ t('common.loading') }}</span>
             </div>
           </template>
           <div ref="chartRef" style="height:320px" />
@@ -70,17 +70,17 @@
         <el-card shadow="hover">
           <template #header>
             <div class="card-header">
-              <span>连接状态</span>
-              <span class="header-tip">{{ wsConnected ? '已连接' : '已断开' }}</span>
+              <span>WebSocket</span>
+              <span class="header-tip">{{ wsConnected ? t('dashboard.wsConnected') : t('dashboard.wsDisconnected') }}</span>
             </div>
           </template>
           <div class="ws-status">
             <span class="dot" :class="wsConnected ? 'green' : 'red'" />
-            {{ wsConnected ? 'WebSocket 已连接' : 'WebSocket 已断开' }}
+            {{ wsConnected ? t('dashboard.wsConnected') : t('dashboard.wsDisconnected') }}
           </div>
           <el-divider />
-          <div class="info-row"><span>数据点数</span><span>{{ history.length }}</span></div>
-          <div class="info-row"><span>最后更新</span><span>{{ lastUpdate }}</span></div>
+          <div class="info-row"><span>{{ t('dashboard.dataPoints') }}</span><span>{{ history.length }}</span></div>
+          <div class="info-row"><span>{{ t('dashboard.lastUpdate') }}</span><span>{{ lastUpdate }}</span></div>
         </el-card>
       </el-col>
     </el-row>
@@ -89,8 +89,11 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as echarts from 'echarts'
 import type { MetricsSnapshot } from '@/types'
+
+const { t } = useI18n()
 
 const snap = reactive<MetricsSnapshot>({
   timestamp: 0, cpu_usage: 0, cpu_cores: 0, memory_usage_percent: 0,
@@ -114,7 +117,7 @@ function initChart() {
   chart = echarts.init(chartRef.value)
   chart.setOption({
     tooltip: { trigger: 'axis' },
-    legend: { data: ['CPU %', 'Memory %', 'Disk %'], bottom: 0 },
+    legend: { data: ['CPU %', 'Memory %', 'Disk %'], bottom: 0, textStyle: { color: '#909399' } },
     grid: { left: 50, right: 20, top: 20, bottom: 40 },
     xAxis: { type: 'time', axisLabel: { fontSize: 11 } },
     yAxis: { type: 'value', max: 100, axisLabel: { fontSize: 11 } },
@@ -151,7 +154,7 @@ onMounted(() => {
       history.value.push(msg.data)
       if (history.value.length > 60) history.value.shift()
       Object.assign(snap, msg.data)
-      lastUpdate.value = new Date().toLocaleString('zh-CN')
+      lastUpdate.value = new Date().toLocaleString()
     }
     nextTick(updateChart)
   }
@@ -170,14 +173,14 @@ onUnmounted(() => {
 .stat-icon { width: 56px; height: 56px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; flex-shrink: 0; }
 .stat-body { flex: 1; min-width: 0; }
 .stat-label { font-size: 13px; color: #909399; margin-bottom: 2px; }
-.stat-value { font-size: 24px; font-weight: 700; margin-bottom: 6px; color: #303133; }
+.stat-value { font-size: 24px; font-weight: 700; margin-bottom: 6px; }
 .stat-detail { font-size: 12px; color: #909399; margin-top: 4px; }
 .card-header { display: flex; align-items: center; justify-content: space-between; }
 .header-tip { font-size: 12px; color: #909399; background: #f5f7fa; padding: 2px 8px; border-radius: 4px; }
+.dark .header-tip { background: #2c2d2e; }
 .ws-status { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot.green { background: #67c23a; }
 .dot.red { background: #f56c6c; }
 .info-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; color: #606266; }
-.dark .stat-value { color: #e5eaf3; }
 </style>

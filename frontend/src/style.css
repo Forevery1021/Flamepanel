@@ -1,17 +1,49 @@
+:root {
+  --bg-primary: #f5f7fa;
+  --bg-secondary: #ffffff;
+  --bg-sidebar: #304156;
+  --text-primary: #303133;
+  --text-secondary: #606266;
+  --border-color: #e4e7ed;
+  --card-shadow: 0 2px 12px 0 rgba(0,0,0,.06);
+  --header-height: 56px;
+  --sidebar-width: 220px;
+}
+
+.dark {
+  --bg-primary: #141414;
+  --bg-secondary: #1d1e1f;
+  --bg-sidebar: #1d1e1f;
+  --text-primary: #e5eaf3;
+  --text-secondary: #a3a6ad;
+  --border-color: #333;
+  --card-shadow: 0 2px 12px 0 rgba(0,0,0,.3);
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
 html, body, #app { height: 100%; }
 
-.view-container { }
+.view-container { padding: 20px; }
 
 .card-header-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .card-header-title h2 { margin: 0; font-size: 18px; }
 
 .dark { color-scheme: dark; }
-.dark body { background: #141414; }
-.dark .el-card { background: #1d1e1f; border-color: #333; }
-.dark .el-table { background: #1d1e1f; color: #e5eaf3; }
+.dark body { background: var(--bg-primary); }
+.dark .el-card { background: var(--bg-secondary); border-color: var(--border-color); }
+.dark .el-table { background: var(--bg-secondary); color: var(--text-primary); }
 .dark .el-table th.el-table__cell { background: #2c2d2e; }
-.dark .el-table tr { background: #1d1e1f; }
-.dark .el-dialog { background: #1d1e1f; }
-.dark .el-message-box { background: #1d1e1f; }
+.dark .el-table tr { background: var(--bg-secondary); }
+.dark .el-dialog { background: var(--bg-secondary); }
+.dark .el-message-box { background: var(--bg-secondary); }
+.dark .el-input__wrapper { background: #2c2d2e; box-shadow: 0 0 0 1px #333 inset; }
+.dark .el-textarea__inner { background: #2c2d2e; border-color: #333; color: var(--text-primary); }
+.dark .el-pagination { --el-pagination-text-color: var(--text-primary); }
+.dark .el-breadcrumb { --el-breadcrumb-text-color: var(--text-secondary); }
+
+.view-container, .el-card, .el-main { transition: background-color 0.3s, color 0.3s; }

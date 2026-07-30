@@ -1,51 +1,53 @@
 <template>
-  <div>
-    <h2>System Health</h2>
-    <el-row :gutter="16" style="margin-top:16px">
+  <div class="view-container">
+    <div class="card-header-title">
+      <h2>{{ t('health.title') }}</h2>
+    </div>
+    <el-row :gutter="16">
       <el-col :span="8">
         <el-card shadow="hover">
-          <template #header>Backend API</template>
+          <template #header>{{ t('health.backend') }}</template>
           <div class="health-item">
             <span class="dot green" />
-            <span>Connected</span>
+            <span>{{ t('health.connected') }}</span>
           </div>
           <div class="health-detail">Status: 200 OK</div>
         </el-card>
       </el-col>
       <el-col :span="8">
         <el-card shadow="hover">
-          <template #header>WebSocket</template>
+          <template #header>{{ t('health.websocket') }}</template>
           <div class="health-item">
             <span class="dot" :class="wsOk ? 'green' : 'red'" />
-            <span>{{ wsOk ? 'Connected' : 'Disconnected' }}</span>
+            <span>{{ wsOk ? t('health.connected') : t('health.disconnected') }}</span>
           </div>
           <div class="health-detail">Endpoint: /ws/metrics</div>
         </el-card>
       </el-col>
       <el-col :span="8">
         <el-card shadow="hover">
-          <template #header>Storage</template>
+          <template #header>{{ t('health.storage') }}</template>
           <div class="health-item">
             <span class="dot green" />
-            <span>In-Memory</span>
+            <span>{{ t('health.memory') }}</span>
           </div>
-          <div class="health-detail">No persistent database configured</div>
+          <div class="health-detail">SQLite</div>
         </el-card>
       </el-col>
     </el-row>
 
     <el-card shadow="hover" style="margin-top:16px">
-      <template #header>API Routes</template>
+      <template #header>{{ t('health.routes') }}</template>
       <el-table :data="routes" border stripe size="small" max-height="400px">
-        <el-table-column prop="method" label="Method" width="80">
+        <el-table-column :label="t('health.method')" width="100">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.method === 'GET' ? 'success' : row.method === 'POST' ? 'warning' : 'info'">{{ row.method }}</el-tag>
+            <el-tag size="small" :type="row.method === 'GET' ? 'success' : row.method === 'POST' ? 'warning' : row.method === 'WS' ? 'primary' : 'info'">{{ row.method }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="path" label="Path" />
-        <el-table-column prop="auth" label="Auth" width="80">
+        <el-table-column :label="t('health.path')" prop="path" />
+        <el-table-column :label="t('health.auth')" width="80">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.auth ? 'danger' : 'info'">{{ row.auth ? 'JWT' : 'None' }}</el-tag>
+            <el-tag size="small" :type="row.auth ? 'danger' : 'info'">{{ row.auth ? t('health.required') : t('health.none') }}</el-tag>
           </template>
         </el-table-column>
       </el-table>
@@ -55,7 +57,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 const wsOk = ref(false)
 let ws: WebSocket | null = null
 
@@ -70,18 +74,19 @@ const routes = [
   { method: 'GET', path: '/api/websites', auth: true },
   { method: 'POST', path: '/api/websites', auth: true },
   { method: 'GET', path: '/api/docker/containers', auth: true },
+  { method: 'GET', path: '/api/docker/containers/:id', auth: true },
   { method: 'POST', path: '/api/docker/containers/:id/start|stop|restart|remove', auth: true },
   { method: 'GET', path: '/api/docker/containers/:id/logs|stats', auth: true },
   { method: 'GET|POST', path: '/api/docker/images', auth: true },
+  { method: 'POST', path: '/api/docker/images/:id/remove', auth: true },
   { method: 'POST', path: '/api/docker/compose/deploy|up|down', auth: true },
   { method: 'GET|POST', path: '/api/plugins', auth: true },
-  { method: 'GET|POST', path: '/api/plugins/:id', auth: true },
+  { method: 'GET|POST|DELETE', path: '/api/plugins/:id', auth: true },
   { method: 'POST', path: '/api/plugins/:id/reload|enable|disable', auth: true },
   { method: 'POST', path: '/api/plugins/:id/execute/:fn', auth: true },
   { method: 'GET|DELETE', path: '/api/plugins/:id/metrics', auth: true },
   { method: 'GET|POST', path: '/api/plugins/:id/settings', auth: true },
   { method: 'GET', path: '/api/plugins/:id/settings/:key', auth: true },
-  { method: 'GET|POST', path: '/api/web-servers/engines', auth: true },
   { method: 'GET|POST|PUT|DELETE', path: '/api/web-servers', auth: true },
   { method: 'GET|POST|PUT|DELETE', path: '/api/web-servers/:id', auth: true },
   { method: 'POST', path: '/api/web-servers/:id/start|stop|restart|reload|configtest', auth: true },
@@ -90,8 +95,17 @@ const routes = [
   { method: 'GET', path: '/api/settings/:key', auth: true },
   { method: 'GET', path: '/api/operation-logs', auth: true },
   { method: 'GET', path: '/api/logs', auth: true },
+  { method: 'GET|POST|DELETE', path: '/api/databases', auth: true },
+  { method: 'GET|POST|DELETE', path: '/api/databases/:id', auth: true },
+  { method: 'POST', path: '/api/databases/:id/start|stop|restart|uninstall', auth: true },
+  { method: 'GET', path: '/api/databases/:id/status', auth: true },
+  { method: 'GET|POST|DELETE', path: '/api/files', auth: true },
+  { method: 'GET|POST|DELETE', path: '/api/firewall/rules', auth: true },
+  { method: 'POST', path: '/api/firewall/apply|enable|disable|reorder', auth: true },
+  { method: 'GET', path: '/api/firewall/status', auth: true },
   { method: 'WS', path: '/ws/metrics', auth: false },
   { method: 'WS', path: '/ws/logs', auth: false },
+  { method: 'WS', path: '/ws/terminal', auth: true },
 ]
 
 onMounted(() => {
@@ -107,7 +121,7 @@ onUnmounted(() => ws?.close())
 
 <style scoped>
 .health-item { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
-.health-detail { font-size: 12px; color: #909399; margin-top: 6px; }
+.health-detail { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 6px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot.green { background: #67c23a; }
 .dot.red { background: #f56c6c; }

@@ -3,15 +3,15 @@
     <el-card shadow="hover" class="terminal-card" style="flex: 1; display: flex; flex-direction: column;">
       <template #header>
         <div class="card-header-title">
-          <span>Web 终端</span>
+          <span>{{ t('terminal.title') }}</span>
           <div class="header-right">
             <el-tag :type="connected ? 'success' : 'danger'" size="small" effect="dark">
-              {{ connected ? '已连接' : '未连接' }}
+              {{ connected ? t('terminal.connected') : t('terminal.disconnected') }}
             </el-tag>
-            <el-button size="small" :disabled="!connected" @click="sendEof">Ctrl+D</el-button>
-            <el-button size="small" :disabled="!connected" @click="sendInterrupt">Ctrl+C</el-button>
-            <el-button size="small" @click="reconnect" :loading="reconnecting">重新连接</el-button>
-            <el-button size="small" type="danger" @click="handleClear">清屏</el-button>
+            <el-button size="small" :disabled="!connected" @click="sendEof">{{ t('terminal.ctrlD') }}</el-button>
+            <el-button size="small" :disabled="!connected" @click="sendInterrupt">{{ t('terminal.ctrlC') }}</el-button>
+            <el-button size="small" @click="reconnect" :loading="reconnecting">{{ t('terminal.reconnect') }}</el-button>
+            <el-button size="small" type="danger" @click="handleClear">{{ t('terminal.clear') }}</el-button>
           </div>
         </div>
       </template>
@@ -22,10 +22,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+
+const { t } = useI18n()
 
 const terminalContainer = ref<HTMLElement>()
 const connected = ref(false)

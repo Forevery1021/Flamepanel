@@ -1,80 +1,82 @@
 <template>
-  <div>
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <h2>Plugins</h2>
-      <el-button type="primary" @click="showLoad = true">Load Plugin</el-button>
+  <div class="view-container">
+    <div class="card-header-title">
+      <h2>{{ t('nav.plugins') }}</h2>
+      <el-button type="primary" @click="showLoad = true">{{ t('plugin.load') }}</el-button>
     </div>
-    <el-table :data="plugins" border stripe v-loading="loading" style="margin-top:16px">
-      <el-table-column prop="id" label="ID" width="150" />
-      <el-table-column prop="name" label="Name" />
-      <el-table-column prop="version" label="Version" width="80" />
-      <el-table-column prop="author" label="Author" width="120" />
-      <el-table-column prop="status" label="Status" width="100">
-        <template #default="{ row }">
-          <el-tag :type="row.enabled ? 'success' : 'danger'" effect="plain" size="small">
-            {{ row.enabled ? 'Enabled' : 'Disabled' }}
-          </el-tag>
-          <div style="font-size:11px;color:#909399;margin-top:2px">{{ row.status }}</div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="exec_count" label="Exec" width="60" align="center" />
-      <el-table-column label="Actions" width="380" fixed="right">
-        <template #default="{ row }">
-          <el-button size="small" :disabled="!row.enabled" @click="disablePlugin(row.id)">Disable</el-button>
-          <el-button size="small" :disabled="row.enabled" @click="enablePlugin(row.id)">Enable</el-button>
-          <el-button size="small" @click="showExecute(row.id)">Execute</el-button>
-          <el-popconfirm title="Unload this plugin?" @confirm="unloadPlugin(row.id)">
-            <template #reference>
-              <el-button size="small" type="danger">Unload</el-button>
-            </template>
-          </el-popconfirm>
-        </template>
-      </el-table-column>
-    </el-table>
+    <el-card shadow="hover">
+      <el-table :data="plugins" border stripe v-loading="loading" style="width:100%">
+        <el-table-column prop="id" :label="t('plugin.id')" width="150" />
+        <el-table-column prop="name" :label="t('plugin.name')" />
+        <el-table-column prop="version" :label="t('plugin.version')" width="80" />
+        <el-table-column prop="author" :label="t('plugin.author')" width="120" />
+        <el-table-column :label="t('plugin.status')" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.enabled ? 'success' : 'danger'" effect="plain" size="small">
+              {{ row.enabled ? t('plugin.enabled') : t('plugin.disabled') }}
+            </el-tag>
+            <div style="font-size:11px;color:#909399;margin-top:2px">{{ row.status }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="exec_count" :label="t('plugin.execCount')" width="60" align="center" />
+        <el-table-column :label="t('plugin.actions')" width="380" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" :disabled="!row.enabled" @click="disablePlugin(row.id)">{{ t('plugin.disable') }}</el-button>
+            <el-button size="small" :disabled="row.enabled" @click="enablePlugin(row.id)">{{ t('plugin.enable') }}</el-button>
+            <el-button size="small" @click="showExecute(row.id)">{{ t('plugin.execute') }}</el-button>
+            <el-popconfirm :title="t('plugin.loadConfirm', { name: row.name || row.id })" @confirm="unloadPlugin(row.id)">
+              <template #reference>
+                <el-button size="small" type="danger">{{ t('plugin.unload') }}</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
 
-    <el-dialog v-model="showLoad" title="Load Plugin" width="520px" destroy-on-close>
+    <el-dialog v-model="showLoad" :title="t('plugin.load')" width="520px" destroy-on-close>
       <el-form :model="loadForm" label-width="100px" @submit.prevent="handleLoad">
-        <el-form-item label="ID" required>
-          <el-input v-model="loadForm.id" placeholder="unique plugin ID" />
+        <el-form-item :label="t('plugin.id')" required>
+          <el-input v-model="loadForm.id" :placeholder="t('common.placeholder')" />
         </el-form-item>
-        <el-form-item label="Name" required>
-          <el-input v-model="loadForm.name" placeholder="display name" />
+        <el-form-item :label="t('plugin.name')" required>
+          <el-input v-model="loadForm.name" :placeholder="t('common.placeholder')" />
         </el-form-item>
-        <el-form-item label="WASM (base64)" required>
-          <el-input v-model="loadForm.wasm" type="textarea" :rows="4" placeholder="base64-encoded wasm bytes" />
+        <el-form-item :label="t('plugin.wasmBase64')" required>
+          <el-input v-model="loadForm.wasm" type="textarea" :rows="4" :placeholder="t('common.placeholder')" />
         </el-form-item>
-        <el-form-item label="Version">
-          <el-input v-model="loadForm.version" placeholder="0.1.0" />
+        <el-form-item :label="t('plugin.version')">
+          <el-input v-model="loadForm.version" :placeholder="t('common.placeholder')" />
         </el-form-item>
-        <el-form-item label="Author">
+        <el-form-item :label="t('plugin.author')">
           <el-input v-model="loadForm.author" />
         </el-form-item>
-        <el-form-item label="Description">
+        <el-form-item :label="t('plugin.description')">
           <el-input v-model="loadForm.desc" type="textarea" :rows="2" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showLoad = false">Cancel</el-button>
-        <el-button type="primary" @click="handleLoad" :loading="loadLoading">Load</el-button>
+        <el-button @click="showLoad = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="handleLoad" :loading="loadLoading">{{ t('plugin.load') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showExec" title="Execute Plugin" width="600px" destroy-on-close>
+    <el-dialog v-model="showExec" :title="t('plugin.execute')" width="600px" destroy-on-close>
       <template #header>
-        <span>Execute — <code>{{ execId }}</code></span>
+        <span>{{ t('plugin.execute') }} — <code>{{ execId }}</code></span>
       </template>
       <el-form @submit.prevent="handleExec" label-width="100px">
-        <el-form-item label="Function">
+        <el-form-item :label="t('plugin.function')">
           <el-input v-model="execFunc" placeholder="run" />
         </el-form-item>
-        <el-form-item label="Args (comma separated)">
-          <el-input v-model="execArgs" placeholder="e.g. 1,2,3" />
+        <el-form-item :label="t('plugin.args')">
+          <el-input v-model="execArgs" :placeholder="t('common.placeholder')" />
         </el-form-item>
-        <el-button type="primary" native-type="submit" :loading="execLoading">Run</el-button>
+        <el-button type="primary" native-type="submit" :loading="execLoading">{{ t('plugin.run') }}</el-button>
       </el-form>
       <el-divider />
       <div v-if="execResult" style="margin-top:8px">
-        <div style="font-weight:600;margin-bottom:6px;font-size:13px">Response:</div>
+        <div style="font-weight:600;margin-bottom:6px;font-size:13px">{{ t('plugin.response') }}:</div>
         <pre class="exec-output">{{ execResult }}</pre>
       </div>
     </el-dialog>
@@ -83,10 +85,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { listPlugins, loadPlugin, unloadPlugin as unload, enablePlugin as enable, disablePlugin as disable, executePlugin } from '@/api/plugins'
 import { ElMessage } from 'element-plus'
 import type { PluginResponse } from '@/types'
 
+const { t } = useI18n()
 const plugins = ref<PluginResponse[]>([])
 const loading = ref(false)
 
@@ -103,13 +107,14 @@ const execLoading = ref(false)
 
 async function fetch() {
   loading.value = true
-  try { plugins.value = (await listPlugins()).data } catch { ElMessage.error('Failed to fetch plugins') }
+  try { plugins.value = (await listPlugins()).data }
+  catch { ElMessage.error(t('common.failed')) }
   finally { loading.value = false }
 }
 
 async function handleLoad() {
   if (!loadForm.value.id || !loadForm.value.name || !loadForm.value.wasm) {
-    ElMessage.warning('ID, Name and WASM are required')
+    ElMessage.warning(t('common.required'))
     return
   }
   loadLoading.value = true
@@ -117,16 +122,16 @@ async function handleLoad() {
     await loadPlugin(loadForm.value.id, loadForm.value.name, loadForm.value.wasm, {
       version: loadForm.value.version, author: loadForm.value.author, description: loadForm.value.desc,
     })
-    ElMessage.success('Plugin loaded')
+    ElMessage.success(t('common.success'))
     showLoad.value = false
     fetch()
-  } catch (e: any) { ElMessage.error(e.response?.data?.message || 'Load failed') }
+  } catch { ElMessage.error(t('common.failed')) }
   finally { loadLoading.value = false }
 }
 
-async function enablePlugin(id: string) { try { await enable(id); ElMessage.success('Enabled'); fetch() } catch { ElMessage.error('Enable failed') } }
-async function disablePlugin(id: string) { try { await disable(id); ElMessage.success('Disabled'); fetch() } catch { ElMessage.error('Disable failed') } }
-async function unloadPlugin(id: string) { try { await unload(id); ElMessage.success('Unloaded'); fetch() } catch { ElMessage.error('Unload failed') } }
+async function enablePlugin(id: string) { try { await enable(id); ElMessage.success(t('common.success')); fetch() } catch { ElMessage.error(t('common.failed')) } }
+async function disablePlugin(id: string) { try { await disable(id); ElMessage.success(t('common.success')); fetch() } catch { ElMessage.error(t('common.failed')) } }
+async function unloadPlugin(id: string) { try { await unload(id); ElMessage.success(t('common.success')); fetch() } catch { ElMessage.error(t('common.failed')) } }
 
 function showExecute(id: string) {
   execId.value = id; execResult.value = ''; execArgs.value = ''; execFunc.value = 'run'

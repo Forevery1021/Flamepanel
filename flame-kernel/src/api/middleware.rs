@@ -9,11 +9,11 @@ use crate::utils::jwt::JwtUtils;
 use crate::api::rate_limiter;
 use crate::api::types::{AppState, UserId, route_permission};
 
-pub fn add_middleware(router: Router) -> Router {
+pub fn add_middleware(router: Router, state: AppState) -> Router {
     rate_limiter::init_global_limiter(120, 60);
     router
         .layer(middleware::from_fn(rate_limiter::rate_limit_middleware))
-        .layer(middleware::from_fn(auth_middleware))
+        .layer(middleware::from_fn_with_state(state, auth_middleware))
         .layer(TraceLayer::new_for_http())
 }
 
@@ -22,6 +22,7 @@ pub fn log_request(method: &str, uri: &str, status: u16) {
 }
 
 async fn auth_middleware<B>(
+    State(state): State<AppState>,
     mut req: Request<B>,
     next: Next<B>,
 ) -> Result<Response, StatusCode> {
@@ -39,7 +40,7 @@ async fn auth_middleware<B>(
         .strip_prefix("Bearer ")
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let jwt = JwtUtils::new("flamepanel-secret", 24);
+    let jwt = JwtUtils::new(&state.jwt_secret, 24);
     let claims = jwt.verify(token).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     let user_id: i64 = claims.sub.parse().map_err(|_| StatusCode::UNAUTHORIZED)?;

@@ -3,15 +3,27 @@
     <div class="topbar-left">
       <span class="topbar-logo">FlamePanel</span>
       <span class="topbar-divider" />
-      <span class="topbar-title">{{ pageTitle }}</span>
+      <span class="topbar-title">{{ t(`nav.${routeName}`) || routeName }}</span>
     </div>
     <div class="topbar-right">
-      <el-tooltip content="切换主题" placement="bottom">
+      <el-dropdown trigger="click" @command="handleLangChange">
+        <el-button text circle>
+          <el-icon size="18"><ChatDotRound /></el-icon>
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item command="zh-CN" :disabled="locale === 'zh-CN'">简体中文</el-dropdown-item>
+            <el-dropdown-item command="en-US" :disabled="locale === 'en-US'">English</el-dropdown-item>
+            <el-dropdown-item command="ja-JP" :disabled="locale === 'ja-JP'">日本語</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+      <el-tooltip :content="t('theme.toggle')" placement="bottom">
         <el-button text circle @click="toggleTheme">
           <el-icon size="18"><Moon v-if="isDark" /><Sunny v-else /></el-icon>
         </el-button>
       </el-tooltip>
-      <el-tooltip content="面板信息" placement="bottom">
+      <el-tooltip :content="t('health.title')" placement="bottom">
         <el-button text circle @click="$router.push('/health')">
           <el-icon size="18"><InfoFilled /></el-icon>
         </el-button>
@@ -25,10 +37,10 @@
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item command="settings">
-              <el-icon><Tools /></el-icon> 面板设置
+              <el-icon><Tools /></el-icon> {{ t('nav.settings') }}
             </el-dropdown-item>
             <el-dropdown-item command="logout" divided>
-              <el-icon><SwitchButton /></el-icon> 退出登录
+              <el-icon><SwitchButton /></el-icon> {{ t('common.logout') || '退出登录' }}
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -40,24 +52,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
-import { UserFilled, Tools, SwitchButton, InfoFilled, ArrowDown, Moon, Sunny } from '@element-plus/icons-vue'
+import { setLanguage } from '@/locales'
+import {
+  UserFilled, Tools, SwitchButton, InfoFilled,
+  ArrowDown, Moon, Sunny, ChatDotRound,
+} from '@element-plus/icons-vue'
 
+const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-const pageTitle = computed(() => {
-  const map: Record<string, string> = {
-    dashboard: '仪表盘', users: '用户管理', nodes: '节点管理',
-    files: '文件管理', databases: '数据库管理', websites: '网站管理',
-    docker: 'Docker 管理', plugins: '插件管理', firewall: '防火墙管理',
-    terminal: 'Web 终端',
-    'operation-logs': '操作日志', 'system-logs': '系统日志',
-    settings: '面板设置', health: '系统健康',
-  }
-  return map[route.name as string] || (route.name as string) || ''
-})
+const routeName = computed(() => (route.name as string) || '')
 
 const isDark = computed(() => document.documentElement.classList.contains('dark'))
 
@@ -65,6 +73,10 @@ function toggleTheme() {
   const html = document.documentElement
   html.classList.toggle('dark')
   localStorage.setItem('flame-theme', html.classList.contains('dark') ? 'dark' : 'light')
+}
+
+function handleLangChange(lang: string) {
+  setLanguage(lang)
 }
 
 function handleCommand(cmd: string) {

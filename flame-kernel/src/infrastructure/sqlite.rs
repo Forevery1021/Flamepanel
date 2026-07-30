@@ -69,6 +69,15 @@ impl UserRepository for SqliteUserRepository {
             .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
         Ok(())
     }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(())
+    }
 }
 
 pub struct SqliteNodeRepository {
@@ -128,6 +137,15 @@ impl NodeRepository for SqliteNodeRepository {
         .await
         .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
         Ok(nodes)
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM nodes WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(())
     }
 }
 

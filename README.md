@@ -21,6 +21,8 @@
 - **WASM 插件系统** — wasmtime 沙箱，生命周期钩子/指标追踪/热重载/依赖校验
 - **面板配置** — Key-Value 配置，主题/多语言/端口/日志/2FA/JWT 密钥轮换
 - **用户 & RBAC** — JWT + bcrypt，admin/operator/viewer 三角色，60+ 路由权限映射
+- **国际化** — 简体中文 / English / 日本語 三语言支持，前端实时切换
+- **暗色主题** — 跟随系统 / 手动切换，Element Plus 暗色变量全覆盖
 - **审计日志 & 系统日志** — REST + WebSocket 双通道
 - **弹性与容错** — Circuit Breaker + Retry，Docker 不可用时 InMemory 自动降级
 
@@ -35,6 +37,7 @@
 | WASM | wasmtime 29 |
 | 前端 | Vue 3.5 + TypeScript 6.0 + Element Plus + Vite 8 |
 | 状态/路由 | Pinia 3 + Vue Router 5 |
+| 国际化 | vue-i18n 10（zh-CN / en-US / ja-JP） |
 | 终端 | xterm.js 5.5 + @xterm/addon-fit |
 
 ## 项目结构
@@ -46,7 +49,7 @@ Flamepanel/
 │   │   ├── domain/        # 实体 (User/Node/Website/Plugin/DatabaseInstance/FirewallRule/…)
 │   │   ├── application/   # 服务层 (UserService/DockerService/FileService/FirewallService/…)
 │   │   ├── infrastructure/# 仓库实现 (InMemory + SQLite + Bollard + OS 抽象)
-│   │   ├── api/           # HTTP 层 (15 个 handler 模块, 86+ 路由, JWT+RBAC 中间件)
+│   │   ├── api/           # HTTP 层 (16 个 handler 模块, 90+ 路由, JWT+RBAC 中间件)
 │   │   ├── plugin/        # WASM 沙箱 + 注册表
 │   │   ├── webserver/     # 5 引擎配置生成 + 进程管理
 │   │   ├── database/      # MySQL/Redis 原生管理
@@ -56,10 +59,11 @@ Flamepanel/
 │   │   ├── utils/         # JWT/bcrypt/验证
 │   │   └── resilience/    # Circuit Breaker + Retry
 │   └── tests/             # 74 集成测试 + 11 单元测试
-├── frontend/              # Vue 3 前端 (15 个视图)
+├── frontend/              # Vue 3 前端 (15 个视图, 3 语言 i18n)
 ├── agent/                 # 轻量 Rust Agent
 ├── docker-compose.yml
-└── install.sh
+├── install.sh
+└── uninstall.sh
 ```
 
 ## 环境要求
@@ -205,7 +209,15 @@ server {
 | `OP_PORT` | `8080` | 监听端口 |
 | `OP_HOST` | `0.0.0.0` | 监听地址 |
 | `OP_DATABASE_URL` | `sqlite:data/app.db?mode=rwc` | 数据库连接 |
-| `OP_JWT_SECRET` | 自动生成 | JWT 签名密钥 |
+| `OP_JWT_SECRET` | `flamepanel-secret` | JWT 签名密钥（生产环境务必修改） |
+| `OP_ADMIN_USERNAME` | `admin` | 初始管理员用户名 |
+| `OP_ADMIN_PASSWORD` | `admin123` | 初始管理员密码 |
+| `OP_SMTP_HOST` | `localhost` | SMTP 服务器地址 |
+| `OP_SMTP_PORT` | `25` | SMTP 端口 |
+| `OP_SMTP_USERNAME` | 空 | SMTP 用户名 |
+| `OP_SMTP_PASSWORD` | 空 | SMTP 密码 |
+| `OP_SMTP_FROM` | `noreply@flamepanel.local` | 发件人地址 |
+| `OP_SMTP_TLS` | `false` | 启用 TLS |
 | `RUST_LOG` | `info` | 日志级别 |
 
 ### 面板运行时设置
@@ -221,6 +233,33 @@ server {
 | `log_level` | `info` | 日志级别 |
 | `log_retention_days` | `30` | 日志保留天数 |
 | `two_factor_enabled` | `false` | 2FA 开关 |
+
+## 卸载
+
+### Systemd 部署
+
+```bash
+# 卸载（保留数据）
+sudo ./uninstall.sh
+
+# 完全卸载（删除所有数据）
+sudo ./uninstall.sh -p
+
+# 或手动卸载
+sudo systemctl stop flamepanel
+sudo systemctl disable flamepanel
+sudo rm -f /usr/local/bin/flamepanel
+sudo rm -f /etc/systemd/system/flamepanel.service
+sudo systemctl daemon-reload
+sudo rm -rf /opt/flamepanel   # 删除数据
+```
+
+### Docker 部署
+
+```bash
+docker compose down
+rm -rf ./data   # 删除数据
+```
 
 ## 服务管理
 
@@ -245,8 +284,8 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 |------|--------|----------|
 | 健康检查 | 1 | `GET /health` |
 | 认证 | 2 | `/api/auth/*` |
-| 用户 | 2 | `/api/users` |
-| 节点 | 2 | `/api/nodes` |
+| 用户 | 3 | `/api/users` |
+| 节点 | 3 | `/api/nodes` |
 | 网站 | 2 | `/api/websites` |
 | Docker | 13 | `/api/docker/*` |
 | 插件 | 13 | `/api/plugins/*` |
@@ -264,7 +303,8 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 - **Phase 1** ✅ 核心框架：Clean Architecture、错误处理、JWT + RBAC
 - **Phase 2** ✅ 业务模块：用户/节点/网站/Docker CRUD、日志、实时 WS
 - **Phase 3** ✅ 高级特性：WASM 插件沙箱、Docker Compose、Circuit Breaker/Retry、多 Web 引擎、面板配置、数据库管理、文件管理、防火墙管理、Web 终端
-- **Phase 4** 🔄 进行中：前端 UI 重构（顶部导航栏 + 二级侧边栏 + 暗色主题 + 中文化）、SSL 证书、定时任务、备份系统、告警通知
+- **Phase 4** ✅ 前端 UI 重构：i18n 国际化（zh-CN/en-US/ja-JP）、暗色主题、语言切换器、TopBar 重组、全部 15 个视图 i18n 化
+- **Phase 4** 🔄 进行中：SSL 证书、定时任务、备份系统、告警通知、Web 服务器 / 数据库管理增强
 - **测试** ✅ 74 集成测试 + 11 单元测试，全部通过
 
 ## License

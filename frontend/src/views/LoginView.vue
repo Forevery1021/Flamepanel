@@ -3,15 +3,15 @@
     <el-card class="card">
       <h2>FlamePanel</h2>
       <el-form @submit.prevent="handleLogin" :model="form" :rules="rules" ref="formRef">
-        <el-form-item label="Username" prop="username">
-          <el-input v-model="form.username" />
+        <el-form-item :label="t('login.username')" prop="username">
+          <el-input v-model="form.username" :placeholder="t('login.placeholder', { field: t('login.username') })" />
         </el-form-item>
-        <el-form-item label="Password" prop="password">
-          <el-input v-model="form.password" type="password" show-password />
+        <el-form-item :label="t('login.password')" prop="password">
+          <el-input v-model="form.password" type="password" show-password :placeholder="t('login.placeholder', { field: t('login.password') })" />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" native-type="submit" :loading="loading" style="width:100%">
-            Login
+            {{ loading ? t('login.loggingIn') : t('login.login') }}
           </el-button>
         </el-form-item>
       </el-form>
@@ -22,10 +22,12 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
+const { t } = useI18n()
 const form = reactive({ username: 'admin', password: 'admin123' })
 const formRef = ref<FormInstance>()
 const loading = ref(false)
@@ -33,8 +35,8 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const rules: FormRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  username: [{ required: true, message: t('login.placeholder', { field: t('login.username') }), trigger: 'blur' }],
+  password: [{ required: true, message: t('login.placeholder', { field: t('login.password') }), trigger: 'blur' }],
 }
 
 async function handleLogin() {
@@ -44,8 +46,8 @@ async function handleLogin() {
   try {
     await auth.login(form.username, form.password)
     router.push('/dashboard')
-  } catch (e: any) {
-    ElMessage.error(e.response?.data?.message || '登录失败')
+  } catch {
+    ElMessage.error(t('login.error'))
   } finally {
     loading.value = false
   }
@@ -53,7 +55,7 @@ async function handleLogin() {
 </script>
 
 <style scoped>
-.login { height: 100vh; display: flex; align-items: center; justify-content: center; background: #f0f2f5; }
+.login { height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg-primary); }
 .card { width: 400px; }
 .card h2 { text-align: center; margin-bottom: 24px; color: #409eff; }
 </style>

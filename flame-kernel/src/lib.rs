@@ -85,6 +85,7 @@ impl FlameKernel {
         let plugin_registry_for_state = plugin_registry.clone();
 
         let app_state = AppState::new(
+            config.jwt_secret.clone(),
             user_service,
             node_service,
             website_service,
@@ -134,13 +135,14 @@ impl FlameKernel {
         // Seed admin user if no users exist
         let users = self.app_state.user_service.list_users().await?;
         if users.is_empty() {
-            let hash = crate::utils::password::PasswordUtils::hash("admin123")?;
+            let admin_password = &self.config.admin_password;
+            let hash = crate::utils::password::PasswordUtils::hash(admin_password)?;
             self.app_state.user_service.create_user("admin", &hash, "admin").await?;
-            tracing::info!("Seeded admin user (default password: admin123)");
+            tracing::info!("Seeded admin user (password from config)");
         }
 
-        let app = api::routes::create_router(self.app_state);
-        let app = api::middleware::add_middleware(app);
+        let app = api::routes::create_router(self.app_state.clone());
+        let app = api::middleware::add_middleware(app, self.app_state);
 
         let addr = format!("{}:{}", self.config.server.host, self.config.server.port);
         tracing::info!("Listening on {}", addr);

@@ -1,22 +1,22 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>防火墙管理</h2>
+      <h2>{{ t('nav.firewall') }}</h2>
       <div class="actions">
         <el-tag :type="statusTag" size="large" class="status-tag">
           {{ backendInfo }}
         </el-tag>
         <el-button type="primary" @click="showCreateDialog = true">
-          添加规则
+          {{ t('firewall.add') }}
         </el-button>
         <el-button @click="handleApply">
-          应用规则
+          {{ t('firewall.apply') }}
         </el-button>
         <el-button :type="firewallEnabled ? 'danger' : 'success'" @click="handleToggleFirewall">
-          {{ firewallEnabled ? '关闭防火墙' : '开启防火墙' }}
+          {{ firewallEnabled ? t('firewall.disable') : t('firewall.enable') }}
         </el-button>
         <el-button @click="loadData" :loading="loading">
-          刷新
+          {{ t('firewall.refresh') }}
         </el-button>
       </div>
     </div>
@@ -24,137 +24,137 @@
     <el-card shadow="hover">
     <el-table :data="rules" stripe v-loading="loading">
       <el-table-column type="index" label="#" width="50" />
-      <el-table-column prop="name" label="名称" min-width="140" />
-      <el-table-column label="协议" width="80">
+      <el-table-column prop="name" :label="t('firewall.name')" min-width="140" />
+      <el-table-column :label="t('firewall.protocol')" width="80">
         <template #default="{ row }">
           <el-tag size="small" :type="row.protocol === 'any' ? 'info' : 'primary'">
             {{ row.protocol.toUpperCase() }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="port" label="端口" width="120">
+      <el-table-column :label="t('firewall.port')" width="120">
         <template #default="{ row }">
-          {{ row.port || '所有' }}
+          {{ row.port || t('firewall.any') }}
         </template>
       </el-table-column>
-      <el-table-column prop="source" label="来源" width="140">
+      <el-table-column :label="t('firewall.source')" width="140">
         <template #default="{ row }">
           {{ row.source || '0.0.0.0/0' }}
         </template>
       </el-table-column>
-      <el-table-column label="动作" width="90">
+      <el-table-column :label="t('firewall.action')" width="90">
         <template #default="{ row }">
           <el-tag size="small" :type="row.action === 'allow' ? 'success' : 'danger'">
-            {{ row.action === 'allow' ? '允许' : row.action === 'deny' ? '拒绝' : '驳回' }}
+            {{ actionLabel(row.action) }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="方向" width="80">
+      <el-table-column :label="t('firewall.direction')" width="80">
         <template #default="{ row }">
-          {{ row.direction === 'in' ? '入站' : '出站' }}
+          {{ row.direction === 'in' ? t('firewall.in') : t('firewall.out') }}
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="80">
+      <el-table-column :label="t('firewall.enabled')" width="80">
         <template #default="{ row }">
           <el-switch :model-value="row.enabled" @change="(v: boolean) => handleToggle(row.id, v)" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160" fixed="right">
+      <el-table-column :label="t('firewall.actions')" width="160" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" @click="handleEdit(row)">编辑</el-button>
-          <el-button size="small" type="danger" @click="handleDelete(row.id)">删除</el-button>
+          <el-button size="small" @click="handleEdit(row)">{{ t('common.edit') }}</el-button>
+          <el-button size="small" type="danger" @click="handleDelete(row.id)">{{ t('firewall.delete') }}</el-button>
         </template>
       </el-table-column>
     </el-table>
     </el-card>
 
-    <el-dialog v-model="showCreateDialog" title="添加防火墙规则" width="560px">
+    <el-dialog v-model="showCreateDialog" :title="t('firewall.add')" width="560px">
       <el-form :model="form" label-width="80px">
-        <el-form-item label="名称" required>
-          <el-input v-model="form.name" placeholder="例如：允许 SSH" />
+        <el-form-item :label="t('firewall.name')" required>
+          <el-input v-model="form.name" :placeholder="t('firewall.namePlaceholder')" />
         </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="form.description" placeholder="规则描述（可选）" />
+        <el-form-item :label="t('firewall.description')">
+          <el-input v-model="form.description" :placeholder="t('firewall.descPlaceholder')" />
         </el-form-item>
-        <el-form-item label="协议" required>
+        <el-form-item :label="t('firewall.protocol')" required>
           <el-select v-model="form.protocol" style="width: 100%">
             <el-option label="TCP" value="tcp" />
             <el-option label="UDP" value="udp" />
             <el-option label="ICMP" value="icmp" />
-            <el-option label="任意" value="any" />
+            <el-option :label="t('firewall.any')" value="any" />
           </el-select>
         </el-form-item>
-        <el-form-item label="端口">
-          <el-input v-model="form.port" placeholder="例如：80, 443, 8000-9000（留空=所有）" />
+        <el-form-item :label="t('firewall.port')">
+          <el-input v-model="form.port" :placeholder="t('firewall.portPlaceholder')" />
         </el-form-item>
-        <el-form-item label="来源 IP">
-          <el-input v-model="form.source" placeholder="例如：0.0.0.0/0" />
+        <el-form-item :label="t('firewall.source')">
+          <el-input v-model="form.source" placeholder="0.0.0.0/0" />
         </el-form-item>
-        <el-form-item label="动作" required>
+        <el-form-item :label="t('firewall.action')" required>
           <el-select v-model="form.action" style="width: 100%">
-            <el-option label="允许 (ALLOW)" value="allow" />
-            <el-option label="拒绝 (DENY)" value="deny" />
-            <el-option label="驳回 (REJECT)" value="reject" />
+            <el-option :label="t('firewall.allow') + ' (ALLOW)'" value="allow" />
+            <el-option :label="t('firewall.deny') + ' (DENY)'" value="deny" />
+            <el-option :label="t('firewall.reject') + ' (REJECT)'" value="reject" />
           </el-select>
         </el-form-item>
-        <el-form-item label="方向" required>
+        <el-form-item :label="t('firewall.direction')" required>
           <el-select v-model="form.direction" style="width: 100%">
-            <el-option label="入站" value="in" />
-            <el-option label="出站" value="out" />
+            <el-option :label="t('firewall.in')" value="in" />
+            <el-option :label="t('firewall.out')" value="out" />
           </el-select>
         </el-form-item>
-        <el-form-item label="优先级">
+        <el-form-item :label="t('firewall.priority')">
           <el-input-number v-model="form.priority" :min="1" :max="999" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleCreate" :loading="saving">确定</el-button>
+        <el-button @click="showCreateDialog = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="handleCreate" :loading="saving">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showEditDialog" title="编辑防火墙规则" width="560px">
+    <el-dialog v-model="showEditDialog" :title="t('firewall.edit')" width="560px">
       <el-form :model="editForm" label-width="80px">
-        <el-form-item label="名称" required>
+        <el-form-item :label="t('firewall.name')" required>
           <el-input v-model="editForm.name" />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="t('firewall.description')">
           <el-input v-model="editForm.description" />
         </el-form-item>
-        <el-form-item label="协议" required>
+        <el-form-item :label="t('firewall.protocol')" required>
           <el-select v-model="editForm.protocol" style="width: 100%">
             <el-option label="TCP" value="tcp" />
             <el-option label="UDP" value="udp" />
             <el-option label="ICMP" value="icmp" />
-            <el-option label="任意" value="any" />
+            <el-option :label="t('firewall.any')" value="any" />
           </el-select>
         </el-form-item>
-        <el-form-item label="端口">
-          <el-input v-model="editForm.port" placeholder="留空=所有" />
+        <el-form-item :label="t('firewall.port')">
+          <el-input v-model="editForm.port" :placeholder="t('firewall.any')" />
         </el-form-item>
-        <el-form-item label="来源 IP">
+        <el-form-item :label="t('firewall.source')">
           <el-input v-model="editForm.source" />
         </el-form-item>
-        <el-form-item label="动作" required>
+        <el-form-item :label="t('firewall.action')" required>
           <el-select v-model="editForm.action" style="width: 100%">
-            <el-option label="允许 (ALLOW)" value="allow" />
-            <el-option label="拒绝 (DENY)" value="deny" />
-            <el-option label="驳回 (REJECT)" value="reject" />
+            <el-option :label="t('firewall.allow') + ' (ALLOW)'" value="allow" />
+            <el-option :label="t('firewall.deny') + ' (DENY)'" value="deny" />
+            <el-option :label="t('firewall.reject') + ' (REJECT)'" value="reject" />
           </el-select>
         </el-form-item>
-        <el-form-item label="方向" required>
+        <el-form-item :label="t('firewall.direction')" required>
           <el-select v-model="editForm.direction" style="width: 100%">
-            <el-option label="入站" value="in" />
-            <el-option label="出站" value="out" />
+            <el-option :label="t('firewall.in')" value="in" />
+            <el-option :label="t('firewall.out')" value="out" />
           </el-select>
         </el-form-item>
-        <el-form-item label="优先级">
+        <el-form-item :label="t('firewall.priority')">
           <el-input-number v-model="editForm.priority" :min="1" :max="999" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showEditDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleSaveEdit" :loading="saving">保存</el-button>
+        <el-button @click="showEditDialog = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="handleSaveEdit" :loading="saving">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -162,6 +162,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   listFirewallRules, createFirewallRule, updateFirewallRule, deleteFirewallRule,
@@ -169,6 +170,7 @@ import {
 } from '@/api/firewall'
 import type { FirewallRule as FR, FirewallStatus } from '@/types'
 
+const { t } = useI18n()
 const rules = ref<FR[]>([])
 const loading = ref(false)
 const saving = ref(false)
@@ -183,6 +185,11 @@ const form = ref({
 
 const editForm = ref<FR>({} as FR)
 
+function actionLabel(action: string) {
+  const map: Record<string, string> = { allow: t('firewall.allow'), deny: t('firewall.deny'), reject: t('firewall.reject') }
+  return map[action] || action
+}
+
 const statusTag = computed(() => {
   if (!firewallStatus.value) return 'info'
   const s = (firewallStatus.value.status || '').toLowerCase()
@@ -192,7 +199,7 @@ const statusTag = computed(() => {
 })
 
 const backendInfo = computed(() => {
-  if (!firewallStatus.value) return '检测中...'
+  if (!firewallStatus.value) return t('firewall.detecting')
   const name = firewallStatus.value.backend_name || ''
   const st = firewallStatus.value.status || ''
   return `${name.toUpperCase()} - ${st.substring(0, 40)}`
@@ -213,8 +220,8 @@ async function loadData() {
     ])
     rules.value = ruleRes.data
     if (statusRes) firewallStatus.value = statusRes.data
-  } catch (e: any) {
-    ElMessage.error('加载防火墙规则失败: ' + (e.message || ''))
+  } catch {
+    ElMessage.error(t('common.failed'))
   } finally {
     loading.value = false
   }
@@ -222,7 +229,7 @@ async function loadData() {
 
 async function handleCreate() {
   if (!form.value.name) {
-    ElMessage.warning('请输入规则名称')
+    ElMessage.warning(t('common.required'))
     return
   }
   saving.value = true
@@ -231,12 +238,12 @@ async function handleCreate() {
     if (form.value.description) data.description = form.value.description
     if (form.value.port) data.port = form.value.port
     await createFirewallRule(data)
-    ElMessage.success('规则创建成功')
+    ElMessage.success(t('common.success'))
     showCreateDialog.value = false
     form.value = { name: '', description: '', protocol: 'tcp', port: '', source: '0.0.0.0/0', action: 'allow', direction: 'in', priority: 50 }
     await loadData()
-  } catch (e: any) {
-    ElMessage.error('创建失败: ' + (e.message || ''))
+  } catch {
+    ElMessage.error(t('common.failed'))
   } finally {
     saving.value = false
   }
@@ -260,11 +267,11 @@ async function handleSaveEdit() {
     data.direction = editForm.value.direction
     data.priority = editForm.value.priority
     await updateFirewallRule(editForm.value.id, data)
-    ElMessage.success('规则更新成功')
+    ElMessage.success(t('common.success'))
     showEditDialog.value = false
     await loadData()
-  } catch (e: any) {
-    ElMessage.error('更新失败: ' + (e.message || ''))
+  } catch {
+    ElMessage.error(t('common.failed'))
   } finally {
     saving.value = false
   }
@@ -272,35 +279,35 @@ async function handleSaveEdit() {
 
 async function handleDelete(id: number) {
   try {
-    await ElMessageBox.confirm('确定删除此规则？', '确认')
+    await ElMessageBox.confirm(t('common.confirmAction'), t('common.confirm'))
   } catch {
     return
   }
   try {
     await deleteFirewallRule(id)
-    ElMessage.success('规则已删除')
+    ElMessage.success(t('common.success'))
     await loadData()
-  } catch (e: any) {
-    ElMessage.error('删除失败: ' + (e.message || ''))
+  } catch {
+    ElMessage.error(t('common.failed'))
   }
 }
 
 async function handleToggle(id: number, enabled: boolean) {
   try {
     await toggleFirewallRule(id, enabled)
-    ElMessage.success(enabled ? '规则已启用' : '规则已禁用')
+    ElMessage.success(t('common.success'))
     await loadData()
-  } catch (e: any) {
-    ElMessage.error('操作失败: ' + (e.message || ''))
+  } catch {
+    ElMessage.error(t('common.failed'))
   }
 }
 
 async function handleApply() {
   try {
     await applyFirewallRules()
-    ElMessage.success('防火墙规则已应用')
-  } catch (e: any) {
-    ElMessage.error('应用失败: ' + (e.message || ''))
+    ElMessage.success(t('common.success'))
+  } catch {
+    ElMessage.error(t('common.failed'))
   }
 }
 
@@ -308,14 +315,14 @@ async function handleToggleFirewall() {
   try {
     if (firewallEnabled.value) {
       await disableFirewall()
-      ElMessage.success('防火墙已关闭')
+      ElMessage.success(t('common.success'))
     } else {
       await enableFirewall()
-      ElMessage.success('防火墙已开启')
+      ElMessage.success(t('common.success'))
     }
     await loadData()
-  } catch (e: any) {
-    ElMessage.error('操作失败: ' + (e.message || ''))
+  } catch {
+    ElMessage.error(t('common.failed'))
   }
 }
 

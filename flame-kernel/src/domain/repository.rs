@@ -9,6 +9,7 @@ pub trait UserRepository: Send + Sync {
     async fn create(&self, username: &str, password_hash: &str, role: &str) -> Result<User, AppError>;
     async fn list(&self) -> Result<Vec<User>, AppError>;
     async fn update_password(&self, id: i64, new_password_hash: &str) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
 }
 
 #[async_trait]
@@ -17,6 +18,7 @@ pub trait NodeRepository: Send + Sync {
     async fn find_by_hostname(&self, hostname: &str) -> Result<Option<ServerNode>, AppError>;
     async fn create(&self, node: &ServerNode) -> Result<i64, AppError>;
     async fn list_all(&self) -> Result<Vec<ServerNode>, AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
 }
 
 #[async_trait]

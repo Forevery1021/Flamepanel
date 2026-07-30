@@ -1,6 +1,6 @@
 # FlamePanel 开发部署流程指南
 
-> Rust 内核 + Vue 3 前端 · 版本 v1.9 · 更新 2026-07-07
+> Rust 内核 + Vue 3 前端 · 版本 v1.10 · 更新 2026-07-30
 
 ## 目录
 
@@ -12,7 +12,8 @@
 6. [配置参考](#6-配置参考)
 7. [开发工作流](#7-开发工作流)
 8. [服务管理](#8-服务管理)
-9. [常见问题](#9-常见问题)
+9. [卸载](#9-卸载)
+10. [常见问题](#10-常见问题)
 
 ---
 
@@ -120,9 +121,11 @@ Flamepanel/
 │       ├── components/    # Layout/Sidebar/TopBar
 │       ├── stores/        # Pinia
 │       ├── router/        # 15 条路由
-│       └── views/         # 15 个页面
+│       ├── locales/       # i18n: zh-CN/en-US/ja-JP
+│       └── views/         # 15 个视图页面
 ├── agent/                 # 轻量 Rust Agent
 ├── install.sh             # Linux 一键安装脚本
+├── uninstall.sh           # Linux 卸载脚本
 ├── Dockerfile             # 多阶段构建
 ├── docker-compose.yml     # Docker 编排
 └── nginx.conf             # 生产反向代理配置
@@ -319,14 +322,20 @@ server {
 | `OP_PORT` | `8080` | 监听端口 |
 | `OP_HOST` | `0.0.0.0` | 监听地址 |
 | `OP_DATABASE_URL` | `sqlite:data/app.db?mode=rwc` | 数据库连接 |
-| `OP_JWT_SECRET` | 自动生成 | JWT 签名密钥 |
+| `OP_JWT_SECRET` | `flamepanel-secret` | JWT 签名密钥（生产环境务必修改） |
 | `OP_ADMIN_USERNAME` | `admin` | 初始管理员用户名 |
 | `OP_ADMIN_PASSWORD` | `admin123` | 初始管理员密码 |
+| `OP_SMTP_HOST` | `localhost` | SMTP 服务器地址 |
+| `OP_SMTP_PORT` | `25` | SMTP 端口 |
+| `OP_SMTP_USERNAME` | 空 | SMTP 用户名 |
+| `OP_SMTP_PASSWORD` | 空 | SMTP 密码 |
+| `OP_SMTP_FROM` | `noreply@flamepanel.local` | 发件人地址 |
+| `OP_SMTP_TLS` | `false` | 启用 TLS |
 | `RUST_LOG` | `info` | 日志级别 (trace/debug/info/warn/error) |
 
 ### 6.2 TOML 配置文件
 
-`config/app.toml`（可选，同环境变量）：
+`config/app.toml`（可选，同环境变量，环境变量优先级更高）：
 ```toml
 [server]
 host = "0.0.0.0"
@@ -342,6 +351,10 @@ smtp_username = "user"
 smtp_password = "pass"
 smtp_from = "noreply@flamepanel.local"
 smtp_tls = true
+
+# 安全配置
+jwt_secret = "your-strong-jwt-secret"
+admin_password = "your-admin-password"
 ```
 
 ### 6.3 面板运行时配置
@@ -494,7 +507,56 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 
 ---
 
-## 9. 常见问题
+## 9. 卸载
+
+### 9.1 使用卸载脚本（推荐）
+
+```bash
+# 卸载（保留数据目录 /opt/flamepanel）
+sudo ./uninstall.sh
+
+# 完全卸载（删除所有数据）
+sudo ./uninstall.sh -p
+
+# 静默卸载（跳过确认）
+sudo ./uninstall.sh -f
+```
+
+### 9.2 手动卸载
+
+```bash
+# 1. 停止并禁用服务
+sudo systemctl stop flamepanel
+sudo systemctl disable flamepanel
+
+# 2. 删除二进制文件
+sudo rm -f /usr/local/bin/flamepanel
+
+# 3. 删除 systemd 服务文件
+sudo rm -f /etc/systemd/system/flamepanel.service
+sudo systemctl daemon-reload
+
+# 4. （可选）删除数据目录
+sudo rm -rf /opt/flamepanel
+```
+
+### 9.3 Docker 卸载
+
+```bash
+# 停止并删除容器
+docker compose down
+
+# 删除镜像
+docker rmi flamepanel-flame-kernel
+
+# 删除数据卷（可选，会丢失数据库）
+docker volume rm flamepanel_data
+# 或手动删除: rm -rf ./data
+```
+
+---
+
+## 10. 常见问题
 
 ### 后端无法启动
 
@@ -548,6 +610,7 @@ npm install
 | 脚本 | 用途 |
 |------|------|
 | `install.sh` | Linux 一键安装（systemd） |
+| `uninstall.sh` | Linux 卸载脚本（保留或删除数据） |
 | `docker-compose.yml` | Docker 编排部署 |
 | `Dockerfile` | 多阶段构建（前端 + 后端） |
 | `nginx.conf` | 生产反向代理配置 |
@@ -574,6 +637,6 @@ Infrastructure 层 (InMemory / SQLite / OS 命令)
 ```
 
 **模块端点统计**：
-- 健康检查: 1 | 认证: 2 | 用户: 2 | 节点: 2 | 网站: 2
+- 健康检查: 1 | 认证: 2 | 用户: 3 | 节点: 3 | 网站: 2
 - Docker: 13 | 插件: 13 | Web 服务器: 16 | 数据库: 15
 - 文件: 10 | 防火墙: 11 | 设置: 3 | 日志: 2 | WebSocket: 3

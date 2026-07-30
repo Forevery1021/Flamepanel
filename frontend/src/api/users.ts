@@ -8,3 +8,7 @@ export function listUsers() {
 export function createUser(username: string, password_hash: string, role: string) {
   return api.post<User>('/users', { username, password_hash, role })
 }
+
+export function deleteUser(id: number) {
+  return api.delete(`/users/${id}`)
+}

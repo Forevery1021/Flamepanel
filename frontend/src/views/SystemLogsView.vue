@@ -1,100 +1,80 @@
 <template>
-  <div>
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <h2>System Logs</h2>
+  <div class="view-container">
+    <div class="card-header-title">
+      <h2>{{ t('nav.systemLogs') }}</h2>
       <div style="display:flex;gap:8px;align-items:center">
-        <el-select v-model="levelFilter" size="small" style="width:120px" clearable placeholder="All levels">
-          <el-option label="All" value="" />
-          <el-option label="Info" value="info" />
-          <el-option label="Warn" value="warn" />
-          <el-option label="Error" value="error" />
-          <el-option label="Critical" value="critical" />
-        </el-select>
-        <el-tag size="small" type="info">{{ filteredLogs.length }} entries</el-tag>
-        <el-tag size="small" :type="wsConnected ? 'success' : 'danger'">
-          WS {{ wsConnected ? 'live' : 'off' }}
+        <el-tag :type="wsConnected ? 'success' : 'danger'" size="small">
+          {{ wsConnected ? t('log.wsConnected') : t('log.wsDisconnected') }}
         </el-tag>
+        <span style="font-size:12px;color:#909399">{{ logs.length }} {{ t('log.entries') }}</span>
       </div>
     </div>
-    <el-table
-      :data="filteredLogs" border stripe v-loading="loading" style="margin-top:16px"
-      max-height="620px" ref="tableRef"
-      @scroll="handleScroll"
-    >
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="source" label="Source" width="100" />
-      <el-table-column prop="level" label="Level" width="80">
-        <template #default="{ row }">
-          <el-tag size="small" :type="levelType(row.level)" effect="dark">{{ row.level }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="message" label="Message" min-width="350">
-        <template #default="{ row }">
-          <div class="log-msg">{{ row.message }}</div>
-        </template>
-      </el-table-column>
-      <el-table-column prop="created_at" label="Time" width="180" />
-    </el-table>
+
+    <el-card shadow="hover">
+      <div style="margin-bottom:12px">
+        <el-select v-model="levelFilter" style="width:150px">
+          <el-option :label="t('log.all')" value="" />
+          <el-option :label="t('log.info')" value="info" />
+          <el-option :label="t('log.warn')" value="warn" />
+          <el-option :label="t('log.error')" value="error" />
+          <el-option :label="t('log.critical')" value="critical" />
+        </el-select>
+      </div>
+      <el-table :data="filteredLogs" border stripe max-height="620px" @scroll="handleScroll" ref="tableRef">
+        <el-table-column prop="id" :label="t('log.id')" width="60" />
+        <el-table-column prop="source" :label="t('log.source')" width="120" />
+        <el-table-column :label="t('log.level')" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="levelType(row.level)">{{ row.level }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="message" :label="t('log.message')" min-width="300" show-overflow-tooltip />
+        <el-table-column prop="created_at" :label="t('log.time')" width="180" />
+      </el-table>
+    </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { listSystemLogs } from '@/api/logs'
-import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import type { LogEntry } from '@/types'
 
+const { t } = useI18n()
 const logs = ref<LogEntry[]>([])
-const loading = ref(false)
 const levelFilter = ref('')
 const wsConnected = ref(false)
-const tableRef = ref()
+const tableRef = ref<HTMLElement>()
 let ws: WebSocket | null = null
-let autoScroll = true
 
-const filteredLogs = computed(() => {
-  if (!levelFilter.value) return logs.value
-  return logs.value.filter(l => l.level === levelFilter.value)
-})
+const filteredLogs = computed(() =>
+  levelFilter.value ? logs.value.filter(l => l.level === levelFilter.value) : logs.value
+)
 
-function levelType(level: string) {
-  if (level === 'error' || level === 'critical') return 'danger'
-  if (level === 'warn') return 'warning'
-  return 'info'
+function levelType(lv: string) {
+  const map: Record<string, string> = { info: 'info', warn: 'warning', error: 'danger', critical: 'danger' }
+  return map[lv] || 'info'
 }
 
 function handleScroll(e: Event) {
   const el = e.target as HTMLElement
-  autoScroll = el.scrollTop + el.clientHeight >= el.scrollHeight - 50
-}
-
-async function fetch() {
-  loading.value = true
-  try { logs.value = (await listSystemLogs()).data } catch { ElMessage.error('获取系统日志失败') } finally { loading.value = false }
+  if (el) { /* scroll tracking available if needed */ }
 }
 
 onMounted(() => {
-  fetch()
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   ws = new WebSocket(`${protocol}//${location.host}/ws/logs`)
   ws.onopen = () => { wsConnected.value = true }
   ws.onclose = () => { wsConnected.value = false }
   ws.onmessage = (ev: MessageEvent) => {
     const msg = JSON.parse(ev.data)
-    if (msg.type === 'init') {
-      logs.value = msg.data
-    } else if (msg.type === 'tick') {
+    if (msg.type === 'init') { logs.value = msg.data }
+    else if (msg.type === 'tick') {
       logs.value.unshift(msg.data)
-      if (logs.value.length > 500) logs.value = logs.value.slice(0, 500)
+      if (logs.value.length > 500) logs.value.length = 500
     }
   }
 })
 
 onUnmounted(() => ws?.close())
 </script>
-
-<style scoped>
-.log-msg {
-  max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-</style>
