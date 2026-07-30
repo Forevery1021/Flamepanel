@@ -1,6 +1,6 @@
-use axum::{Json, extract::{State, Path}};
+use axum::{Json, extract::{State, Path, Query}};
 use serde::{Serialize, Deserialize};
-use crate::api::types::AppState;
+use crate::api::types::{AppState, PaginationParams, PaginatedResponse};
 use crate::core::error::AppError;
 use crate::domain::entity::FirewallRule;
 use chrono::Utc;
@@ -80,9 +80,11 @@ fn to_response(rule: FirewallRule) -> FirewallRuleResponse {
 
 pub async fn list(
     State(state): State<AppState>,
-) -> Result<Json<Vec<FirewallRuleResponse>>, AppError> {
-    let rules = state.firewall_service.list_rules().await?;
-    Ok(Json(rules.into_iter().map(to_response).collect()))
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<PaginatedResponse<FirewallRuleResponse>>, AppError> {
+    let result = state.firewall_service.list_rules_paginated(&params).await?;
+    let data = result.data.into_iter().map(to_response).collect();
+    Ok(Json(PaginatedResponse::new(data, result.total, &params)))
 }
 
 pub async fn get(

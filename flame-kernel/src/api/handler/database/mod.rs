@@ -1,6 +1,6 @@
-use axum::{Json, extract::{State, Path}};
+use axum::{Json, extract::{State, Path, Query}};
 use serde::{Serialize, Deserialize};
-use crate::api::types::AppState;
+use crate::api::types::{AppState, PaginationParams, PaginatedResponse};
 use crate::core::error::AppError;
 use crate::domain::entity::DatabaseInstance;
 
@@ -68,9 +68,11 @@ fn to_response(inst: DatabaseInstance) -> DatabaseInstanceResponse {
 
 pub async fn list(
     State(state): State<AppState>,
-) -> Result<Json<Vec<DatabaseInstanceResponse>>, AppError> {
-    let instances = state.database_service.list_instances().await?;
-    Ok(Json(instances.into_iter().map(to_response).collect()))
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<PaginatedResponse<DatabaseInstanceResponse>>, AppError> {
+    let result = state.database_service.list_instances_paginated(&params).await?;
+    let data = result.data.into_iter().map(to_response).collect();
+    Ok(Json(PaginatedResponse::new(data, result.total, &params)))
 }
 
 pub async fn get(

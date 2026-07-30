@@ -180,9 +180,9 @@ const pwRules: FormRules = {
 async function fetchSettings() {
   loading.value = true
   try {
-    const res = await listSettings()
+    const res = await listSettings(1, 50)
     const map: Record<string, string> = {}
-    for (const s of res.data) { map[s.key] = s.value }
+    for (const s of res.data.data) { map[s.key] = s.value }
     settingsMap.value = map
     settingsForm.panel_name = map['panel_name'] || 'FlamePanel'
     settingsForm.theme = map['theme'] || 'light'

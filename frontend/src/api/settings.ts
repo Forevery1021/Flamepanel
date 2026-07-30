@@ -1,8 +1,8 @@
 import api from './client'
-import type { SettingEntry } from '@/types'
+import type { SettingEntry, PaginatedResponse } from '@/types'
 
-export function listSettings() {
-  return api.get<SettingEntry[]>('/settings')
+export function listSettings(page = 1, pageSize = 50) {
+  return api.get<PaginatedResponse<SettingEntry>>('/settings', { params: { page, page_size: pageSize } })
 }
 
 export function getSetting(key: string) {

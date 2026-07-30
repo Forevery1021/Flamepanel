@@ -27,6 +27,17 @@
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-if="total > pageSize"
+        v-model:current-page="currentPage"
+        :page-size="pageSize"
+        :total="total"
+        layout="prev, pager, next, total"
+        background
+        small
+        style="margin-top: 16px; justify-content: center;"
+        @current-change="fetch"
+      />
     </el-card>
 
     <el-dialog v-model="dialogVisible" :title="t('user.createUser')" width="400px">
@@ -64,6 +75,9 @@ import type { User } from '@/types'
 const { t } = useI18n()
 const users = ref<User[]>([])
 const loading = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const formRef = ref<FormInstance>()
@@ -83,8 +97,9 @@ function roleLabel(role: string) {
 async function fetch() {
   loading.value = true
   try {
-    const res = await listUsers()
-    users.value = res.data
+    const res = await listUsers(currentPage.value, pageSize.value)
+    users.value = res.data.data
+    total.value = res.data.total
   } finally {
     loading.value = false
   }

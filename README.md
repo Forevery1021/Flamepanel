@@ -286,7 +286,7 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 | 认证 | 2 | `/api/auth/*` |
 | 用户 | 3 | `/api/users` |
 | 节点 | 3 | `/api/nodes` |
-| 网站 | 2 | `/api/websites` |
+| 网站 | 5 | `/api/websites` |
 | Docker | 13 | `/api/docker/*` |
 | 插件 | 13 | `/api/plugins/*` |
 | Web 服务器 | 16 | `/api/web-servers/*` |
@@ -294,8 +294,8 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 | 文件 | 10 | `/api/files/*` |
 | 防火墙 | 11 | `/api/firewall/*` |
 | 配置 | 3 | `/api/settings` |
-| 操作日志 | 1 | `/api/operation-logs` |
-| 系统日志 | 1 | `/api/logs` |
+| 操作日志 | 2 | `/api/operation-logs` |
+| 系统日志 | 2 | `/api/logs` |
 | WebSocket | 3 | `/ws/metrics`, `/ws/logs`, `/ws/terminal` |
 
 ## 开发进度
@@ -304,8 +304,11 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 - **Phase 2** ✅ 业务模块：用户/节点/网站/Docker CRUD、日志、实时 WS
 - **Phase 3** ✅ 高级特性：WASM 插件沙箱、Docker Compose、Circuit Breaker/Retry、多 Web 引擎、面板配置、数据库管理、文件管理、防火墙管理、Web 终端
 - **Phase 4** ✅ 前端 UI 重构：i18n 国际化（zh-CN/en-US/ja-JP）、暗色主题、语言切换器、TopBar 重组、全部 15 个视图 i18n 化
+- **Phase 4** ✅ 分页支持：后端所有列表端点支持 `?page=&page_size=` 分页查询，前端统一分页控件
+- **Phase 4** ✅ CRUD 补全：Website 完整 CRUD、OperationLog/Log 删除端点
+- **Phase 4** ✅ 优雅关闭：SIGTERM/Ctrl+C 信号处理
 - **Phase 4** 🔄 进行中：SSL 证书、定时任务、备份系统、告警通知、Web 服务器 / 数据库管理增强
-- **测试** ✅ 74 集成测试 + 11 单元测试，全部通过
+- **测试** ✅ 85 集成测试 + 单元测试，全部通过
 
 ## License
 

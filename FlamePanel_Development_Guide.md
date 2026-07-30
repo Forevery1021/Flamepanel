@@ -640,3 +640,26 @@ Infrastructure 层 (InMemory / SQLite / OS 命令)
 - 健康检查: 1 | 认证: 2 | 用户: 3 | 节点: 3 | 网站: 2
 - Docker: 13 | 插件: 13 | Web 服务器: 16 | 数据库: 15
 - 文件: 10 | 防火墙: 11 | 设置: 3 | 日志: 2 | WebSocket: 3
+
+---
+
+## 11. 更新日志
+
+### v0.1.10 (2026-07-30)
+
+#### 新增
+- **后端分页支持** — 所有列表端点（用户/节点/网站/日志/数据库/防火墙/Web服务器/设置）支持 `?page=&page_size=` 查询参数，返回 `PaginatedResponse<T>` 统一格式
+- **Website 完整 CRUD** — 新增 `GET /api/websites/:id`、`PUT /api/websites/:id`、`DELETE /api/websites/:id`
+- **OperationLog 删除** — `DELETE /api/operation-logs/:id`
+- **Log 删除** — `DELETE /api/logs/:id`
+- **优雅关闭** — SIGTERM/Ctrl+C 信号处理，服务平稳退出
+- **前端分页控件** — 用户/节点/网站/数据库/Web服务器/防火墙/操作日志视图增加 `<el-pagination>` 组件
+- **前端类型增强** — `PaginatedResponse<T>` 泛型接口，所有 API 模块更新为分页请求
+
+#### 修复
+- **SQLite Website 查询** — 补充缺失的 `engine`/`ssl_enabled`/`proxy_enabled`/`proxy_pass` 列（所有 `SELECT` 和 `INSERT` 语句）
+- **DatabasesView 类型错误** — 移除 `as unknown as` 强制类型转换，改用正确分页响应类型
+- **FirewallView / SettingsView 类型错误** — 适配新的分页响应格式
+
+#### 测试
+- 85 个测试全部通过（74 集成测试 + 11 单元测试）

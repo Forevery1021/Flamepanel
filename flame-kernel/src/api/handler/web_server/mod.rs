@@ -1,6 +1,6 @@
-use axum::{Json, extract::{State, Path}};
+use axum::{Json, extract::{State, Path, Query}};
 use serde::Serialize;
-use crate::api::types::{AppState, WebServerResponse, CreateWebServerInstanceRequest};
+use crate::api::types::{AppState, WebServerResponse, CreateWebServerInstanceRequest, PaginationParams, PaginatedResponse};
 use crate::core::error::AppError;
 use crate::domain::entity::WebServerInstance;
 use crate::webserver::engine::WebServerEngine;
@@ -40,9 +40,11 @@ pub async fn list_engines() -> Json<Vec<EngineInfo>> {
 
 pub async fn list(
     State(state): State<AppState>,
-) -> Result<Json<Vec<WebServerResponse>>, AppError> {
-    let servers = state.web_server_service.list_servers().await?;
-    Ok(Json(servers.into_iter().map(to_response).collect()))
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<PaginatedResponse<WebServerResponse>>, AppError> {
+    let result = state.web_server_service.list_servers_paginated(&params).await?;
+    let data = result.data.into_iter().map(to_response).collect();
+    Ok(Json(PaginatedResponse::new(data, result.total, &params)))
 }
 
 pub async fn get(

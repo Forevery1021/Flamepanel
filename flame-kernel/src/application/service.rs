@@ -3,6 +3,7 @@ use crate::domain::repository::*;
 use crate::core::error::AppError;
 use crate::webserver::{WebServerEngine, WebServerManager, get_config_generator};
 use crate::database::{NativeDbManager, mysql::MySqlManager, redis::RedisManager};
+use crate::api::types::{PaginatedResponse, PaginationParams, paginate_slice};
 use std::sync::Arc;
 use std::collections::HashMap;
 
@@ -21,6 +22,13 @@ impl UserService {
 
     pub async fn list_users(&self) -> Result<Vec<User>, AppError> {
         self.user_repo.list().await
+    }
+
+    pub async fn list_users_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<User>, AppError> {
+        let users = self.user_repo.list().await?;
+        let total = users.len() as i64;
+        let data = paginate_slice(&users, params);
+        Ok(PaginatedResponse::new(data, total, params))
     }
 
     pub async fn delete_user(&self, id: i64) -> Result<(), AppError> {
@@ -47,6 +55,13 @@ impl NodeService {
         self.node_repo.list_all().await
     }
 
+    pub async fn list_nodes_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<ServerNode>, AppError> {
+        let nodes = self.node_repo.list_all().await?;
+        let total = nodes.len() as i64;
+        let data = paginate_slice(&nodes, params);
+        Ok(PaginatedResponse::new(data, total, params))
+    }
+
     pub async fn delete_node(&self, id: i64) -> Result<(), AppError> {
         self.node_repo.find_by_id(id).await?
             .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
@@ -69,6 +84,28 @@ impl WebsiteService {
 
     pub async fn list_websites(&self) -> Result<Vec<Website>, AppError> {
         self.website_repo.list_all().await
+    }
+
+    pub async fn list_websites_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<Website>, AppError> {
+        let websites = self.website_repo.list_all().await?;
+        let total = websites.len() as i64;
+        let data = paginate_slice(&websites, params);
+        Ok(PaginatedResponse::new(data, total, params))
+    }
+
+    pub async fn get_website(&self, id: i64) -> Result<Website, AppError> {
+        self.website_repo.find_by_id(id).await?
+            .ok_or_else(|| AppError::NotFound(format!("Website {} not found", id)))
+    }
+
+    pub async fn update_website(&self, website: &Website) -> Result<(), AppError> {
+        self.website_repo.update(website).await
+    }
+
+    pub async fn delete_website(&self, id: i64) -> Result<(), AppError> {
+        self.website_repo.find_by_id(id).await?
+            .ok_or_else(|| AppError::NotFound(format!("Website {} not found", id)))?;
+        self.website_repo.delete(id).await
     }
 }
 
@@ -211,6 +248,13 @@ impl WebServerService {
         self.server_repo.list_all().await
     }
 
+    pub async fn list_servers_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<WebServerInstance>, AppError> {
+        let servers = self.server_repo.list_all().await?;
+        let total = servers.len() as i64;
+        let data = paginate_slice(&servers, params);
+        Ok(PaginatedResponse::new(data, total, params))
+    }
+
     pub async fn get_server(&self, id: i64) -> Result<WebServerInstance, AppError> {
         self.server_repo.find_by_id(id).await?
             .ok_or_else(|| AppError::NotFound(format!("Web server {} not found", id)))
@@ -305,6 +349,13 @@ impl SettingsService {
         self.repo.list_all().await
     }
 
+    pub async fn list_all_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<PanelSetting>, AppError> {
+        let settings = self.repo.list_all().await?;
+        let total = settings.len() as i64;
+        let data = paginate_slice(&settings, params);
+        Ok(PaginatedResponse::new(data, total, params))
+    }
+
     pub async fn get(&self, key: &str) -> Result<Option<String>, AppError> {
         self.repo.get(key).await
     }
@@ -335,6 +386,13 @@ impl DatabaseService {
 
     pub async fn list_instances(&self) -> Result<Vec<DatabaseInstance>, AppError> {
         self.repo.list_all().await
+    }
+
+    pub async fn list_instances_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<DatabaseInstance>, AppError> {
+        let instances = self.repo.list_all().await?;
+        let total = instances.len() as i64;
+        let data = paginate_slice(&instances, params);
+        Ok(PaginatedResponse::new(data, total, params))
     }
 
     pub async fn get_instance(&self, id: i64) -> Result<DatabaseInstance, AppError> {
@@ -493,12 +551,23 @@ impl OperationLogService {
         self.log_repo.list().await
     }
 
+    pub async fn list_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<OperationLog>, AppError> {
+        let logs = self.log_repo.list().await?;
+        let total = logs.len() as i64;
+        let data = paginate_slice(&logs, params);
+        Ok(PaginatedResponse::new(data, total, params))
+    }
+
     pub async fn find_by_id(&self, id: i64) -> Result<Option<OperationLog>, AppError> {
         self.log_repo.find_by_id(id).await
     }
 
     pub async fn list_by_username(&self, username: &str) -> Result<Vec<OperationLog>, AppError> {
         self.log_repo.list_by_username(username).await
+    }
+
+    pub async fn delete_log(&self, id: i64) -> Result<(), AppError> {
+        self.log_repo.delete(id).await
     }
 }
 
@@ -519,6 +588,13 @@ impl LogService {
         self.log_repo.list().await
     }
 
+    pub async fn list_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<LogEntry>, AppError> {
+        let logs = self.log_repo.list().await?;
+        let total = logs.len() as i64;
+        let data = paginate_slice(&logs, params);
+        Ok(PaginatedResponse::new(data, total, params))
+    }
+
     pub async fn find_by_id(&self, id: i64) -> Result<Option<LogEntry>, AppError> {
         self.log_repo.find_by_id(id).await
     }
@@ -529,6 +605,10 @@ impl LogService {
 
     pub async fn list_by_level(&self, level: &str) -> Result<Vec<LogEntry>, AppError> {
         self.log_repo.list_by_level(level).await
+    }
+
+    pub async fn delete_log(&self, id: i64) -> Result<(), AppError> {
+        self.log_repo.delete(id).await
     }
 }
 
@@ -888,6 +968,13 @@ impl FirewallService {
 
     pub async fn list_rules(&self) -> Result<Vec<FirewallRule>, AppError> {
         self.firewall_repo.list_all().await
+    }
+
+    pub async fn list_rules_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<FirewallRule>, AppError> {
+        let rules = self.firewall_repo.list_all().await?;
+        let total = rules.len() as i64;
+        let data = paginate_slice(&rules, params);
+        Ok(PaginatedResponse::new(data, total, params))
     }
 
     pub async fn get_rule(&self, id: i64) -> Result<FirewallRule, AppError> {

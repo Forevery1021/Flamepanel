@@ -1,12 +1,12 @@
 import api from './client'
-import type { WebServerResponse, EngineInfo } from '@/types'
+import type { WebServerResponse, EngineInfo, PaginatedResponse } from '@/types'
 
 export function listEngines() {
   return api.get<EngineInfo[]>('/web-servers/engines')
 }
 
-export function listWebServers() {
-  return api.get<WebServerResponse[]>('/web-servers')
+export function listWebServers(page = 1, pageSize = 20) {
+  return api.get<PaginatedResponse<WebServerResponse>>('/web-servers', { params: { page, page_size: pageSize } })
 }
 
 export function getWebServer(id: number) {

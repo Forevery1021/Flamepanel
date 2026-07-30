@@ -1,6 +1,6 @@
-use axum::{Json, extract::State};
+use axum::{Json, extract::{State, Query}};
 use serde::{Deserialize, Serialize};
-use crate::api::types::AppState;
+use crate::api::types::{AppState, PaginationParams, PaginatedResponse};
 use crate::core::error::AppError;
 
 
@@ -19,13 +19,15 @@ pub struct UpdateSettingRequest {
 
 pub async fn list_settings(
     State(state): State<AppState>,
-) -> Result<Json<Vec<SettingEntry>>, AppError> {
-    let settings = state.settings_service.list_all().await?;
-    Ok(Json(settings.into_iter().map(|s| SettingEntry {
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<PaginatedResponse<SettingEntry>>, AppError> {
+    let result = state.settings_service.list_all_paginated(&params).await?;
+    let data = result.data.into_iter().map(|s| SettingEntry {
         key: s.key,
         value: s.value,
         description: s.description,
-    }).collect()))
+    }).collect();
+    Ok(Json(PaginatedResponse::new(data, result.total, &params)))
 }
 
 pub async fn get_setting(

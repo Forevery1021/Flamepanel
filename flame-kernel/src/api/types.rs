@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast};
 use serde::{Deserialize, Serialize};
-
 use crate::application::service::*;
 use crate::domain::entity::{MetricsSnapshot, LogEntry};
 use crate::infrastructure::metrics::MetricsHistory;
@@ -154,6 +153,9 @@ pub fn route_permission(method: &axum::http::Method, path: &str) -> Option<(&'st
         ("DELETE", p) if p.starts_with("/api/nodes/") => Some(("node", "delete")),
         ("GET", "/api/websites") => Some(("website", "read")),
         ("POST", "/api/websites") => Some(("website", "create")),
+        ("GET", p) if p.starts_with("/api/websites/") => Some(("website", "read")),
+        ("PUT", p) if p.starts_with("/api/websites/") => Some(("website", "update")),
+        ("DELETE", p) if p.starts_with("/api/websites/") => Some(("website", "delete")),
         ("GET", "/api/docker/containers") => Some(("docker", "read")),
         ("GET", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/logs") => Some(("docker", "read")),
         ("GET", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/stats") => Some(("docker", "read")),
@@ -228,7 +230,62 @@ pub fn route_permission(method: &axum::http::Method, path: &str) -> Option<(&'st
         ("POST", "/api/firewall/disable") => Some(("firewall", "enable")),
         ("POST", "/api/firewall/reorder") => Some(("firewall", "update")),
         ("GET", "/api/operation-logs") => Some(("operation_log", "read")),
+        ("DELETE", p) if p.starts_with("/api/operation-logs/") => Some(("operation_log", "delete")),
         ("GET", "/api/logs") => Some(("log", "read")),
+        ("DELETE", p) if p.starts_with("/api/logs/") => Some(("log", "delete")),
         _ => None,
+    }
+}
+
+// ── Pagination ────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct PaginationParams {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+}
+
+impl PaginationParams {
+    pub fn page(&self) -> i64 {
+        self.page.filter(|p| *p > 0).unwrap_or(1)
+    }
+    pub fn page_size(&self) -> i64 {
+        self.page_size.filter(|s| *s > 0 && *s <= 200).unwrap_or(20)
+    }
+    pub fn offset(&self) -> i64 {
+        (self.page() - 1) * self.page_size()
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaginatedResponse<T: Serialize> {
+    pub data: Vec<T>,
+    pub page: i64,
+    pub page_size: i64,
+    pub total: i64,
+    pub total_pages: i64,
+}
+
+impl<T: Serialize> PaginatedResponse<T> {
+    pub fn new(items: Vec<T>, total: i64, params: &PaginationParams) -> Self {
+        let page = params.page();
+        let page_size = params.page_size();
+        let total_pages = if page_size > 0 {
+            (total + page_size - 1) / page_size
+        } else {
+            1
+        };
+        Self { data: items, page, page_size, total, total_pages }
+    }
+}
+
+/// Slice a full Vec into a paginated window.
+pub fn paginate_slice<T: Clone>(items: &[T], params: &PaginationParams) -> Vec<T> {
+    let start = params.offset() as usize;
+    let end = (start + params.page_size() as usize).min(items.len());
+    if start < items.len() {
+        items[start..end].to_vec()
+    } else {
+        vec![]
     }
 }

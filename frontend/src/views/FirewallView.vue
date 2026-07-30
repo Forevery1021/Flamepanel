@@ -218,7 +218,7 @@ async function loadData() {
       listFirewallRules(),
       getFirewallStatus().catch(() => null),
     ])
-    rules.value = ruleRes.data
+    rules.value = ruleRes.data.data
     if (statusRes) firewallStatus.value = statusRes.data
   } catch {
     ElMessage.error(t('common.failed'))

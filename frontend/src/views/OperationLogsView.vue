@@ -18,6 +18,17 @@
         <el-table-column prop="ip" :label="t('log.ip')" width="140" />
         <el-table-column prop="created_at" :label="t('log.time')" width="180" />
       </el-table>
+      <el-pagination
+        v-if="total > pageSize"
+        v-model:current-page="currentPage"
+        :page-size="pageSize"
+        :total="total"
+        layout="prev, pager, next, total"
+        background
+        small
+        style="margin-top: 16px; justify-content: center;"
+        @current-change="fetch"
+      />
     </el-card>
   </div>
 </template>
@@ -31,12 +42,16 @@ import type { OperationLog } from '@/types'
 const { t } = useI18n()
 const logs = ref<OperationLog[]>([])
 const loading = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 
 async function fetch() {
   loading.value = true
   try {
-    const res = await listOperationLogs()
-    logs.value = res.data
+    const res = await listOperationLogs(currentPage.value, pageSize.value)
+    logs.value = res.data.data
+    total.value = res.data.total
   } finally { loading.value = false }
 }
 

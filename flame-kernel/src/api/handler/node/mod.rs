@@ -1,13 +1,14 @@
-use axum::{Json, extract::{State, Path}};
+use axum::{Json, extract::{State, Path, Query}};
 use crate::domain::entity::ServerNode;
-use crate::api::types::{AppState, CreateNodeRequest};
+use crate::api::types::{AppState, CreateNodeRequest, PaginationParams, PaginatedResponse};
 use crate::core::error::AppError;
 
 pub async fn list(
     State(state): State<AppState>,
-) -> Result<Json<Vec<ServerNode>>, AppError> {
-    let nodes = state.node_service.list_nodes().await?;
-    Ok(Json(nodes))
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<PaginatedResponse<ServerNode>>, AppError> {
+    let result = state.node_service.list_nodes_paginated(&params).await?;
+    Ok(Json(result))
 }
 
 pub async fn create(

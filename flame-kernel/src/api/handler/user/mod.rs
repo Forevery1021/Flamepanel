@@ -1,13 +1,14 @@
-use axum::{Json, extract::{State, Path}};
+use axum::{Json, extract::{State, Path, Query}};
 use crate::domain::entity::User;
-use crate::api::types::{AppState, CreateUserRequest};
+use crate::api::types::{AppState, CreateUserRequest, PaginationParams, PaginatedResponse};
 use crate::core::error::AppError;
 
 pub async fn list(
     State(state): State<AppState>,
-) -> Result<Json<Vec<User>>, AppError> {
-    let users = state.user_service.list_users().await?;
-    Ok(Json(users))
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<PaginatedResponse<User>>, AppError> {
+    let result = state.user_service.list_users_paginated(&params).await?;
+    Ok(Json(result))
 }
 
 pub async fn create(

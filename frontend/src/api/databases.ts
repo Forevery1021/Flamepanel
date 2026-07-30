@@ -1,8 +1,8 @@
 import api from './client'
-import type { DatabaseInstance } from '@/types'
+import type { DatabaseInstance, PaginatedResponse } from '@/types'
 
-export function listDatabases() {
-  return api.get<DatabaseInstance[]>('/databases')
+export function listDatabases(page = 1, pageSize = 20) {
+  return api.get<PaginatedResponse<DatabaseInstance>>('/databases', { params: { page, page_size: pageSize } })
 }
 
 export function getDatabase(id: number) {

@@ -171,6 +171,28 @@ impl WebsiteRepository for InMemoryWebsiteRepository {
         Ok(id)
     }
 
+    async fn update(&self, website: &Website) -> Result<(), AppError> {
+        let mut websites = self.websites.lock().unwrap();
+        if let Some(existing) = websites.iter_mut().find(|w| w.id == website.id) {
+            existing.name = website.name.clone();
+            existing.domain = website.domain.clone();
+            existing.root_path = website.root_path.clone();
+            existing.engine = website.engine.clone();
+            existing.ssl_enabled = website.ssl_enabled;
+            existing.proxy_enabled = website.proxy_enabled;
+            existing.proxy_pass = website.proxy_pass.clone();
+            Ok(())
+        } else {
+            Err(AppError::NotFound("Website not found".into()))
+        }
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        let mut websites = self.websites.lock().unwrap();
+        websites.retain(|w| w.id != id);
+        Ok(())
+    }
+
     async fn list_all(&self) -> Result<Vec<Website>, AppError> {
         let websites = self.websites.lock().unwrap();
         Ok(websites.clone())
@@ -410,6 +432,12 @@ impl OperationLogRepository for InMemoryOperationLogRepository {
     async fn list_by_username(&self, username: &str) -> Result<Vec<OperationLog>, AppError> {
         Ok(self.logs.lock().unwrap().iter().filter(|l| l.username == username).cloned().collect())
     }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        let mut logs = self.logs.lock().unwrap();
+        logs.retain(|l| l.id != id);
+        Ok(())
+    }
 }
 
 pub struct InMemoryWebServerRepository {
@@ -523,6 +551,12 @@ impl LogRepository for InMemoryLogRepository {
 
     async fn list_by_level(&self, level: &str) -> Result<Vec<LogEntry>, AppError> {
         Ok(self.logs.lock().unwrap().iter().filter(|l| l.level == level).cloned().collect())
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        let mut logs = self.logs.lock().unwrap();
+        logs.retain(|l| l.id != id);
+        Ok(())
     }
 }
 

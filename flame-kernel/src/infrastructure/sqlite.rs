@@ -163,7 +163,7 @@ impl SqliteWebsiteRepository {
 impl WebsiteRepository for SqliteWebsiteRepository {
     async fn find_by_id(&self, id: i64) -> Result<Option<Website>, AppError> {
         let site = sqlx::query_as::<_, Website>(
-            "SELECT id, name, domain, root_path, status, node_id, created_at FROM websites WHERE id = ?",
+            "SELECT id, name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass, created_at FROM websites WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -174,7 +174,7 @@ impl WebsiteRepository for SqliteWebsiteRepository {
 
     async fn find_by_domain(&self, domain: &str) -> Result<Option<Website>, AppError> {
         let site = sqlx::query_as::<_, Website>(
-            "SELECT id, name, domain, root_path, status, node_id, created_at FROM websites WHERE domain = ?",
+            "SELECT id, name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass, created_at FROM websites WHERE domain = ?",
         )
         .bind(domain)
         .fetch_optional(&self.pool)
@@ -185,13 +185,17 @@ impl WebsiteRepository for SqliteWebsiteRepository {
 
     async fn create(&self, website: &Website) -> Result<i64, AppError> {
         let id = sqlx::query(
-            "INSERT INTO websites (name, domain, root_path, status, node_id) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO websites (name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&website.name)
         .bind(&website.domain)
         .bind(&website.root_path)
         .bind(&website.status)
         .bind(website.node_id)
+        .bind(&website.engine)
+        .bind(website.ssl_enabled)
+        .bind(website.proxy_enabled)
+        .bind(&website.proxy_pass)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?
@@ -199,9 +203,37 @@ impl WebsiteRepository for SqliteWebsiteRepository {
         Ok(id)
     }
 
+    async fn update(&self, website: &Website) -> Result<(), AppError> {
+        sqlx::query(
+            "UPDATE websites SET name=?, domain=?, root_path=?, node_id=?, engine=?, ssl_enabled=?, proxy_enabled=?, proxy_pass=? WHERE id=?",
+        )
+        .bind(&website.name)
+        .bind(&website.domain)
+        .bind(&website.root_path)
+        .bind(website.node_id)
+        .bind(&website.engine)
+        .bind(website.ssl_enabled)
+        .bind(website.proxy_enabled)
+        .bind(&website.proxy_pass)
+        .bind(website.id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(())
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM websites WHERE id=?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(())
+    }
+
     async fn list_all(&self) -> Result<Vec<Website>, AppError> {
         let sites = sqlx::query_as::<_, Website>(
-            "SELECT id, name, domain, root_path, status, node_id, created_at FROM websites ORDER BY id",
+            "SELECT id, name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass, created_at FROM websites ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
@@ -895,6 +927,15 @@ impl OperationLogRepository for SqliteOperationLogRepository {
         .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
         Ok(rows)
     }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM operation_logs WHERE id=?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(())
+    }
 }
 
 pub struct SqliteLogRepository {
@@ -972,6 +1013,15 @@ impl LogRepository for SqliteLogRepository {
         .await
         .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
         Ok(rows)
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM logs WHERE id=?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(())
     }
 }
 

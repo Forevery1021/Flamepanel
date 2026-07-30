@@ -171,3 +171,11 @@ export interface PluginMetricsResponse {
   last_execution_ms: number
   peak_memory_bytes: number
 }
+
+export interface PaginatedResponse<T> {
+  data: T[]
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}

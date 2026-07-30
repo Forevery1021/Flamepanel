@@ -21,6 +21,17 @@
         </el-table-column>
         <el-table-column prop="created_at" :label="t('website.createdAt')" width="180" />
       </el-table>
+      <el-pagination
+        v-if="total > pageSize"
+        v-model:current-page="currentPage"
+        :page-size="pageSize"
+        :total="total"
+        layout="prev, pager, next, total"
+        background
+        small
+        style="margin-top: 16px; justify-content: center;"
+        @current-change="fetch"
+      />
     </el-card>
 
     <el-dialog v-model="showCreate" :title="t('website.create')" width="500px">
@@ -56,13 +67,16 @@ import type { Website } from '@/types'
 const { t } = useI18n()
 const websites = ref<Website[]>([])
 const loading = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 const showCreate = ref(false)
 const submitting = ref(false)
 const form = reactive({ name: '', domain: '', root_path: '', node_id: 1, status: 'active' as string })
 
 async function fetch() {
   loading.value = true
-  try { const res = await listWebsites(); websites.value = res.data }
+  try { const res = await listWebsites(currentPage.value, pageSize.value); websites.value = res.data.data; total.value = res.data.total }
   finally { loading.value = false }
 }
 

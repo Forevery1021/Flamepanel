@@ -29,6 +29,17 @@
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-if="total > pageSize"
+        v-model:current-page="currentPage"
+        :page-size="pageSize"
+        :total="total"
+        layout="prev, pager, next, total"
+        background
+        small
+        style="margin-top: 16px; justify-content: center;"
+        @current-change="fetch"
+      />
     </el-card>
 
     <el-dialog v-model="showInstallMysql" :title="t('database.installMysql')" width="500">
@@ -85,6 +96,9 @@ import type { DatabaseInstance } from '@/types'
 const { t } = useI18n()
 const instances = ref<DatabaseInstance[]>([])
 const loading = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 const installing = ref(false)
 const showInstallMysql = ref(false)
 const showInstallRedis = ref(false)
@@ -97,7 +111,11 @@ const redisForm = ref(initForm(6379, 'Redis 7'))
 
 async function fetch() {
   loading.value = true
-  try { instances.value = await listDatabases() as unknown as DatabaseInstance[] }
+  try {
+    const res = await listDatabases(currentPage.value, pageSize.value)
+    instances.value = res.data.data
+    total.value = res.data.total
+  }
   finally { loading.value = false }
 }
 

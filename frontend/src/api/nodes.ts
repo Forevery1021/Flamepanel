@@ -1,8 +1,8 @@
 import api from './client'
-import type { ServerNode } from '@/types'
+import type { ServerNode, PaginatedResponse } from '@/types'
 
-export function listNodes() {
-  return api.get<ServerNode[]>('/nodes')
+export function listNodes(page = 1, pageSize = 20) {
+  return api.get<PaginatedResponse<ServerNode>>('/nodes', { params: { page, page_size: pageSize } })
 }
 
 export function createNode(node: ServerNode) {

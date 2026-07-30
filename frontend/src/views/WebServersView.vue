@@ -36,6 +36,17 @@
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-if="total > pageSize"
+        v-model:current-page="currentPage"
+        :page-size="pageSize"
+        :total="total"
+        layout="prev, pager, next, total"
+        background
+        small
+        style="margin-top: 16px; justify-content: center;"
+        @current-change="fetch"
+      />
     </el-card>
 
     <el-dialog v-model="showInstall" :title="t('webServer.installTitle')" width="500px">
@@ -77,6 +88,9 @@ const { t } = useI18n()
 const instances = ref<WebServerResponse[]>([])
 const engines = ref<EngineInfo[]>([])
 const loading = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 const submitting = ref(false)
 const showInstall = ref(false)
 const form = ref({ engine: '', version: '', config_path: '', binary_path: '', port: 80 })
@@ -85,10 +99,11 @@ async function fetch() {
   loading.value = true
   try {
     const [inst, eng] = await Promise.all([
-      listWebServers(),
+      listWebServers(currentPage.value, pageSize.value),
       listEngines().catch(() => ({ data: [] as EngineInfo[] })),
     ])
-    instances.value = inst.data
+    instances.value = inst.data.data
+    total.value = inst.data.total
     engines.value = eng.data
   } catch { ElMessage.error(t('common.failed')) }
   finally { loading.value = false }

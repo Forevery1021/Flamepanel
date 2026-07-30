@@ -26,6 +26,8 @@ pub trait WebsiteRepository: Send + Sync {
     async fn find_by_id(&self, id: i64) -> Result<Option<Website>, AppError>;
     async fn find_by_domain(&self, domain: &str) -> Result<Option<Website>, AppError>;
     async fn create(&self, website: &Website) -> Result<i64, AppError>;
+    async fn update(&self, website: &Website) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
     async fn list_all(&self) -> Result<Vec<Website>, AppError>;
 }
 
@@ -52,6 +54,7 @@ pub trait OperationLogRepository: Send + Sync {
     async fn list(&self) -> Result<Vec<OperationLog>, AppError>;
     async fn find_by_id(&self, id: i64) -> Result<Option<OperationLog>, AppError>;
     async fn list_by_username(&self, username: &str) -> Result<Vec<OperationLog>, AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
 }
 
 #[async_trait]
@@ -61,6 +64,7 @@ pub trait LogRepository: Send + Sync {
     async fn find_by_id(&self, id: i64) -> Result<Option<LogEntry>, AppError>;
     async fn list_by_source(&self, source: &str) -> Result<Vec<LogEntry>, AppError>;
     async fn list_by_level(&self, level: &str) -> Result<Vec<LogEntry>, AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
 }
 
 #[async_trait]
