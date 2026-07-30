@@ -60,6 +60,12 @@ impl UserRepository for InMemoryUserRepository {
             Err(AppError::NotFound("User not found".into()))
         }
     }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        let mut users = self.users.lock().unwrap();
+        users.retain(|u| u.id != id);
+        Ok(())
+    }
 }
 
 pub struct InMemoryNodeRepository {
@@ -108,6 +114,12 @@ impl NodeRepository for InMemoryNodeRepository {
     async fn list_all(&self) -> Result<Vec<ServerNode>, AppError> {
         let nodes = self.nodes.lock().unwrap();
         Ok(nodes.clone())
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        let mut nodes = self.nodes.lock().unwrap();
+        nodes.retain(|n| n.id != id);
+        Ok(())
     }
 }
 

@@ -28,7 +28,7 @@ use flame_kernel::FlameKernel;
 // ── Helpers ──────────────────────────────────────────────
 
 fn auth_header() -> (header::HeaderName, String) {
-    let jwt = JwtUtils::new("flamepanel-secret", 24);
+    let jwt = JwtUtils::new("test-secret", 24);
     let token = jwt.sign(1).unwrap();
     (header::AUTHORIZATION, format!("Bearer {}", token))
 }
@@ -37,7 +37,7 @@ fn bad_auth_header() -> (header::HeaderName, String) {
     (header::AUTHORIZATION, "Bearer invalid_token".to_string())
 }
 
-async fn setup_router() -> axum::Router {
+async fn setup_router() -> (axum::Router, AppState) {
     let user_repo = Arc::new(InMemoryUserRepository::new());
     let node_repo = Arc::new(InMemoryNodeRepository::new());
     let website_repo = Arc::new(InMemoryWebsiteRepository::new());
@@ -59,6 +59,7 @@ async fn setup_router() -> axum::Router {
     // Seed admin user for RBAC
     user_repo.create("admin", "hash", "admin").await.unwrap();
     let state = AppState::new(
+        "test-secret".to_string(),
         UserService::new(user_repo),
         NodeService::new(node_repo),
         WebsiteService::new(website_repo),
@@ -78,11 +79,12 @@ async fn setup_router() -> axum::Router {
         FirewallService::new(firewall_repo),
         terminal_manager,
     );
-    routes::create_router(state)
+    (routes::create_router(state.clone()), state)
 }
 
 async fn setup_full_router() -> axum::Router {
-    middleware::add_middleware(setup_router().await)
+    let (router, state) = setup_router().await;
+    middleware::add_middleware(router, state)
 }
 
 // ── 1. Health Check ──────────────────────────────────────
