@@ -28,3 +28,27 @@ export function disablePlugin(id: string) {
 export function executePlugin(id: string, func: string, args?: number[]) {
   return api.post(`/plugins/${id}/execute/${func}`, { args })
 }
+
+export function reloadPlugin(id: string, wasm_base64: string, memory_limit_bytes?: number, timeout_ms?: number) {
+  return api.post(`/plugins/${id}/reload`, { wasm_base64, memory_limit_bytes, timeout_ms })
+}
+
+export function getPluginMetrics(id: string) {
+  return api.get(`/plugins/${id}/metrics`)
+}
+
+export function resetPluginMetrics(id: string) {
+  return api.delete(`/plugins/${id}/metrics`)
+}
+
+export function listPluginSettings(id: string) {
+  return api.get(`/plugins/${id}/settings`)
+}
+
+export function setPluginSetting(id: string, key: string, value: string) {
+  return api.post(`/plugins/${id}/settings`, { key, value })
+}
+
+export function getPluginSetting(id: string, key: string) {
+  return api.get(`/plugins/${id}/settings/${key}`)
+}

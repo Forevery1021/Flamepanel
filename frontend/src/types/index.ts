@@ -138,3 +138,36 @@ export interface FirewallStatus {
   backend_name: string
   status: string
 }
+
+export interface EngineInfo {
+  name: string
+  description: string
+  default_port: number
+  default_ssl_port: number
+  supports_ssl: boolean
+  supports_rewrite: boolean
+  supports_reverse_proxy: boolean
+  supports_load_balancing: boolean
+}
+
+export interface WebServerResponse {
+  id: number
+  engine: string
+  version: string | null
+  status: string
+  config_path: string
+  binary_path: string | null
+  port: number
+  created_at: string
+}
+
+export interface PluginMetricsResponse {
+  total_executions: number
+  successful_executions: number
+  failed_executions: number
+  avg_execution_ms: number
+  max_execution_ms: number
+  min_execution_ms: number
+  last_execution_ms: number
+  peak_memory_bytes: number
+}

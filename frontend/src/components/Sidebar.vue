@@ -48,6 +48,10 @@
         <el-icon><Link /></el-icon>
         <span>{{ t('nav.websites') }}</span>
       </el-menu-item>
+      <el-menu-item index="/web-servers">
+        <el-icon><Setting /></el-icon>
+        <span>{{ t('nav.webServers') }}</span>
+      </el-menu-item>
       <el-menu-item index="/docker">
         <el-icon><Ship /></el-icon>
         <span>{{ t('nav.docker') }}</span>

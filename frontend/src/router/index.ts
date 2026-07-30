@@ -26,6 +26,7 @@ const router = createRouter({
         { path: 'system-logs', name: 'SystemLogs', component: () => import('@/views/SystemLogsView.vue') },
         { path: 'settings', name: 'Settings', component: () => import('@/views/SettingsView.vue') },
         { path: 'firewall', name: 'Firewall', component: () => import('@/views/FirewallView.vue') },
+        { path: 'web-servers', name: 'WebServers', component: () => import('@/views/WebServersView.vue') },
         { path: 'terminal', name: 'Terminal', component: () => import('@/views/TerminalView.vue') },
         { path: 'health', name: 'Health', component: () => import('@/views/HealthView.vue') },
       ],
