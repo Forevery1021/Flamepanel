@@ -13,6 +13,7 @@ INSTALL_DIR="/opt/flamepanel"
 SERVICE_NAME="flamepanel"
 BINARY_PATH="/usr/local/bin/flamepanel"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+NGINX_CONF="/etc/nginx/conf.d/flamepanel.conf"
 
 usage() {
     cat << EOF
@@ -77,6 +78,7 @@ echo ""
 echo -e "  将执行以下操作:"
 echo -e "    ${YELLOW}•${NC} 停止并禁用 systemd 服务"
 echo -e "    ${YELLOW}•${NC} 删除二进制文件: $BINARY_PATH"
+echo -e "    ${YELLOW}•${NC} 删除 nginx 反向代理配置"
 echo -e "    ${YELLOW}•${NC} 删除 systemd 服务文件"
 if [[ "$PURGE" == true ]]; then
     echo -e "    ${RED}•${NC} 删除数据目录: $INSTALL_DIR"
@@ -110,7 +112,7 @@ if systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
 fi
 
 # ─── 删除二进制 ────────────────────────────────────────────────────────────────
-echo -e "${CYAN}[2/4] 删除二进制文件...${NC}"
+echo -e "${CYAN}[2/5] 删除二进制文件...${NC}"
 if [[ -f "$BINARY_PATH" ]]; then
     rm -f "$BINARY_PATH"
     echo -e "${GREEN}  -> 已删除: $BINARY_PATH${NC}"
@@ -118,8 +120,20 @@ else
     echo -e "${YELLOW}  -> 未找到二进制文件，跳过${NC}"
 fi
 
+# ─── 删除 nginx 反向代理配置 ──────────────────────────────────────────────────
+echo -e "${CYAN}[3/5] 删除 nginx 反向代理配置...${NC}"
+if [[ -f "$NGINX_CONF" ]] || [[ -f "$NGINX_CONF.bak" ]]; then
+    rm -f "$NGINX_CONF" "$NGINX_CONF.bak"
+    if command -v nginx &>/dev/null; then
+        nginx -t 2>/dev/null && systemctl restart nginx 2>/dev/null || true
+    fi
+    echo -e "${GREEN}  -> 已删除: $NGINX_CONF${NC}"
+else
+    echo -e "${YELLOW}  -> 未找到 nginx 配置，跳过${NC}"
+fi
+
 # ─── 删除 systemd 服务文件 ─────────────────────────────────────────────────────
-echo -e "${CYAN}[3/4] 删除 systemd 服务文件...${NC}"
+echo -e "${CYAN}[4/5] 删除 systemd 服务文件...${NC}"
 if [[ -f "$SERVICE_FILE" ]]; then
     rm -f "$SERVICE_FILE"
     systemctl daemon-reload
@@ -129,7 +143,7 @@ else
 fi
 
 # ─── 删除数据目录 ──────────────────────────────────────────────────────────────
-echo -e "${CYAN}[4/4] 处理数据目录...${NC}"
+echo -e "${CYAN}[5/5] 处理数据目录...${NC}"
 if [[ -d "$INSTALL_DIR" ]]; then
     if [[ "$PURGE" == true ]]; then
         rm -rf "$INSTALL_DIR"

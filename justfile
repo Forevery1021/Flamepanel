@@ -22,6 +22,8 @@ run: build
 # 清理
 clean:
     rm -rf flame-kernel/target frontend/dist data/*.db
+    find frontend/src -name "*.js" -not -name "*.d.ts" -delete
+    find frontend/src -name "*.js.map" -delete
 
 # 运行所有测试
 test:
@@ -30,6 +32,15 @@ test:
 # 代码检查
 check:
     cargo check --package flame-kernel
+
+# 代码风格检查（前端 ESLint + 后端 Clippy）
+lint:
+    cd frontend && npm run lint
+    cargo clippy --package flame-kernel -- -D warnings
+
+# 前端类型检查
+typecheck:
+    cd frontend && npx vue-tsc --noEmit
 
 # Docker 构建
 docker-build:

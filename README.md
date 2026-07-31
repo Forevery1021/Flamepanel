@@ -104,7 +104,11 @@ sudo ./install.sh -n
 sudo ./install.sh -u admin -p 'YourP@ss123' -P 9090 -s 'your-jwt-secret'
 ```
 
-脚本自动完成：安装依赖 → 创建 `/opt/flamepanel` → 部署二进制 → 注册 systemd 服务 → 启动。
+脚本自动完成：安装依赖 → 创建 `/opt/flamepanel` → 部署后端二进制与前端静态资源 → 配置 nginx 反向代理（80 端口）→ 注册 systemd 服务 → 启动。
+
+> 脚本优先使用本地构建产物（`target/release/flame-kernel`、`frontend/dist`），否则从 GitHub Releases 下载；密钥写入 `/opt/flamepanel/flamepanel.env`（600 权限），不出现在 systemd unit 中。
+>
+> 访问面板：`http://<服务器IP>/`（经 nginx），后端 API 位于 `http://<IP>:<端口>/api`。
 
 ### 方式二：手动 systemd 部署
 
@@ -112,13 +116,24 @@ sudo ./install.sh -u admin -p 'YourP@ss123' -P 9090 -s 'your-jwt-secret'
 # 1. 编译后端
 cd flame-kernel && cargo build --release
 
-# 2. 准备目录
-sudo mkdir -p /opt/flamepanel/{data,logs}
+# 2. 构建前端
+cd frontend && npm ci && npm run build
 
-# 3. 部署二进制
-sudo cp target/release/flame-kernel /usr/local/bin/flamepanel
+# 3. 准备目录
+sudo mkdir -p /opt/flamepanel/{data,logs,frontend}
+sudo cp ../target/release/flame-kernel /usr/local/bin/flamepanel
+sudo cp -r ../frontend/dist /opt/flamepanel/frontend/
 
-# 4. 创建 systemd 服务
+# 4. 环境变量文件（600 权限）
+sudo tee /opt/flamepanel/flamepanel.env > /dev/null << 'EOF'
+OP_PORT=8080
+OP_HOST=0.0.0.0
+OP_DATABASE_URL=sqlite:/opt/flamepanel/data/flamepanel.db?mode=rwc
+OP_JWT_SECRET=your-secret-key
+EOF
+sudo chmod 600 /opt/flamepanel/flamepanel.env
+
+# 5. 创建 systemd 服务
 sudo tee /etc/systemd/system/flamepanel.service > /dev/null << 'EOF'
 [Unit]
 Description=FlamePanel
@@ -129,20 +144,49 @@ Type=simple
 User=root
 ExecStart=/usr/local/bin/flamepanel
 WorkingDirectory=/opt/flamepanel
+EnvironmentFile=/opt/flamepanel/flamepanel.env
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
-Environment=OP_PORT=8080
-Environment=OP_DATABASE_URL=sqlite:/opt/flamepanel/data/flamepanel.db?mode=rwc
-Environment=OP_JWT_SECRET=your-secret-key
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# 5. 启动
+# 6. Nginx 反向代理（静态资源 + API + WebSocket）
+#    参考仓库 nginx.conf 或运行 install.sh 自动生成
+sudo tee /etc/nginx/conf.d/flamepanel.conf > /dev/null << 'EOF'
+server {
+    listen 80;
+    server_name _;
+    root /opt/flamepanel/frontend/dist;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+    location /ws/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+    }
+    location /assets/ {
+        expires 30d;
+        add_header Cache-Control "public";
+    }
+}
+EOF
+
+# 7. 启动
 sudo systemctl daemon-reload
-sudo systemctl enable --now flamepanel
+sudo systemctl enable --now flamepanel nginx
 ```
 
 ### 方式三：Docker Compose 部署
@@ -159,10 +203,9 @@ docker compose down
 ```
 
 默认 Docker 配置（`docker-compose.yml`）：
-- 端口 `8080:8080`
+- 端口 `8080:80`（容器内 nginx 提供前端静态资源 + API/WS 反向代理）
 - 挂载 `./data` 持久化数据库
 - 挂载 `/var/run/docker.sock` 实现 Docker 管理
-- 挂载 `/etc/nginx` 实现 Web 服务器管理
 
 ### 方式四：Nginx 反向代理 + 后端
 
@@ -250,6 +293,7 @@ sudo systemctl stop flamepanel
 sudo systemctl disable flamepanel
 sudo rm -f /usr/local/bin/flamepanel
 sudo rm -f /etc/systemd/system/flamepanel.service
+sudo rm -f /etc/nginx/conf.d/flamepanel.conf && sudo systemctl restart nginx
 sudo systemctl daemon-reload
 sudo rm -rf /opt/flamepanel   # 删除数据
 ```

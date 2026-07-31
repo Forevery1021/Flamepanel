@@ -35,6 +35,9 @@ jobs:
       - name: Build Frontend
         run: cd frontend && npm run build
 
+      - name: Lint Frontend
+        run: cd frontend && npm run lint
+
       - name: Check Formatting
         run: cargo fmt --all -- --check
 
@@ -45,7 +48,7 @@ jobs:
         run: cargo test --all
 
       - name: Build Release
-        run: cargo build --release --package ops-panel-backend
+        run: cargo build --release --package flame-kernel
 
       - name: Login to GitHub Container Registry
         if: github.ref == 'refs/heads/main'

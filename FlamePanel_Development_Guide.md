@@ -645,6 +645,24 @@ Infrastructure 层 (InMemory / SQLite / OS 命令)
 
 ## 11. 更新日志
 
+### v0.1.11 (2026-07-31)
+
+#### 工程化
+- **前端工程化** — 引入 ESLint 9 扁平配置 + Prettier + typescript-eslint + eslint-plugin-vue；62 个 lint 问题清零（含 3 个真实缺陷）
+- **设计系统** — `style.css` 全面重构为 CSS 变量令牌体系（品牌色/间距/圆角/阴影/焦点环/减弱动效），侧边栏/顶栏/布局/登录/仪表盘现代化
+- **按需加载** — `unplugin-auto-import` + `unplugin-vue-components` 按需引入 Element Plus，主包 1101KB→231KB (−79%)
+- **echarts 按需引入** — DashboardView 改用 `echarts/core`，图表包 1098KB→505KB (−54%)
+- **内联样式清零** — 66 处 `style=""` 全部收敛为 CSS 工具类
+- **构建修复** — `vue-tsc` 加 `--noEmit`，修复每次构建向 `src/` 输出 84 个 `.js`/`.js.map` 残留产物的问题（已清理）
+
+#### 部署
+- **install.sh v1.1** — 补全前端静态资源部署（本地 `frontend/dist` 或 GitHub Releases）；自动生成 nginx 反向代理配置（80 端口，含 `/ws` WebSocket 透传）；密钥从 unit 文件迁入 `/opt/flamepanel/flamepanel.env`（600 权限）
+- **Dockerfile 修复** — 修正目录路径（`backend/`→`flame-kernel/`、`agent`）、二进制名（`ops-panel`→`flamepanel`）、工作区构建方式，修复镜像无法构建的问题
+- **docker-compose.yml** — 服务名 `ops-panel`→`flamepanel`；端口映射 `8080:8080`→`8080:80`（nginx 入口）；移除危险的主机 `/etc/nginx` 挂载
+- **CI/CD 修复** — 包名 `ops-panel-backend`→`flame-kernel`；新增前端 `npm run lint` 步骤
+- **uninstall.sh** — 新增 nginx 反向代理配置清理步骤
+- **justfile** — 新增 `lint`（前端 ESLint + Clippy）与 `typecheck` 任务；`clean` 同步清理残留产物
+
 ### v0.1.10 (2026-07-30)
 
 #### 新增
