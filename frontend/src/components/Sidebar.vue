@@ -96,13 +96,60 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Monitor, User, Link, Ship, Setting, Document, List, Tools, InfoFilled, Folder, Collection, Lock } from '@element-plus/icons-vue'
+import {
+  Monitor,
+  User,
+  Link,
+  Ship,
+  Setting,
+  Document,
+  List,
+  Tools,
+  InfoFilled,
+  Folder,
+  Collection,
+  Lock,
+} from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const route = useRoute()
 </script>
 
 <style scoped>
-.sidebar { width: 220px; height: 100vh; border-right: 1px solid var(--border-color); overflow-y: auto; background: var(--bg-secondary); }
-.dark .sidebar { background: var(--bg-sidebar); border-color: var(--border-color); }
+.sidebar {
+  width: 220px;
+  height: 100vh;
+  border-right: 1px solid var(--border-color);
+  overflow-y: auto;
+  background: var(--bg-sidebar);
+  --el-menu-bg-color: var(--bg-sidebar);
+  --el-menu-text-color: #94a3b8;
+  --el-menu-hover-bg-color: rgb(255 255 255 / 0.06);
+  --el-menu-active-color: #fff;
+  --el-menu-item-height: 44px;
+  --el-menu-sub-item-height: 38px;
+  --el-menu-base-level-padding: 18px;
+}
+.sidebar .el-menu {
+  border-right: none;
+}
+.sidebar .el-menu-item:hover,
+.sidebar .el-sub-menu__title:hover {
+  background: rgb(255 255 255 / 0.06);
+}
+.sidebar .el-menu-item.is-active {
+  background: var(--el-color-primary);
+  border-radius: var(--radius-sm);
+  margin: 2px var(--space-2);
+  width: calc(100% - var(--space-4));
+}
+.sidebar .el-menu-item,
+.sidebar .el-sub-menu__title {
+  border-radius: var(--radius-sm);
+  margin: 2px var(--space-2);
+  width: calc(100% - var(--space-4));
+}
+.dark .sidebar {
+  border-color: var(--border-color);
+}
 </style>

@@ -2,15 +2,23 @@
   <div class="login">
     <el-card class="card">
       <h2>FlamePanel</h2>
-      <el-form @submit.prevent="handleLogin" :model="form" :rules="rules" ref="formRef">
+      <el-form ref="formRef" :model="form" :rules="rules" @submit.prevent="handleLogin">
         <el-form-item :label="t('login.username')" prop="username">
-          <el-input v-model="form.username" :placeholder="t('login.placeholder', { field: t('login.username') })" />
+          <el-input
+            v-model="form.username"
+            :placeholder="t('login.placeholder', { field: t('login.username') })"
+          />
         </el-form-item>
         <el-form-item :label="t('login.password')" prop="password">
-          <el-input v-model="form.password" type="password" show-password :placeholder="t('login.placeholder', { field: t('login.password') })" />
+          <el-input
+            v-model="form.password"
+            type="password"
+            show-password
+            :placeholder="t('login.placeholder', { field: t('login.password') })"
+          />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" native-type="submit" :loading="loading" style="width:100%">
+          <el-button type="primary" native-type="submit" :loading="loading" class="full-width">
             {{ loading ? t('login.loggingIn') : t('login.login') }}
           </el-button>
         </el-form-item>
@@ -35,8 +43,20 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const rules: FormRules = {
-  username: [{ required: true, message: t('login.placeholder', { field: t('login.username') }), trigger: 'blur' }],
-  password: [{ required: true, message: t('login.placeholder', { field: t('login.password') }), trigger: 'blur' }],
+  username: [
+    {
+      required: true,
+      message: t('login.placeholder', { field: t('login.username') }),
+      trigger: 'blur',
+    },
+  ],
+  password: [
+    {
+      required: true,
+      message: t('login.placeholder', { field: t('login.password') }),
+      trigger: 'blur',
+    },
+  ],
 }
 
 async function handleLogin() {
@@ -55,7 +75,19 @@ async function handleLogin() {
 </script>
 
 <style scoped>
-.login { height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg-primary); }
-.card { width: 400px; }
-.card h2 { text-align: center; margin-bottom: 24px; color: #409eff; }
+.login {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+}
+.card {
+  width: 400px;
+}
+.card h2 {
+  text-align: center;
+  margin-bottom: 24px;
+  color: var(--brand);
+}
 </style>

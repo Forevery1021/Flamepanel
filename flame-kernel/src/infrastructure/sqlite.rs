@@ -50,6 +50,21 @@ impl UserRepository for SqliteUserRepository {
         self.find_by_id(id).await.map(|u| u.unwrap())
     }
 
+    async fn update(&self, user: &User) -> Result<(), AppError> {
+        let result = sqlx::query("UPDATE users SET username = ?, password_hash = ?, role = ? WHERE id = ?")
+            .bind(&user.username)
+            .bind(&user.password_hash)
+            .bind(&user.role)
+            .bind(user.id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound("User not found".into()));
+        }
+        Ok(())
+    }
+
     async fn list(&self) -> Result<Vec<User>, AppError> {
         let users = sqlx::query_as::<_, User>(
             "SELECT id, username, password_hash, role, created_at FROM users ORDER BY id",
@@ -127,6 +142,22 @@ impl NodeRepository for SqliteNodeRepository {
         .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?
         .last_insert_rowid();
         Ok(id)
+    }
+
+    async fn update(&self, node: &ServerNode) -> Result<(), AppError> {
+        let result = sqlx::query("UPDATE nodes SET name = ?, hostname = ?, ip_address = ?, status = ? WHERE id = ?")
+            .bind(&node.name)
+            .bind(&node.hostname)
+            .bind(&node.ip_address)
+            .bind(&node.status)
+            .bind(node.id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound("Node not found".into()));
+        }
+        Ok(())
     }
 
     async fn list_all(&self) -> Result<Vec<ServerNode>, AppError> {

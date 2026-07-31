@@ -9,6 +9,10 @@ export function createWebsite(website: Website) {
   return api.post<number>('/websites', { website })
 }
 
+export function updateWebsite(id: number, website: Website) {
+  return api.put<Website>(`/websites/${id}`, { website })
+}
+
 export function deleteWebsite(id: number) {
   return api.delete(`/websites/${id}`)
 }

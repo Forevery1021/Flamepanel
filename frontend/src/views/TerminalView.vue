@@ -1,6 +1,6 @@
 <template>
-  <div class="view-container" style="height: calc(100vh - 116px); display: flex; flex-direction: column;">
-    <el-card shadow="hover" class="terminal-card" style="flex: 1; display: flex; flex-direction: column;">
+  <div class="view-container terminal-page">
+    <el-card shadow="hover" class="terminal-card">
       <template #header>
         <div class="card-header-title">
           <span>{{ t('terminal.title') }}</span>
@@ -8,10 +8,18 @@
             <el-tag :type="connected ? 'success' : 'danger'" size="small" effect="dark">
               {{ connected ? t('terminal.connected') : t('terminal.disconnected') }}
             </el-tag>
-            <el-button size="small" :disabled="!connected" @click="sendEof">{{ t('terminal.ctrlD') }}</el-button>
-            <el-button size="small" :disabled="!connected" @click="sendInterrupt">{{ t('terminal.ctrlC') }}</el-button>
-            <el-button size="small" @click="reconnect" :loading="reconnecting">{{ t('terminal.reconnect') }}</el-button>
-            <el-button size="small" type="danger" @click="handleClear">{{ t('terminal.clear') }}</el-button>
+            <el-button size="small" :disabled="!connected" @click="sendEof">{{
+              t('terminal.ctrlD')
+            }}</el-button>
+            <el-button size="small" :disabled="!connected" @click="sendInterrupt">{{
+              t('terminal.ctrlC')
+            }}</el-button>
+            <el-button size="small" :loading="reconnecting" @click="reconnect">{{
+              t('terminal.reconnect')
+            }}</el-button>
+            <el-button size="small" type="danger" @click="handleClear">{{
+              t('terminal.clear')
+            }}</el-button>
           </div>
         </div>
       </template>
@@ -162,9 +170,33 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.terminal-card { margin: 0; }
-.terminal-container { flex: 1; min-height: 0; }
-.header-right { display: flex; gap: 8px; align-items: center; }
-.card-header-title { display: flex; justify-content: space-between; align-items: center; }
-.card-header-title span { font-size: 16px; font-weight: 600; }
+.terminal-page {
+  height: calc(100vh - 116px);
+  display: flex;
+  flex-direction: column;
+}
+.terminal-card {
+  margin: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.terminal-container {
+  flex: 1;
+  min-height: 0;
+}
+.header-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.card-header-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.card-header-title span {
+  font-size: 16px;
+  font-weight: 600;
+}
 </style>

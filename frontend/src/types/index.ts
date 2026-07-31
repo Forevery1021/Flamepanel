@@ -22,6 +22,10 @@ export interface Website {
   root_path: string
   status: string
   node_id: number
+  engine: string
+  ssl_enabled: boolean
+  proxy_enabled: boolean
+  proxy_pass: string | null
   created_at: string
 }
 
@@ -32,6 +36,11 @@ export interface DockerContainer {
   status: string
   node_id: number
   created_at: string
+}
+
+export interface DockerImage {
+  id: string
+  repo_tags?: string[]
 }
 
 export interface PluginResponse {

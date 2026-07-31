@@ -179,6 +179,150 @@ async fn test_create_and_list_websites() {
 }
 
 #[tokio::test]
+async fn test_update_user_endpoint() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    let res = app.clone()
+        .oneshot(
+            Request::builder().method(Method::PUT).uri("/api/users/1")
+                .header(h.clone(), v.clone())
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&json!({
+                    "username": "admin", "role": "operator"
+                })).unwrap())).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body = res.into_body();
+    let bytes = hyper::body::to_bytes(body).await.unwrap();
+    let user: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(user["role"], "operator");
+
+    let res = app.clone()
+        .oneshot(
+            Request::builder().method(Method::PUT).uri("/api/users/999")
+                .header(h.clone(), v.clone())
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&json!({
+                    "username": "nobody", "role": "viewer"
+                })).unwrap())).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_update_node_endpoint() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    let node = json!({"node": {
+        "id": 0, "name": "node-1", "hostname": "s1.example.com",
+        "ip_address": "10.0.0.1", "status": "online",
+        "created_at": "2026-01-01T00:00:00Z"
+    }});
+    let res = app.clone()
+        .oneshot(
+            Request::builder().method(Method::POST).uri("/api/nodes")
+                .header(h.clone(), v.clone())
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&node).unwrap())).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.into_body();
+    let bytes = hyper::body::to_bytes(body).await.unwrap();
+    let id: i64 = serde_json::from_slice(&bytes).unwrap();
+
+    let updated = json!({"node": {
+        "id": 0, "name": "node-1-renamed", "hostname": "s1.example.com",
+        "ip_address": "10.0.0.2", "status": "offline",
+        "created_at": "2026-01-01T00:00:00Z"
+    }});
+    let res = app.clone()
+        .oneshot(
+            Request::builder().method(Method::PUT).uri(format!("/api/nodes/{}", id))
+                .header(h.clone(), v.clone())
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&updated).unwrap())).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body = res.into_body();
+    let bytes = hyper::body::to_bytes(body).await.unwrap();
+    let node_res: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(node_res["name"], "node-1-renamed");
+    assert_eq!(node_res["ip_address"], "10.0.0.2");
+    assert_eq!(node_res["status"], "offline");
+
+    let res = app.clone()
+        .oneshot(
+            Request::builder().method(Method::PUT).uri("/api/nodes/999")
+                .header(h.clone(), v.clone())
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&updated).unwrap())).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_update_website_endpoint() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    let ws = json!({"website": {
+        "id": 0, "name": "blog", "domain": "blog.example.com",
+        "root_path": "/var/www/blog", "status": "active", "node_id": 1,
+        "engine": "nginx", "ssl_enabled": false, "proxy_enabled": false,
+        "created_at": "2026-01-01T00:00:00Z"
+    }});
+    let res = app.clone()
+        .oneshot(
+            Request::builder().method(Method::POST).uri("/api/websites")
+                .header(h.clone(), v.clone())
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&ws).unwrap())).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.into_body();
+    let bytes = hyper::body::to_bytes(body).await.unwrap();
+    let id: i64 = serde_json::from_slice(&bytes).unwrap();
+
+    let updated = json!({"website": {
+        "id": 0, "name": "blog-v2", "domain": "blog.example.com",
+        "root_path": "/var/www/blog-v2", "status": "active", "node_id": 1,
+        "engine": "caddy", "ssl_enabled": true, "proxy_enabled": true,
+        "proxy_pass": "http://127.0.0.1:3000",
+        "created_at": "2026-01-01T00:00:00Z"
+    }});
+    let res = app.clone()
+        .oneshot(
+            Request::builder().method(Method::PUT).uri(format!("/api/websites/{}", id))
+                .header(h.clone(), v.clone())
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&updated).unwrap())).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body = res.into_body();
+    let bytes = hyper::body::to_bytes(body).await.unwrap();
+    let ws_res: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(ws_res["name"], "blog-v2");
+    assert_eq!(ws_res["engine"], "caddy");
+    assert_eq!(ws_res["ssl_enabled"], true);
+    assert_eq!(ws_res["proxy_enabled"], true);
+    assert_eq!(ws_res["proxy_pass"], "http://127.0.0.1:3000");
+
+    let res = app.clone()
+        .oneshot(
+            Request::builder().method(Method::PUT).uri("/api/websites/999")
+                .header(h.clone(), v.clone())
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&updated).unwrap())).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_docker_endpoints() {
     let app = setup_full_router().await;
     let (h, v) = auth_header();

@@ -6,14 +6,22 @@ export function listEngines() {
 }
 
 export function listWebServers(page = 1, pageSize = 20) {
-  return api.get<PaginatedResponse<WebServerResponse>>('/web-servers', { params: { page, page_size: pageSize } })
+  return api.get<PaginatedResponse<WebServerResponse>>('/web-servers', {
+    params: { page, page_size: pageSize },
+  })
 }
 
 export function getWebServer(id: number) {
   return api.get<WebServerResponse>(`/web-servers/${id}`)
 }
 
-export function createWebServer(data: { engine: string; version?: string; config_path?: string; binary_path?: string; port?: number }) {
+export function createWebServer(data: {
+  engine: string
+  version?: string
+  config_path?: string
+  binary_path?: string
+  port?: number
+}) {
   return api.post<WebServerResponse>('/web-servers', data)
 }
 

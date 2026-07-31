@@ -9,7 +9,12 @@ export function getPlugin(id: string) {
   return api.get<PluginResponse>(`/plugins/${id}`)
 }
 
-export function loadPlugin(id: string, name: string, wasm_base64: string, opts?: { version?: string; author?: string; description?: string }) {
+export function loadPlugin(
+  id: string,
+  name: string,
+  wasm_base64: string,
+  opts?: { version?: string; author?: string; description?: string },
+) {
   return api.post<PluginResponse>('/plugins', { id, name, wasm_base64, ...opts })
 }
 
@@ -29,7 +34,12 @@ export function executePlugin(id: string, func: string, args?: number[]) {
   return api.post(`/plugins/${id}/execute/${func}`, { args })
 }
 
-export function reloadPlugin(id: string, wasm_base64: string, memory_limit_bytes?: number, timeout_ms?: number) {
+export function reloadPlugin(
+  id: string,
+  wasm_base64: string,
+  memory_limit_bytes?: number,
+  timeout_ms?: number,
+) {
   return api.post(`/plugins/${id}/reload`, { wasm_base64, memory_limit_bytes, timeout_ms })
 }
 

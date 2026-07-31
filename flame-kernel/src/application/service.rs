@@ -31,6 +31,17 @@ impl UserService {
         Ok(PaginatedResponse::new(data, total, params))
     }
 
+    pub async fn get_user(&self, id: i64) -> Result<User, AppError> {
+        self.user_repo.find_by_id(id).await?
+            .ok_or_else(|| AppError::NotFound(format!("User {} not found", id)))
+    }
+
+    pub async fn update_user(&self, user: &User) -> Result<(), AppError> {
+        self.user_repo.find_by_id(user.id).await?
+            .ok_or_else(|| AppError::NotFound(format!("User {} not found", user.id)))?;
+        self.user_repo.update(user).await
+    }
+
     pub async fn delete_user(&self, id: i64) -> Result<(), AppError> {
         self.user_repo.find_by_id(id).await?
             .ok_or_else(|| AppError::NotFound(format!("User {} not found", id)))?;
@@ -60,6 +71,17 @@ impl NodeService {
         let total = nodes.len() as i64;
         let data = paginate_slice(&nodes, params);
         Ok(PaginatedResponse::new(data, total, params))
+    }
+
+    pub async fn get_node(&self, id: i64) -> Result<ServerNode, AppError> {
+        self.node_repo.find_by_id(id).await?
+            .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))
+    }
+
+    pub async fn update_node(&self, node: &ServerNode) -> Result<(), AppError> {
+        self.node_repo.find_by_id(node.id).await?
+            .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node.id)))?;
+        self.node_repo.update(node).await
     }
 
     pub async fn delete_node(&self, id: i64) -> Result<(), AppError> {

@@ -34,4 +34,5 @@ mime_guess = "2"
 [dev-dependencies]
 axum-test = "14"
 tower = { version = "0.4", features = ["util"] }
+hyper = { version = "0.14", features = ["full"] }
 wat = "1"

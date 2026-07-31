@@ -36,18 +36,39 @@
       </el-col>
     </el-row>
 
-    <el-card shadow="hover" style="margin-top:16px">
+    <el-card shadow="hover" class="mt-4">
       <template #header>{{ t('health.routes') }}</template>
-      <el-table :data="routes" border stripe size="small" max-height="400px">
+      <el-table
+        :data="routes"
+        border
+        stripe
+        size="small"
+        max-height="400px"
+        :empty-text="t('common.noData')"
+      >
         <el-table-column :label="t('health.method')" width="100">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.method === 'GET' ? 'success' : row.method === 'POST' ? 'warning' : row.method === 'WS' ? 'primary' : 'info'">{{ row.method }}</el-tag>
+            <el-tag
+              size="small"
+              :type="
+                row.method === 'GET'
+                  ? 'success'
+                  : row.method === 'POST'
+                    ? 'warning'
+                    : row.method === 'WS'
+                      ? 'primary'
+                      : 'info'
+              "
+              >{{ row.method }}</el-tag
+            >
           </template>
         </el-table-column>
         <el-table-column :label="t('health.path')" prop="path" />
         <el-table-column :label="t('health.auth')" width="80">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.auth ? 'danger' : 'info'">{{ row.auth ? t('health.required') : t('health.none') }}</el-tag>
+            <el-tag size="small" :type="row.auth ? 'danger' : 'info'">{{
+              row.auth ? t('health.required') : t('health.none')
+            }}</el-tag>
           </template>
         </el-table-column>
       </el-table>
@@ -104,7 +125,11 @@ const routes = [
   { method: 'POST|DELETE', path: '/api/databases/:id/users', auth: true },
   { method: 'GET|POST|DELETE', path: '/api/files', auth: true },
   { method: 'GET', path: '/api/files/read|download', auth: true },
-  { method: 'POST', path: '/api/files/write|create-file|create-dir|rename|chmod|upload', auth: true },
+  {
+    method: 'POST',
+    path: '/api/files/write|create-file|create-dir|rename|chmod|upload',
+    auth: true,
+  },
   { method: 'DELETE', path: '/api/files/delete', auth: true },
   { method: 'GET|POST|PUT|DELETE', path: '/api/firewall/rules', auth: true },
   { method: 'GET|PUT|DELETE', path: '/api/firewall/rules/:id', auth: true },
@@ -119,18 +144,43 @@ const routes = [
 onMounted(() => {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   ws = new WebSocket(`${protocol}//${location.host}/ws/metrics`)
-  ws.onopen = () => { wsOk.value = true }
-  ws.onclose = () => { wsOk.value = false }
-  ws.onerror = () => { wsOk.value = false }
+  ws.onopen = () => {
+    wsOk.value = true
+  }
+  ws.onclose = () => {
+    wsOk.value = false
+  }
+  ws.onerror = () => {
+    wsOk.value = false
+  }
 })
 
 onUnmounted(() => ws?.close())
 </script>
 
 <style scoped>
-.health-item { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
-.health-detail { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 6px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.dot.green { background: #67c23a; }
-.dot.red { background: #f56c6c; }
+.health-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.health-detail {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 6px;
+}
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot.green {
+  background: #67c23a;
+}
+.dot.red {
+  background: #f56c6c;
+}
 </style>

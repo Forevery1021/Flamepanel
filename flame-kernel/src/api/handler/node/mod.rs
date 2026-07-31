@@ -19,6 +19,18 @@ pub async fn create(
     Ok(Json(id))
 }
 
+pub async fn update(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(payload): Json<CreateNodeRequest>,
+) -> Result<Json<ServerNode>, AppError> {
+    let mut node = payload.node;
+    node.id = id;
+    state.node_service.update_node(&node).await?;
+    let updated = state.node_service.get_node(id).await?;
+    Ok(Json(updated))
+}
+
 pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<i64>,

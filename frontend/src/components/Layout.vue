@@ -16,8 +16,21 @@ import TopBar from './TopBar.vue'
 </script>
 
 <style scoped>
-.layout { display: flex; height: 100vh; overflow: hidden; }
-.layout-right { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.main { flex: 1; padding: 20px; overflow: auto; background: #f5f7fa; }
-.dark .main { background: #141414; }
+.layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+.layout-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.main {
+  flex: 1;
+  padding: 20px;
+  overflow: auto;
+  background: var(--bg-primary);
+}
 </style>

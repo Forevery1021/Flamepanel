@@ -36,7 +36,10 @@ export function chmodFile(path: string, mode: string) {
 export function uploadFile(path: string, name: string, file: File) {
   const form = new FormData()
   form.append('file', file)
-  return api.post(`/files/upload?path=${encodeURIComponent(path)}&name=${encodeURIComponent(name)}`, form)
+  return api.post(
+    `/files/upload?path=${encodeURIComponent(path)}&name=${encodeURIComponent(name)}`,
+    form,
+  )
 }
 
 export function downloadFile(path: string) {

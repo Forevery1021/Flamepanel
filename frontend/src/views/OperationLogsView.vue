@@ -2,11 +2,18 @@
   <div class="view-container">
     <div class="card-header-title">
       <h2>{{ t('nav.operationLogs') }}</h2>
-      <el-button @click="fetch" text>{{ t('common.refresh') }}</el-button>
+      <el-button text @click="fetch">{{ t('common.refresh') }}</el-button>
     </div>
 
     <el-card shadow="hover">
-      <el-table :data="logs" border stripe v-loading="loading" max-height="620px">
+      <el-table
+        v-loading="loading"
+        :empty-text="t('common.noData')"
+        :data="logs"
+        border
+        stripe
+        max-height="620px"
+      >
         <el-table-column prop="id" :label="t('log.id')" width="60" />
         <el-table-column prop="username" :label="t('log.user')" width="120" />
         <el-table-column :label="t('log.action')" width="140">
@@ -26,7 +33,7 @@
         layout="prev, pager, next, total"
         background
         small
-        style="margin-top: 16px; justify-content: center;"
+        class="table-pagination"
         @current-change="fetch"
       />
     </el-card>
@@ -52,7 +59,9 @@ async function fetch() {
     const res = await listOperationLogs(currentPage.value, pageSize.value)
     logs.value = res.data.data
     total.value = res.data.total
-  } finally { loading.value = false }
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(fetch)

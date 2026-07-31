@@ -15,57 +15,62 @@
         <el-button :type="firewallEnabled ? 'danger' : 'success'" @click="handleToggleFirewall">
           {{ firewallEnabled ? t('firewall.disable') : t('firewall.enable') }}
         </el-button>
-        <el-button @click="loadData" :loading="loading">
+        <el-button :loading="loading" @click="loadData">
           {{ t('firewall.refresh') }}
         </el-button>
       </div>
     </div>
 
     <el-card shadow="hover">
-    <el-table :data="rules" stripe v-loading="loading">
-      <el-table-column type="index" label="#" width="50" />
-      <el-table-column prop="name" :label="t('firewall.name')" min-width="140" />
-      <el-table-column :label="t('firewall.protocol')" width="80">
-        <template #default="{ row }">
-          <el-tag size="small" :type="row.protocol === 'any' ? 'info' : 'primary'">
-            {{ row.protocol.toUpperCase() }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column :label="t('firewall.port')" width="120">
-        <template #default="{ row }">
-          {{ row.port || t('firewall.any') }}
-        </template>
-      </el-table-column>
-      <el-table-column :label="t('firewall.source')" width="140">
-        <template #default="{ row }">
-          {{ row.source || '0.0.0.0/0' }}
-        </template>
-      </el-table-column>
-      <el-table-column :label="t('firewall.action')" width="90">
-        <template #default="{ row }">
-          <el-tag size="small" :type="row.action === 'allow' ? 'success' : 'danger'">
-            {{ actionLabel(row.action) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column :label="t('firewall.direction')" width="80">
-        <template #default="{ row }">
-          {{ row.direction === 'in' ? t('firewall.in') : t('firewall.out') }}
-        </template>
-      </el-table-column>
-      <el-table-column :label="t('firewall.enabled')" width="80">
-        <template #default="{ row }">
-          <el-switch :model-value="row.enabled" @change="(v: boolean) => handleToggle(row.id, v)" />
-        </template>
-      </el-table-column>
-      <el-table-column :label="t('firewall.actions')" width="160" fixed="right">
-        <template #default="{ row }">
-          <el-button size="small" @click="handleEdit(row)">{{ t('common.edit') }}</el-button>
-          <el-button size="small" type="danger" @click="handleDelete(row.id)">{{ t('firewall.delete') }}</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+      <el-table v-loading="loading" :empty-text="t('common.noData')" :data="rules" stripe>
+        <el-table-column type="index" label="#" width="50" />
+        <el-table-column prop="name" :label="t('firewall.name')" min-width="140" />
+        <el-table-column :label="t('firewall.protocol')" width="80">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.protocol === 'any' ? 'info' : 'primary'">
+              {{ row.protocol.toUpperCase() }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('firewall.port')" width="120">
+          <template #default="{ row }">
+            {{ row.port || t('firewall.any') }}
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('firewall.source')" width="140">
+          <template #default="{ row }">
+            {{ row.source || '0.0.0.0/0' }}
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('firewall.action')" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.action === 'allow' ? 'success' : 'danger'">
+              {{ actionLabel(row.action) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('firewall.direction')" width="80">
+          <template #default="{ row }">
+            {{ row.direction === 'in' ? t('firewall.in') : t('firewall.out') }}
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('firewall.enabled')" width="80">
+          <template #default="{ row }">
+            <el-switch
+              :model-value="row.enabled"
+              @change="(v) => handleToggle(row.id, v as boolean)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('firewall.actions')" width="160" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" @click="handleEdit(row)">{{ t('common.edit') }}</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row.id)">{{
+              t('firewall.delete')
+            }}</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </el-card>
 
     <el-dialog v-model="showCreateDialog" :title="t('firewall.add')" width="560px">
@@ -77,7 +82,7 @@
           <el-input v-model="form.description" :placeholder="t('firewall.descPlaceholder')" />
         </el-form-item>
         <el-form-item :label="t('firewall.protocol')" required>
-          <el-select v-model="form.protocol" style="width: 100%">
+          <el-select v-model="form.protocol" class="full-width">
             <el-option label="TCP" value="tcp" />
             <el-option label="UDP" value="udp" />
             <el-option label="ICMP" value="icmp" />
@@ -91,14 +96,14 @@
           <el-input v-model="form.source" placeholder="0.0.0.0/0" />
         </el-form-item>
         <el-form-item :label="t('firewall.action')" required>
-          <el-select v-model="form.action" style="width: 100%">
+          <el-select v-model="form.action" class="full-width">
             <el-option :label="t('firewall.allow') + ' (ALLOW)'" value="allow" />
             <el-option :label="t('firewall.deny') + ' (DENY)'" value="deny" />
             <el-option :label="t('firewall.reject') + ' (REJECT)'" value="reject" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('firewall.direction')" required>
-          <el-select v-model="form.direction" style="width: 100%">
+          <el-select v-model="form.direction" class="full-width">
             <el-option :label="t('firewall.in')" value="in" />
             <el-option :label="t('firewall.out')" value="out" />
           </el-select>
@@ -109,7 +114,9 @@
       </el-form>
       <template #footer>
         <el-button @click="showCreateDialog = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" @click="handleCreate" :loading="saving">{{ t('common.confirm') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="handleCreate">{{
+          t('common.confirm')
+        }}</el-button>
       </template>
     </el-dialog>
 
@@ -122,7 +129,7 @@
           <el-input v-model="editForm.description" />
         </el-form-item>
         <el-form-item :label="t('firewall.protocol')" required>
-          <el-select v-model="editForm.protocol" style="width: 100%">
+          <el-select v-model="editForm.protocol" class="full-width">
             <el-option label="TCP" value="tcp" />
             <el-option label="UDP" value="udp" />
             <el-option label="ICMP" value="icmp" />
@@ -136,14 +143,14 @@
           <el-input v-model="editForm.source" />
         </el-form-item>
         <el-form-item :label="t('firewall.action')" required>
-          <el-select v-model="editForm.action" style="width: 100%">
+          <el-select v-model="editForm.action" class="full-width">
             <el-option :label="t('firewall.allow') + ' (ALLOW)'" value="allow" />
             <el-option :label="t('firewall.deny') + ' (DENY)'" value="deny" />
             <el-option :label="t('firewall.reject') + ' (REJECT)'" value="reject" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('firewall.direction')" required>
-          <el-select v-model="editForm.direction" style="width: 100%">
+          <el-select v-model="editForm.direction" class="full-width">
             <el-option :label="t('firewall.in')" value="in" />
             <el-option :label="t('firewall.out')" value="out" />
           </el-select>
@@ -154,7 +161,9 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditDialog = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" @click="handleSaveEdit" :loading="saving">{{ t('common.save') }}</el-button>
+        <el-button type="primary" :loading="saving" @click="handleSaveEdit">{{
+          t('common.save')
+        }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -165,8 +174,15 @@ import { ref, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  listFirewallRules, createFirewallRule, updateFirewallRule, deleteFirewallRule,
-  toggleFirewallRule, applyFirewallRules, getFirewallStatus, enableFirewall, disableFirewall,
+  listFirewallRules,
+  createFirewallRule,
+  updateFirewallRule,
+  deleteFirewallRule,
+  toggleFirewallRule,
+  applyFirewallRules,
+  getFirewallStatus,
+  enableFirewall,
+  disableFirewall,
 } from '@/api/firewall'
 import type { FirewallRule as FR, FirewallStatus } from '@/types'
 
@@ -179,14 +195,24 @@ const showEditDialog = ref(false)
 const firewallStatus = ref<FirewallStatus | null>(null)
 
 const form = ref({
-  name: '', description: '', protocol: 'tcp', port: '',
-  source: '0.0.0.0/0', action: 'allow', direction: 'in', priority: 50,
+  name: '',
+  description: '',
+  protocol: 'tcp',
+  port: '',
+  source: '0.0.0.0/0',
+  action: 'allow',
+  direction: 'in',
+  priority: 50,
 })
 
 const editForm = ref<FR>({} as FR)
 
 function actionLabel(action: string) {
-  const map: Record<string, string> = { allow: t('firewall.allow'), deny: t('firewall.deny'), reject: t('firewall.reject') }
+  const map: Record<string, string> = {
+    allow: t('firewall.allow'),
+    deny: t('firewall.deny'),
+    reject: t('firewall.reject'),
+  }
   return map[action] || action
 }
 
@@ -234,13 +260,29 @@ async function handleCreate() {
   }
   saving.value = true
   try {
-    const data: Record<string, any> = { name: form.value.name, protocol: form.value.protocol, action: form.value.action, direction: form.value.direction, priority: form.value.priority, source: form.value.source || '0.0.0.0/0' }
+    const data: Record<string, string | number> = {
+      name: form.value.name,
+      protocol: form.value.protocol,
+      action: form.value.action,
+      direction: form.value.direction,
+      priority: form.value.priority,
+      source: form.value.source || '0.0.0.0/0',
+    }
     if (form.value.description) data.description = form.value.description
     if (form.value.port) data.port = form.value.port
     await createFirewallRule(data)
     ElMessage.success(t('common.success'))
     showCreateDialog.value = false
-    form.value = { name: '', description: '', protocol: 'tcp', port: '', source: '0.0.0.0/0', action: 'allow', direction: 'in', priority: 50 }
+    form.value = {
+      name: '',
+      description: '',
+      protocol: 'tcp',
+      port: '',
+      source: '0.0.0.0/0',
+      action: 'allow',
+      direction: 'in',
+      priority: 50,
+    }
     await loadData()
   } catch {
     ElMessage.error(t('common.failed'))
@@ -257,12 +299,12 @@ function handleEdit(rule: FR) {
 async function handleSaveEdit() {
   saving.value = true
   try {
-    const data: Record<string, any> = {}
+    const data: Record<string, string | number> = {}
     if (editForm.value.name) data.name = editForm.value.name
-    data.description = editForm.value.description
+    if (editForm.value.description) data.description = editForm.value.description
     data.protocol = editForm.value.protocol
-    data.port = editForm.value.port
-    data.source = editForm.value.source
+    if (editForm.value.port) data.port = editForm.value.port
+    data.source = editForm.value.source || '0.0.0.0/0'
     data.action = editForm.value.action
     data.direction = editForm.value.direction
     data.priority = editForm.value.priority

@@ -3,29 +3,55 @@
     <div class="card-header-title">
       <h2>{{ t('nav.databases') }}</h2>
       <div>
-        <el-button type="primary" @click="showInstallMysql = true">{{ t('database.installMysql') }}</el-button>
-        <el-button type="warning" @click="showInstallRedis = true">{{ t('database.installRedis') }}</el-button>
+        <el-button type="primary" @click="showInstallMysql = true">{{
+          t('database.installMysql')
+        }}</el-button>
+        <el-button type="warning" @click="showInstallRedis = true">{{
+          t('database.installRedis')
+        }}</el-button>
       </div>
     </div>
 
     <el-card shadow="hover">
-      <el-table :data="instances" v-loading="loading" stripe style="width: 100%">
+      <el-table
+        v-loading="loading"
+        :empty-text="t('common.noData')"
+        :data="instances"
+        stripe
+        class="full-width"
+      >
         <el-table-column prop="name" :label="t('database.name')" />
         <el-table-column prop="db_type" :label="t('database.type')" width="100" />
         <el-table-column prop="version" :label="t('database.version')" width="140" />
         <el-table-column prop="port" :label="t('database.port')" width="80" />
         <el-table-column :label="t('database.status')" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'running' ? 'success' : 'danger'" size="small">{{ row.status === 'running' ? t('database.running') : t('database.stopped') }}</el-tag>
+            <el-tag :type="row.status === 'running' ? 'success' : 'danger'" size="small">{{
+              row.status === 'running' ? t('database.running') : t('database.stopped')
+            }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="data_dir" :label="t('database.dataDir')" />
         <el-table-column :label="t('database.actions')" width="280">
           <template #default="{ row }">
-            <el-button size="small" :disabled="row.status === 'running'" @click="handleStart(row.id)">{{ t('database.start') }}</el-button>
-            <el-button size="small" :disabled="row.status !== 'running'" @click="handleStop(row.id)">{{ t('database.stop') }}</el-button>
-            <el-button size="small" @click="handleRestart(row.id)">{{ t('database.restart') }}</el-button>
-            <el-button size="small" type="danger" @click="handleUninstall(row.id)">{{ t('database.uninstall') }}</el-button>
+            <el-button
+              size="small"
+              :disabled="row.status === 'running'"
+              @click="handleStart(row.id)"
+              >{{ t('database.start') }}</el-button
+            >
+            <el-button
+              size="small"
+              :disabled="row.status !== 'running'"
+              @click="handleStop(row.id)"
+              >{{ t('database.stop') }}</el-button
+            >
+            <el-button size="small" @click="handleRestart(row.id)">{{
+              t('database.restart')
+            }}</el-button>
+            <el-button size="small" type="danger" @click="handleUninstall(row.id)">{{
+              t('database.uninstall')
+            }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -37,7 +63,7 @@
         layout="prev, pager, next, total"
         background
         small
-        style="margin-top: 16px; justify-content: center;"
+        class="table-pagination"
         @current-change="fetch"
       />
     </el-card>
@@ -59,7 +85,9 @@
       </el-form>
       <template #footer>
         <el-button @click="showInstallMysql = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" @click="handleInstallMysql" :loading="installing">{{ t('common.install') }}</el-button>
+        <el-button type="primary" :loading="installing" @click="handleInstallMysql">{{
+          t('common.install')
+        }}</el-button>
       </template>
     </el-dialog>
 
@@ -75,12 +103,19 @@
           <el-input-number v-model="redisForm.port" :min="1024" :max="65535" />
         </el-form-item>
         <el-form-item :label="t('database.password')">
-          <el-input v-model="redisForm.password" type="password" show-password :placeholder="t('database.optional')" />
+          <el-input
+            v-model="redisForm.password"
+            type="password"
+            show-password
+            :placeholder="t('database.optional')"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showInstallRedis = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" @click="handleInstallRedis" :loading="installing">{{ t('common.install') }}</el-button>
+        <el-button type="primary" :loading="installing" @click="handleInstallRedis">{{
+          t('common.install')
+        }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -90,7 +125,15 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listDatabases, installMysql, installRedis, startDatabase, stopDatabase, restartDatabase, uninstallDatabase } from '@/api/databases'
+import {
+  listDatabases,
+  installMysql,
+  installRedis,
+  startDatabase,
+  stopDatabase,
+  restartDatabase,
+  uninstallDatabase,
+} from '@/api/databases'
 import type { DatabaseInstance } from '@/types'
 
 const { t } = useI18n()
@@ -115,8 +158,9 @@ async function fetch() {
     const res = await listDatabases(currentPage.value, pageSize.value)
     instances.value = res.data.data
     total.value = res.data.total
+  } finally {
+    loading.value = false
   }
-  finally { loading.value = false }
 }
 
 async function handleInstallMysql() {
@@ -183,12 +227,16 @@ async function handleUninstall(id: number) {
     await uninstallDatabase(id)
     ElMessage.success(t('common.success'))
     await fetch()
-  } catch { /* cancelled or failed */ }
+  } catch {
+    /* cancelled or failed */
+  }
 }
 
 onMounted(fetch)
 </script>
 
 <style scoped>
-h2 { margin: 0; }
+h2 {
+  margin: 0;
+}
 </style>

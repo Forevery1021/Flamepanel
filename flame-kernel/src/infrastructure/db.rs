@@ -46,6 +46,18 @@ impl UserRepository for InMemoryUserRepository {
         Ok(user)
     }
 
+    async fn update(&self, user: &User) -> Result<(), AppError> {
+        let mut users = self.users.lock().unwrap();
+        if let Some(existing) = users.iter_mut().find(|u| u.id == user.id) {
+            existing.username = user.username.clone();
+            existing.password_hash = user.password_hash.clone();
+            existing.role = user.role.clone();
+            Ok(())
+        } else {
+            Err(AppError::NotFound("User not found".into()))
+        }
+    }
+
     async fn list(&self) -> Result<Vec<User>, AppError> {
         let users = self.users.lock().unwrap();
         Ok(users.clone())
@@ -109,6 +121,19 @@ impl NodeRepository for InMemoryNodeRepository {
         nodes.push(node_with_id);
         *next_id += 1;
         Ok(id)
+    }
+
+    async fn update(&self, node: &ServerNode) -> Result<(), AppError> {
+        let mut nodes = self.nodes.lock().unwrap();
+        if let Some(existing) = nodes.iter_mut().find(|n| n.id == node.id) {
+            existing.name = node.name.clone();
+            existing.hostname = node.hostname.clone();
+            existing.ip_address = node.ip_address.clone();
+            existing.status = node.status.clone();
+            Ok(())
+        } else {
+            Err(AppError::NotFound("Node not found".into()))
+        }
     }
 
     async fn list_all(&self) -> Result<Vec<ServerNode>, AppError> {

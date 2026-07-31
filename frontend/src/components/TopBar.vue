@@ -12,9 +12,15 @@
         </el-button>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="zh-CN" :disabled="locale === 'zh-CN'">简体中文</el-dropdown-item>
-            <el-dropdown-item command="en-US" :disabled="locale === 'en-US'">English</el-dropdown-item>
-            <el-dropdown-item command="ja-JP" :disabled="locale === 'ja-JP'">日本語</el-dropdown-item>
+            <el-dropdown-item command="zh-CN" :disabled="locale === 'zh-CN'"
+              >简体中文</el-dropdown-item
+            >
+            <el-dropdown-item command="en-US" :disabled="locale === 'en-US'"
+              >English</el-dropdown-item
+            >
+            <el-dropdown-item command="ja-JP" :disabled="locale === 'ja-JP'"
+              >日本語</el-dropdown-item
+            >
           </el-dropdown-menu>
         </template>
       </el-dropdown>
@@ -56,8 +62,14 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { setLanguage } from '@/locales'
 import {
-  UserFilled, Tools, SwitchButton, InfoFilled,
-  ArrowDown, Moon, Sunny, ChatDotRound,
+  UserFilled,
+  Tools,
+  SwitchButton,
+  InfoFilled,
+  ArrowDown,
+  Moon,
+  Sunny,
+  ChatDotRound,
 } from '@element-plus/icons-vue'
 
 const { t, locale } = useI18n()
@@ -96,8 +108,8 @@ function handleCommand(cmd: string) {
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
-  background: #fff;
-  border-bottom: 1px solid #e4e7ed;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 .topbar-left {
@@ -108,17 +120,17 @@ function handleCommand(cmd: string) {
 .topbar-logo {
   font-size: 18px;
   font-weight: 700;
-  color: #409eff;
+  color: var(--brand);
   letter-spacing: 1px;
 }
 .topbar-divider {
   width: 1px;
   height: 20px;
-  background: #dcdfe6;
+  background: var(--border-strong);
 }
 .topbar-title {
   font-size: 15px;
-  color: #303133;
+  color: var(--text-primary);
   font-weight: 500;
 }
 .topbar-right {
@@ -132,15 +144,27 @@ function handleCommand(cmd: string) {
   gap: 6px;
   cursor: pointer;
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-size: 14px;
-  color: #606266;
+  color: var(--text-secondary);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
 }
 .user-dropdown:hover {
-  background: #f5f7fa;
+  background: var(--bg-hover);
 }
-.dark .topbar { background: #1d1e1f; border-color: #333; }
-.dark .topbar-title { color: #e5eaf3; }
-.dark .user-dropdown { color: #a3a6ad; }
-.dark .user-dropdown:hover { background: #2c2d2e; }
+.dark .topbar {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+.dark .topbar-title {
+  color: var(--text-primary);
+}
+.dark .user-dropdown {
+  color: var(--text-secondary);
+}
+.dark .user-dropdown:hover {
+  background: var(--bg-hover);
+}
 </style>

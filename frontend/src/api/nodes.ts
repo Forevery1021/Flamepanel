@@ -9,6 +9,10 @@ export function createNode(node: ServerNode) {
   return api.post<number>('/nodes', { node })
 }
 
+export function updateNode(id: number, node: ServerNode) {
+  return api.put<ServerNode>(`/nodes/${id}`, { node })
+}
+
 export function deleteNode(id: number) {
   return api.delete(`/nodes/${id}`)
 }

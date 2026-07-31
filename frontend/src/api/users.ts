@@ -9,6 +9,13 @@ export function createUser(username: string, password_hash: string, role: string
   return api.post<User>('/users', { username, password_hash, role })
 }
 
+export function updateUser(
+  id: number,
+  payload: { username: string; password_hash?: string; role: string },
+) {
+  return api.put<User>(`/users/${id}`, payload)
+}
+
 export function deleteUser(id: number) {
   return api.delete(`/users/${id}`)
 }

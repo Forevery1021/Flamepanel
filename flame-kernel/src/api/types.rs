@@ -38,6 +38,13 @@ pub struct CreateUserRequest {
 }
 
 #[derive(serde::Deserialize)]
+pub struct UpdateUserRequest {
+    pub username: String,
+    pub password_hash: Option<String>,
+    pub role: String,
+}
+
+#[derive(serde::Deserialize)]
 pub struct CreateNodeRequest {
     pub node: crate::domain::entity::ServerNode,
 }
@@ -147,9 +154,11 @@ pub fn route_permission(method: &axum::http::Method, path: &str) -> Option<(&'st
     match (method.as_str(), path) {
         ("GET", "/api/users") => Some(("user", "read")),
         ("POST", "/api/users") => Some(("user", "create")),
+        ("PUT", p) if p.starts_with("/api/users/") => Some(("user", "update")),
         ("DELETE", p) if p.starts_with("/api/users/") => Some(("user", "delete")),
         ("GET", "/api/nodes") => Some(("node", "read")),
         ("POST", "/api/nodes") => Some(("node", "create")),
+        ("PUT", p) if p.starts_with("/api/nodes/") => Some(("node", "update")),
         ("DELETE", p) if p.starts_with("/api/nodes/") => Some(("node", "delete")),
         ("GET", "/api/websites") => Some(("website", "read")),
         ("POST", "/api/websites") => Some(("website", "create")),

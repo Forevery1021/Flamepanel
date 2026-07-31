@@ -2,7 +2,9 @@ import api from './client'
 import type { DatabaseInstance, PaginatedResponse } from '@/types'
 
 export function listDatabases(page = 1, pageSize = 20) {
-  return api.get<PaginatedResponse<DatabaseInstance>>('/databases', { params: { page, page_size: pageSize } })
+  return api.get<PaginatedResponse<DatabaseInstance>>('/databases', {
+    params: { page, page_size: pageSize },
+  })
 }
 
 export function getDatabase(id: number) {
@@ -13,11 +15,21 @@ export function deleteDatabase(id: number) {
   return api.delete(`/databases/${id}`)
 }
 
-export function installMysql(data: { name: string; version?: string; port?: number; root_password?: string }) {
+export function installMysql(data: {
+  name: string
+  version?: string
+  port?: number
+  root_password?: string
+}) {
   return api.post<DatabaseInstance>('/databases/mysql/install', data)
 }
 
-export function installRedis(data: { name: string; version?: string; port?: number; password?: string }) {
+export function installRedis(data: {
+  name: string
+  version?: string
+  port?: number
+  password?: string
+}) {
   return api.post<DatabaseInstance>('/databases/redis/install', data)
 }
 
