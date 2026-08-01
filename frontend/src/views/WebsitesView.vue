@@ -20,10 +20,13 @@
           </template>
         </el-table-column>
         <el-table-column prop="created_at" :label="t('website.createdAt')" width="180" />
-        <el-table-column :label="t('common.operation')" width="200" fixed="right">
+        <el-table-column :label="t('common.operation')" width="260" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" size="small" text @click="handleEdit(row)">{{
               t('common.edit')
+            }}</el-button>
+            <el-button type="primary" size="small" text @click="openSwitchEngine(row)">{{
+              t('website.switchEngine')
             }}</el-button>
             <el-popconfirm
               :title="t('website.deleteConfirm', { name: row.name })"
@@ -130,15 +133,32 @@
         }}</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="switchVisible" :title="t('website.switchEngine')" width="440px">
+      <el-form label-width="100px">
+        <el-form-item :label="t('website.engine')" required>
+          <el-select v-model="switchEngine" class="full-width">
+            <el-option v-for="e in engines" :key="e.name" :label="e.name" :value="e.name" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="switchVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="submitting" @click="handleSwitchEngine">{{
+          t('common.confirm')
+        }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { listWebsites, createWebsite, updateWebsite, deleteWebsite } from '@/api/websites'
+import { listWebsites, createWebsite, updateWebsite, deleteWebsite, switchWebsiteEngine } from '@/api/websites'
+import { listEngines } from '@/api/webServers'
 import { ElMessage } from 'element-plus'
-import type { Website } from '@/types'
+import type { Website, EngineInfo } from '@/types'
 
 const { t } = useI18n()
 const websites = ref<Website[]>([])
@@ -255,6 +275,40 @@ async function handleDelete(id: number) {
     await fetch()
   } catch {
     ElMessage.error(t('common.failed'))
+  }
+}
+
+const switchVisible = ref(false)
+const switchEngine = ref('')
+const engines = ref<EngineInfo[]>([])
+let switchTargetId = 0
+
+async function openSwitchEngine(row: Website) {
+  switchTargetId = row.id
+  switchEngine.value = row.engine
+  if (!engines.value.length) {
+    try {
+      const res = await listEngines()
+      engines.value = res.data
+    } catch {
+      ElMessage.error(t('common.failed'))
+    }
+  }
+  switchVisible.value = true
+}
+
+async function handleSwitchEngine() {
+  if (!switchEngine.value) return
+  submitting.value = true
+  try {
+    await switchWebsiteEngine(switchTargetId, switchEngine.value)
+    ElMessage.success(t('common.success'))
+    switchVisible.value = false
+    await fetch()
+  } catch {
+    ElMessage.error(t('common.failed'))
+  } finally {
+    submitting.value = false
   }
 }
 

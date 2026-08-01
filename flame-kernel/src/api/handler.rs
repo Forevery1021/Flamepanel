@@ -12,3 +12,4 @@ pub mod settings;
 pub mod database;
 pub mod file;
 pub mod firewall;
+pub mod app_store;

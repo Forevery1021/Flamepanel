@@ -145,6 +145,7 @@ pub async fn load_plugin(
         author: req.author.unwrap_or_default(),
         description: req.description.unwrap_or_default(),
         wasm_hash,
+        wasm_base64: req.wasm_base64,
         enabled: true,
         homepage: req.homepage,
         license: req.license,
@@ -155,6 +156,9 @@ pub async fn load_plugin(
         updated_at: now,
     };
     state.plugin_registry.register(plugin.clone())?;
+    if let Err(e) = state.plugin_repo.save(&plugin).await {
+        tracing::warn!("Failed to persist plugin {}: {}", plugin.id, e);
+    }
 
     Ok(Json(PluginResponse {
         id: plugin.id,

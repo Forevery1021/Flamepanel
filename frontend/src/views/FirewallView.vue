@@ -58,7 +58,7 @@
           <template #default="{ row }">
             <el-switch
               :model-value="row.enabled"
-              @change="(v) => handleToggle(row.id, v as boolean)"
+              @change="(v: boolean | string | number) => handleToggle(row.id, Boolean(v))"
             />
           </template>
         </el-table-column>

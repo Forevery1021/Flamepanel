@@ -1,6 +1,6 @@
 # FlamePanel 开发部署流程指南
 
-> Rust 内核 + Vue 3 前端 · 版本 v1.10 · 更新 2026-07-30
+> Rust 内核 + Vue 3 前端 · 版本 v1.11 · 更新 2026-08-01
 
 ## 目录
 
@@ -120,9 +120,9 @@ Flamepanel/
 │       ├── api/           # Axios 客户端
 │       ├── components/    # Layout/Sidebar/TopBar
 │       ├── stores/        # Pinia
-│       ├── router/        # 15 条路由
+│       ├── router/        # 16 条路由
 │       ├── locales/       # i18n: zh-CN/en-US/ja-JP
-│       └── views/         # 15 个视图页面
+│       └── views/         # 17 个视图页面
 ├── agent/                 # 轻量 Rust Agent
 ├── install.sh             # Linux 一键安装脚本
 ├── uninstall.sh           # Linux 卸载脚本
@@ -637,13 +637,33 @@ Infrastructure 层 (InMemory / SQLite / OS 命令)
 ```
 
 **模块端点统计**：
-- 健康检查: 1 | 认证: 2 | 用户: 3 | 节点: 3 | 网站: 2
-- Docker: 13 | 插件: 13 | Web 服务器: 16 | 数据库: 15
+- 健康检查: 1 | 认证: 2 | 用户: 3 | 节点: 3 | 网站: 6
+- Docker: 13 | 插件: 13 | 应用商店: 11 | Web 服务器: 19 | 数据库: 15
 - 文件: 10 | 防火墙: 11 | 设置: 3 | 日志: 2 | WebSocket: 3
 
 ---
 
 ## 11. 更新日志
+
+### v0.2.0 (2026-08-01)
+
+#### 应用商店（新增）
+- **三格式应用包** — 统一支持 1Panel（`data.yml` + `scripts/`）、宝塔（`app.json` + `latest/`）、Flame 内置格式（`app.json` + `docker-compose.yml`/`install.sh`/`app.wasm`），`select_adapter` 自动检测格式
+- **三模式安装编排** — `AppStoreService::install` 按 `InstallMode` 分发：容器（compose 模板 → 变量映射 → 安全扫描 → `compose_deploy`，失败自动回滚）、原生（MySQL/MariaDB/Redis/Web 引擎/通用 install.sh）、WASM（沙箱加载 → 注册 → 持久化）
+- **安全扫描器** — `SecurityScanner`：Block 级（privileged 无确认）、High 级（敏感目录/Docker socket 挂载）、Medium 级（host 网络）、Low 级（非白名单仓库）；`ensure_restart_policy` 强制健康检查；不通过则拒绝安装
+- **变量映射器** — `VariableMapper`：`${VAR}`/`$VAR`/`{var}` 兼容 1Panel/宝塔变量占位，内置 `CONTAINER_NAME`/`PANEL_APP_PORT_HTTP/HTTPS`/`HOST_IP` 等映射
+- **WASM 内置工具** — `wasm-hello` 演示插件（真实 wasm 字节码，`run()` 返回 42）；`install_wasm` + `restore_wasm_plugins` 启动恢复，Plugin 实体新增 `wasm_base64` 持久化（新增 `plugins` 表）
+- **应用生命周期** — `seed_builtin_apps`（5 内置应用幂等种子）、`import_package`（本地目录导入）、`uninstall`（compose down / 包卸载 / WASM 卸载）、`upgrade`（三模式）、`get_logs`
+- **API** — `/api/app-store/packages|installed|wasm-builtins` 全套端点 + `app_store:read/create/update/delete` 权限；`app_packages`/`installed_apps`/`plugins` 三张新表迁移
+
+#### Web 引擎统一（新增）
+- **性能预设** — `PerformancePreset`（low/medium/high/ultra）：按 CPU/内存自动推荐，输出各引擎 worker 数、keepalive、gzip 配置片段
+- **引擎切换** — 网站 `POST /api/websites/:id/switch-engine`、Web 服务器 `POST /api/web-servers/:id/switch-engine`（引擎信息 + 配置路径更新）
+- **预设应用** — `POST /api/web-servers/:id/preset` 重新生成并写入全局配置；`GET /api/web-servers/presets` 返回推荐预设
+- **前端** — 应用商店视图（商店/已安装/WASM 三个 Tab + 动态表单安装向导 + 安全风险确认 + 日志查看 + 本地导入）；Web 服务器视图新增预设/切换引擎操作；网站视图新增引擎切换；三语言（zh/en/ja）完整 i18n
+
+#### 测试
+- 139 个测试全部通过（84 集成测试 + 55 单元测试），新增应用商店 API（列表/安装/卸载/404）、WASM 安装与恢复、预设推荐/切换引擎/预设应用等覆盖
 
 ### v0.1.11 (2026-07-31)
 

@@ -30,6 +30,7 @@ const router = createRouter({
         { path: 'websites', name: 'Websites', component: () => import('@/views/WebsitesView.vue') },
         { path: 'docker', name: 'Docker', component: () => import('@/views/DockerView.vue') },
         { path: 'plugins', name: 'Plugins', component: () => import('@/views/PluginsView.vue') },
+        { path: 'app-store', name: 'AppStore', component: () => import('@/views/AppStoreView.vue') },
         {
           path: 'operation-logs',
           name: 'OperationLogs',

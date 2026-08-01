@@ -51,6 +51,28 @@ impl WebServerEngine {
         }
     }
 
+    /// 原生安装时的系统包名（apt/yum/apk）
+    pub fn package_name(&self) -> &'static str {
+        match self {
+            Self::Nginx => "nginx",
+            Self::Apache => "httpd",
+            Self::OpenLiteSpeed => "openlitespeed",
+            Self::OpenResty => "openresty",
+            Self::Caddy => "caddy",
+        }
+    }
+
+    /// 原生安装后的 systemd 服务名
+    pub fn service_name(&self) -> &'static str {
+        match self {
+            Self::Nginx => "nginx",
+            Self::Apache => "httpd",
+            Self::OpenLiteSpeed => "lsws",
+            Self::OpenResty => "openresty",
+            Self::Caddy => "caddy",
+        }
+    }
+
     pub fn default_config_path(&self) -> &'static str {
         match self {
             Self::Nginx => "/etc/nginx/nginx.conf",

@@ -1,8 +1,10 @@
 use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast};
 use serde::{Deserialize, Serialize};
+use crate::application::app_store_service::AppStoreService;
 use crate::application::service::*;
 use crate::domain::entity::{MetricsSnapshot, LogEntry};
+use crate::domain::repository::PluginRepository;
 use crate::infrastructure::metrics::MetricsHistory;
 use crate::plugin::{PluginSandbox, PluginRegistry};
 use crate::terminal::TerminalManager;
@@ -23,6 +25,8 @@ pub struct AppState {
     pub log_tx: broadcast::Sender<LogEntry>,
     pub plugin_sandbox: Arc<PluginSandbox>,
     pub plugin_registry: Arc<PluginRegistry>,
+    pub plugin_repo: Arc<dyn PluginRepository>,
+    pub app_store_service: Arc<AppStoreService>,
     pub web_server_service: Arc<WebServerService>,
     pub settings_service: Arc<SettingsService>,
     pub database_service: Arc<DatabaseService>,
@@ -106,7 +110,7 @@ impl AppState {
         user_service: UserService,
         node_service: NodeService,
         website_service: WebsiteService,
-        docker_service: DockerService,
+        docker_service: Arc<DockerService>,
         role_service: RoleService,
         permission_service: PermissionService,
         operation_log_service: OperationLogService,
@@ -114,11 +118,13 @@ impl AppState {
         metrics_history: Arc<Mutex<MetricsHistory>>,
         metrics_tx: broadcast::Sender<MetricsSnapshot>,
         log_tx: broadcast::Sender<LogEntry>,
-        plugin_sandbox: PluginSandbox,
-        plugin_registry: PluginRegistry,
-        web_server_service: WebServerService,
+        plugin_sandbox: Arc<PluginSandbox>,
+        plugin_registry: Arc<PluginRegistry>,
+        plugin_repo: Arc<dyn PluginRepository>,
+        app_store_service: Arc<AppStoreService>,
+        web_server_service: Arc<WebServerService>,
         settings_service: SettingsService,
-        database_service: DatabaseService,
+        database_service: Arc<DatabaseService>,
         firewall_service: FirewallService,
         terminal_manager: TerminalManager,
     ) -> Self {
@@ -127,7 +133,7 @@ impl AppState {
             user_service: Arc::new(user_service),
             node_service: Arc::new(node_service),
             website_service: Arc::new(website_service),
-            docker_service: Arc::new(docker_service),
+            docker_service,
             role_service: Arc::new(role_service),
             permission_service: Arc::new(permission_service),
             operation_log_service: Arc::new(operation_log_service),
@@ -135,11 +141,13 @@ impl AppState {
             metrics_history,
             metrics_tx,
             log_tx,
-            plugin_sandbox: Arc::new(plugin_sandbox),
-            plugin_registry: Arc::new(plugin_registry),
-            web_server_service: Arc::new(web_server_service),
+            plugin_sandbox,
+            plugin_registry,
+            plugin_repo,
+            app_store_service,
+            web_server_service,
             settings_service: Arc::new(settings_service),
-            database_service: Arc::new(database_service),
+            database_service,
             firewall_service: Arc::new(firewall_service),
             terminal_manager: Arc::new(terminal_manager),
         }
@@ -198,6 +206,10 @@ pub fn route_permission(method: &axum::http::Method, path: &str) -> Option<(&'st
         ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/restart") => Some(("web_server", "start")),
         ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/reload") => Some(("web_server", "reload")),
         ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/configtest") => Some(("web_server", "configtest")),
+        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/switch-engine") => Some(("web_server", "update")),
+        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/preset") => Some(("web_server", "update")),
+        ("GET", "/api/web-servers/presets") => Some(("web_server", "read")),
+        ("POST", p) if p.starts_with("/api/websites/") && p.ends_with("/switch-engine") => Some(("website", "update")),
         ("GET", p) if p.starts_with("/api/web-servers/") && p.contains("/config") => Some(("web_server", "read")),
         ("PUT", p) if p.starts_with("/api/web-servers/") && !p.contains("/start") && !p.contains("/stop") && !p.contains("/restart") && !p.contains("/reload") && !p.contains("/configtest") && !p.contains("/config") => Some(("web_server", "update")),
         ("DELETE", p) if p.starts_with("/api/web-servers/") && !p.contains("/start") && !p.contains("/stop") && !p.contains("/restart") && !p.contains("/reload") && !p.contains("/configtest") && !p.contains("/config") => Some(("web_server", "delete")),
@@ -218,6 +230,16 @@ pub fn route_permission(method: &axum::http::Method, path: &str) -> Option<(&'st
         ("DELETE", p) if p.contains("/users/") => Some(("database", "update")),
         ("POST", p) if p.ends_with("/uninstall") => Some(("database", "delete")),
         ("GET", "/api/files") => Some(("file", "read")),
+        ("GET", "/api/app-store/packages") => Some(("app_store", "read")),
+        ("GET", "/api/app-store/wasm-builtins") => Some(("app_store", "read")),
+        ("GET", p) if p.starts_with("/api/app-store/packages/") => Some(("app_store", "read")),
+        ("POST", p) if p.starts_with("/api/app-store/packages/") && p.ends_with("/install") => Some(("app_store", "create")),
+        ("POST", p) if p.starts_with("/api/app-store/packages/") && p.ends_with("/import") => Some(("app_store", "create")),
+        ("GET", "/api/app-store/installed") => Some(("app_store", "read")),
+        ("GET", p) if p.starts_with("/api/app-store/installed/") && !p.ends_with("/upgrade") && !p.ends_with("/uninstall") && !p.ends_with("/logs") => Some(("app_store", "read")),
+        ("GET", p) if p.starts_with("/api/app-store/installed/") && p.ends_with("/logs") => Some(("app_store", "read")),
+        ("POST", p) if p.starts_with("/api/app-store/installed/") && p.ends_with("/upgrade") => Some(("app_store", "update")),
+        ("POST", p) if p.starts_with("/api/app-store/installed/") && p.ends_with("/uninstall") => Some(("app_store", "delete")),
         ("GET", "/api/files/read") => Some(("file", "read")),
         ("GET", "/api/files/download") => Some(("file", "upload")),
         ("POST", "/api/files/write") => Some(("file", "write")),

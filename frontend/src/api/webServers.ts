@@ -1,5 +1,5 @@
 import api from './client'
-import type { WebServerResponse, EngineInfo, PaginatedResponse } from '@/types'
+import type { WebServerResponse, EngineInfo, PaginatedResponse, PerformancePresetInfo } from '@/types'
 
 export function listEngines() {
   return api.get<EngineInfo[]>('/web-servers/engines')
@@ -59,4 +59,16 @@ export function getWebServerConfig(id: number) {
 
 export function updateWebServerConfig(id: number, config: string) {
   return api.post(`/web-servers/${id}/config`, { config })
+}
+
+export function switchWebServerEngine(id: number, engine: string) {
+  return api.post<WebServerResponse>(`/web-servers/${id}/switch-engine`, { engine })
+}
+
+export function applyWebServerPreset(id: number, preset: string) {
+  return api.post(`/web-servers/${id}/preset`, { preset })
+}
+
+export function listPresets() {
+  return api.get<PerformancePresetInfo[]>('/web-servers/presets')
 }

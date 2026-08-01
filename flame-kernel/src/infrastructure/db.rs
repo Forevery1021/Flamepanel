@@ -791,3 +791,144 @@ impl FirewallRepository for InMemoryFirewallRepository {
         Ok(())
     }
 }
+// ─── 应用商店 InMemory 仓储 ──────────────────────────────────────────────────
+
+pub struct InMemoryAppPackageRepository {
+    packages: std::sync::Arc<Mutex<Vec<AppPackage>>>,
+}
+
+impl InMemoryAppPackageRepository {
+    pub fn new() -> Self {
+        Self {
+            packages: std::sync::Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+#[async_trait]
+impl AppPackageRepository for InMemoryAppPackageRepository {
+    async fn list_all(&self) -> Result<Vec<AppPackage>, AppError> {
+        Ok(self.packages.lock().unwrap().clone())
+    }
+
+    async fn find_by_key(&self, key: &str) -> Result<Option<AppPackage>, AppError> {
+        Ok(self
+            .packages
+            .lock().unwrap()
+            .iter()
+            .find(|p| p.key == key)
+            .cloned())
+    }
+
+    async fn create(&self, pkg: &AppPackage) -> Result<i64, AppError> {
+        let mut packages = self.packages.lock().unwrap();
+        if packages.iter().any(|p| p.key == pkg.key) {
+            return Err(AppError::BadRequest(format!("应用包已存在: {}", pkg.key)));
+        }
+        let mut pkg = pkg.clone();
+        pkg.id = (packages.len() as i64) + 1;
+        let id = pkg.id;
+        packages.push(pkg);
+        Ok(id)
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        self.packages
+            .lock().unwrap()
+            .retain(|p| p.id != id);
+        Ok(())
+    }
+}
+
+pub struct InMemoryInstalledAppRepository {
+    apps: std::sync::Arc<Mutex<Vec<InstalledApp>>>,
+}
+
+impl InMemoryInstalledAppRepository {
+    pub fn new() -> Self {
+        Self {
+            apps: std::sync::Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+#[async_trait]
+impl InstalledAppRepository for InMemoryInstalledAppRepository {
+    async fn list_all(&self) -> Result<Vec<InstalledApp>, AppError> {
+        Ok(self.apps.lock().unwrap().clone())
+    }
+
+    async fn find_by_id(&self, id: i64) -> Result<Option<InstalledApp>, AppError> {
+        Ok(self
+            .apps
+            .lock().unwrap()
+            .iter()
+            .find(|a| a.id == id)
+            .cloned())
+    }
+
+    async fn create(&self, app: &InstalledApp) -> Result<i64, AppError> {
+        let mut apps = self.apps.lock().unwrap();
+        let mut app = app.clone();
+        app.id = (apps.len() as i64) + 1;
+        let id = app.id;
+        apps.push(app);
+        Ok(id)
+    }
+
+    async fn update(&self, app: &InstalledApp) -> Result<(), AppError> {
+        let mut apps = self.apps.lock().unwrap();
+        if let Some(existing) = apps.iter_mut().find(|a| a.id == app.id) {
+            *existing = app.clone();
+        }
+        Ok(())
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        self.apps.lock().unwrap().retain(|a| a.id != id);
+        Ok(())
+    }
+}
+
+pub struct InMemoryPluginRepository {
+    plugins: std::sync::Arc<Mutex<Vec<Plugin>>>,
+}
+
+impl InMemoryPluginRepository {
+    pub fn new() -> Self {
+        Self {
+            plugins: std::sync::Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+#[async_trait]
+impl PluginRepository for InMemoryPluginRepository {
+    async fn save(&self, plugin: &Plugin) -> Result<(), AppError> {
+        let mut plugins = self.plugins.lock().unwrap();
+        if let Some(existing) = plugins.iter_mut().find(|p| p.id == plugin.id) {
+            *existing = plugin.clone();
+        } else {
+            plugins.push(plugin.clone());
+        }
+        Ok(())
+    }
+
+    async fn list(&self) -> Result<Vec<Plugin>, AppError> {
+        Ok(self.plugins.lock().unwrap().clone())
+    }
+
+    async fn find_by_id(&self, id: &str) -> Result<Option<Plugin>, AppError> {
+        Ok(self
+            .plugins
+            .lock().unwrap()
+            .iter()
+            .find(|p| p.id == id)
+            .cloned())
+    }
+
+    async fn delete(&self, id: &str) -> Result<(), AppError> {
+        self.plugins.lock().unwrap().retain(|p| p.id != id);
+        Ok(())
+    }
+}

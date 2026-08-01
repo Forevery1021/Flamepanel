@@ -2,6 +2,7 @@ use axum::{Json, extract::{State, Path, Query}};
 use crate::domain::entity::Website;
 use crate::api::types::{AppState, CreateWebsiteRequest, PaginationParams, PaginatedResponse};
 use crate::core::error::AppError;
+use crate::webserver::engine::WebServerEngine;
 
 pub async fn list(
     State(state): State<AppState>,
@@ -45,4 +46,19 @@ pub async fn delete(
 ) -> Result<Json<&'static str>, AppError> {
     state.website_service.delete_website(id).await?;
     Ok(Json("deleted"))
+}
+#[derive(serde::Deserialize)]
+pub struct SwitchWebsiteEngineRequest {
+    pub engine: String,
+}
+
+pub async fn switch_engine(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<SwitchWebsiteEngineRequest>,
+) -> Result<Json<Website>, AppError> {
+    let engine = WebServerEngine::from_str(&req.engine)
+        .ok_or_else(|| AppError::BadRequest(format!("未知引擎: {}", req.engine)))?;
+    let site = state.website_service.switch_engine(id, &engine).await?;
+    Ok(Json(site))
 }

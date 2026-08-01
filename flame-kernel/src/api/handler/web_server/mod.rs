@@ -191,3 +191,58 @@ fn to_response(instance: WebServerInstance) -> WebServerResponse {
         created_at: instance.created_at.to_rfc3339(),
     }
 }
+
+#[derive(serde::Deserialize)]
+pub struct SwitchEngineRequest {
+    pub engine: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct ApplyPresetRequest {
+    pub preset: String,
+}
+
+pub async fn switch_engine(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<SwitchEngineRequest>,
+) -> Result<Json<WebServerInstance>, AppError> {
+    let engine = WebServerEngine::from_str(&req.engine)
+        .ok_or_else(|| AppError::BadRequest(format!("未知引擎: {}", req.engine)))?;
+    let instance = state.web_server_service.switch_engine(id, &engine).await?;
+    Ok(Json(instance))
+}
+
+pub async fn apply_preset(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<ApplyPresetRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let preset = crate::webserver::preset::PerformancePreset::from_str(&req.preset)
+        .ok_or_else(|| AppError::BadRequest(format!("未知预设: {}", req.preset)))?;
+    let instance = state.web_server_service.apply_preset(id, &preset).await?;
+    Ok(Json(serde_json::json!({
+        "id": instance.id,
+        "engine": instance.engine,
+        "preset": preset.as_str(),
+        "worker_processes": preset.worker_processes(&instance.engine),
+        "keepalive_timeout": preset.keepalive_timeout(),
+    })))
+}
+
+pub async fn list_presets() -> Json<Vec<serde_json::Value>> {
+    let resources = crate::application::app_store_service::SystemResources::detect();
+    let recommended = crate::webserver::preset::PerformancePreset::recommend(&resources);
+    let presets = [
+        crate::webserver::preset::PerformancePreset::Low,
+        crate::webserver::preset::PerformancePreset::Medium,
+        crate::webserver::preset::PerformancePreset::High,
+        crate::webserver::preset::PerformancePreset::Ultra,
+    ];
+    Json(presets.into_iter().map(|p| serde_json::json!({
+        "name": p.as_str(),
+        "description": p.description_zh(),
+        "recommended": p == recommended,
+        "worker_processes": p.worker_processes("nginx"),
+    })).collect())
+}

@@ -130,3 +130,28 @@ pub trait WebServerRepository: Send + Sync {
     async fn delete(&self, id: i64) -> Result<(), AppError>;
     async fn list_all(&self) -> Result<Vec<WebServerInstance>, AppError>;
 }
+
+#[async_trait]
+pub trait AppPackageRepository: Send + Sync {
+    async fn list_all(&self) -> Result<Vec<AppPackage>, AppError>;
+    async fn find_by_key(&self, key: &str) -> Result<Option<AppPackage>, AppError>;
+    async fn create(&self, pkg: &AppPackage) -> Result<i64, AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+}
+
+#[async_trait]
+pub trait InstalledAppRepository: Send + Sync {
+    async fn list_all(&self) -> Result<Vec<InstalledApp>, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<InstalledApp>, AppError>;
+    async fn create(&self, app: &InstalledApp) -> Result<i64, AppError>;
+    async fn update(&self, app: &InstalledApp) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+}
+
+#[async_trait]
+pub trait PluginRepository: Send + Sync {
+    async fn save(&self, plugin: &Plugin) -> Result<(), AppError>;
+    async fn list(&self) -> Result<Vec<Plugin>, AppError>;
+    async fn find_by_id(&self, id: &str) -> Result<Option<Plugin>, AppError>;
+    async fn delete(&self, id: &str) -> Result<(), AppError>;
+}

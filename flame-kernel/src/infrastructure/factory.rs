@@ -128,4 +128,25 @@ impl RepoFactory {
             BackendKind::Sqlite(pool) => Arc::new(SqliteFirewallRepository::new(pool.clone())),
         }
     }
+
+    pub fn create_app_package_repo(&self) -> Arc<dyn AppPackageRepository> {
+        match &self.kind {
+            BackendKind::InMemory => Arc::new(InMemoryAppPackageRepository::new()),
+            BackendKind::Sqlite(pool) => Arc::new(SqliteAppPackageRepository::new(pool.clone())),
+        }
+    }
+
+    pub fn create_installed_app_repo(&self) -> Arc<dyn InstalledAppRepository> {
+        match &self.kind {
+            BackendKind::InMemory => Arc::new(InMemoryInstalledAppRepository::new()),
+            BackendKind::Sqlite(pool) => Arc::new(SqliteInstalledAppRepository::new(pool.clone())),
+        }
+    }
+
+    pub fn create_plugin_repo(&self) -> Arc<dyn PluginRepository> {
+        match &self.kind {
+            BackendKind::InMemory => Arc::new(InMemoryPluginRepository::new()),
+            BackendKind::Sqlite(pool) => Arc::new(SqlitePluginRepository::new(pool.clone())),
+        }
+    }
 }

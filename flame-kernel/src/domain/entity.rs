@@ -74,6 +74,8 @@ pub struct Plugin {
     pub author: String,
     pub description: String,
     pub wasm_hash: String,
+    /// WASM 字节码（base64 编码），用于持久化与恢复
+    pub wasm_base64: String,
     pub enabled: bool,
     pub homepage: Option<String>,
     pub license: Option<String>,
@@ -117,6 +119,190 @@ pub struct AppManifest {
     pub default_port: i32,
     pub icon: String,
     pub compose: String,
+}
+
+// ─── 应用商店 (App Store) ────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppFormat {
+    OnePanel,
+    Baota,
+    Flame,
+}
+
+impl AppFormat {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AppFormat::OnePanel => "onepanel",
+            AppFormat::Baota => "baota",
+            AppFormat::Flame => "flame",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<AppFormat> {
+        match s.to_lowercase().as_str() {
+            "onepanel" | "1panel" => Some(AppFormat::OnePanel),
+            "baota" | "bt" => Some(AppFormat::Baota),
+            "flame" => Some(AppFormat::Flame),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InstallMode {
+    Container,
+    Native,
+    Wasm,
+}
+
+impl InstallMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            InstallMode::Container => "container",
+            InstallMode::Native => "native",
+            InstallMode::Wasm => "wasm",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<InstallMode> {
+        match s.to_lowercase().as_str() {
+            "container" | "docker" | "compose" => Some(InstallMode::Container),
+            "native" | "host" => Some(InstallMode::Native),
+            "wasm" | "plugin" => Some(InstallMode::Wasm),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FieldType {
+    Text,
+    Number,
+    Password,
+    Select,
+    Port,
+    Switch,
+    Path,
+}
+
+impl FieldType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FieldType::Text => "text",
+            FieldType::Number => "number",
+            FieldType::Password => "password",
+            FieldType::Select => "select",
+            FieldType::Port => "port",
+            FieldType::Switch => "switch",
+            FieldType::Path => "path",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<FieldType> {
+        match s.to_lowercase().as_str() {
+            "text" | "string" | "env" => Some(FieldType::Text),
+            "number" | "int" | "integer" => Some(FieldType::Number),
+            "password" | "secret" => Some(FieldType::Password),
+            "select" | "radio" | "checkbox" => Some(FieldType::Select),
+            "port" => Some(FieldType::Port),
+            "switch" | "boolean" | "bool" => Some(FieldType::Switch),
+            "path" | "dir" | "directory" => Some(FieldType::Path),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SelectOption {
+    pub label: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FormField {
+    pub env_key: String,
+    pub label_zh: String,
+    pub label_en: Option<String>,
+    pub field_type: FieldType,
+    pub default: Option<String>,
+    pub required: bool,
+    pub pattern: Option<String>,
+    pub min: Option<i64>,
+    pub max: Option<i64>,
+    pub min_length: Option<usize>,
+    pub max_length: Option<usize>,
+    pub options: Vec<SelectOption>,
+    pub description: Option<String>,
+    pub group: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppVersionInfo {
+    pub version: String,
+    pub mode: InstallMode,
+    pub default_port: Option<i32>,
+    pub form_fields: Vec<FormField>,
+    pub compose_template: Option<String>,
+    /// 原生安装脚本步骤（bash 命令，按序执行）
+    pub native_scripts: Vec<String>,
+    /// WASM 应用字节码（base64）
+    pub wasm_base64: Option<String>,
+    pub min_memory_mb: Option<u32>,
+    pub architectures: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppMetadata {
+    pub key: String,
+    pub name: String,
+    pub category: String,
+    pub short_desc_zh: String,
+    pub short_desc_en: Option<String>,
+    pub tags: Vec<String>,
+    pub format: AppFormat,
+    pub modes: Vec<InstallMode>,
+    pub versions: Vec<String>,
+    pub default_version: String,
+    pub logo: Option<String>,
+    pub min_memory_mb: Option<u32>,
+    pub architectures: Vec<String>,
+    pub readme: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct AppPackage {
+    pub id: i64,
+    pub key: String,
+    pub name: String,
+    pub category: String,
+    pub format: String,
+    pub description: String,
+    pub logo: Option<String>,
+    pub metadata_json: String,
+    pub source_path: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct InstalledApp {
+    pub id: i64,
+    pub package_key: String,
+    pub name: String,
+    pub version: String,
+    pub mode: String,
+    pub status: String,
+    pub access_url: Option<String>,
+    pub install_path: String,
+    pub container_name: Option<String>,
+    pub port: Option<i32>,
+    pub params_json: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -227,6 +413,10 @@ pub fn default_permissions() -> Vec<Permission> {
         ("firewall", "delete", "删除防火墙规则"),
         ("firewall", "enable", "启用/禁用防火墙规则"),
         ("firewall", "apply", "应用防火墙规则"),
+        ("app_store", "read", "查看应用商店"),
+        ("app_store", "create", "安装应用"),
+        ("app_store", "update", "升级应用"),
+        ("app_store", "delete", "卸载应用"),
     ];
     perms.into_iter().enumerate().map(|(i, (r, a, d))| Permission {
         id: (i + 1) as i64,

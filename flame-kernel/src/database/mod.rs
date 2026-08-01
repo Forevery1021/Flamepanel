@@ -1,6 +1,9 @@
 pub mod mysql;
 pub mod redis;
 
+pub use mysql::MySqlManager;
+pub use redis::RedisManager;
+
 use async_trait::async_trait;
 use crate::core::error::AppError;
 

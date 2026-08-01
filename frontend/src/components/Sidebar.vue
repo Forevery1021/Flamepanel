@@ -71,6 +71,11 @@
       <span>{{ t('nav.plugins') }}</span>
     </el-menu-item>
 
+    <el-menu-item index="/app-store">
+      <el-icon><Box /></el-icon>
+      <span>{{ t('nav.appStore') }}</span>
+    </el-menu-item>
+
     <el-sub-menu index="logs">
       <template #title>
         <el-icon><Document /></el-icon>
@@ -109,6 +114,7 @@ import {
   Folder,
   Collection,
   Lock,
+  Box,
 } from '@element-plus/icons-vue'
 
 const { t } = useI18n()

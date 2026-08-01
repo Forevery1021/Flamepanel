@@ -13,12 +13,13 @@
 
 - **系统监控** — WebSocket 实时推送 CPU/内存/磁盘/负载，ECharts 趋势图表
 - **Docker 管理** — 容器/镜像/Compose 全生命周期管理（13 端点）
-- **Web 服务器引擎** — 原生支持 Nginx/Apache/OpenLiteSpeed/OpenResty/Caddy，自动生成配置，进程管理（16 端点）
+- **Web 服务器引擎** — 原生支持 Nginx/Apache/OpenLiteSpeed/OpenResty/Caddy，自动生成配置，进程管理（19 端点）；性能预设（low/medium/high/ultra 资源感知推荐）+ 一键引擎切换
 - **数据库管理** — MySQL/MariaDB/Redis 原生安装（apt/yum/apk），数据库/用户 CRUD，服务启停（15 端点）
+- **应用商店** — 统一支持 1Panel / 宝塔 / Flame 内置三格式应用包，容器 / 原生 / WASM 三模式安装编排（compose 模板变量映射 + 安全扫描 + 失败回滚），升级 / 卸载 / 日志全生命周期（11 端点）
 - **文件管理** — Web 端浏览/编辑/上传/下载/重命名/权限（10 端点）
 - **防火墙管理** — ufw/firewalld/iptables 自动检测，规则 CRUD/应用/开关（11 端点）
 - **Web 终端** — xterm.js + WebSocket，浏览器内直接连接服务器 Shell
-- **WASM 插件系统** — wasmtime 沙箱，生命周期钩子/指标追踪/热重载/依赖校验
+- **WASM 插件系统** — wasmtime 沙箱，生命周期钩子/指标追踪/热重载/依赖校验；内置 WASM 工具（插件表持久化 + 启动恢复）
 - **面板配置** — Key-Value 配置，主题/多语言/端口/日志/2FA/JWT 密钥轮换
 - **用户 & RBAC** — JWT + bcrypt，admin/operator/viewer 三角色，60+ 路由权限映射
 - **国际化** — 简体中文 / English / 日本語 三语言支持，前端实时切换
@@ -46,20 +47,21 @@
 Flamepanel/
 ├── flame-kernel/          # Rust 核心后端
 │   ├── src/
-│   │   ├── domain/        # 实体 (User/Node/Website/Plugin/DatabaseInstance/FirewallRule/…)
-│   │   ├── application/   # 服务层 (UserService/DockerService/FileService/FirewallService/…)
+│   │   ├── domain/        # 实体 (User/Node/Website/Plugin/AppMetadata/DatabaseInstance/…)
+│   │   ├── application/   # 服务层 (UserService/DockerService/AppStoreService/…)
 │   │   ├── infrastructure/# 仓库实现 (InMemory + SQLite + Bollard + OS 抽象)
-│   │   ├── api/           # HTTP 层 (16 个 handler 模块, 90+ 路由, JWT+RBAC 中间件)
+│   │   │   └── app_store/ # 应用商店适配器 (Flame/1Panel/宝塔) + 变量映射 + 安全扫描
+│   │   ├── api/           # HTTP 层 (17 个 handler 模块, 113 路由, JWT+RBAC 中间件)
 │   │   ├── plugin/        # WASM 沙箱 + 注册表
-│   │   ├── webserver/     # 5 引擎配置生成 + 进程管理
+│   │   ├── webserver/     # 5 引擎配置生成 + 性能预设 + 进程管理
 │   │   ├── database/      # MySQL/Redis 原生管理
 │   │   ├── firewall/      # 防火墙管理器 (ufw/firewalld/iptables)
 │   │   ├── terminal/      # Web 终端 (bash 子进程管道)
 │   │   ├── event/         # 事件总线
 │   │   ├── utils/         # JWT/bcrypt/验证
 │   │   └── resilience/    # Circuit Breaker + Retry
-│   └── tests/             # 77 集成测试 + 11 单元测试
-├── frontend/              # Vue 3 前端 (15 个视图, 3 语言 i18n)
+│   └── tests/             # 84 集成测试 + 55 单元测试
+├── frontend/              # Vue 3 前端 (17 个视图, 3 语言 i18n)
 ├── agent/                 # 轻量 Rust Agent
 ├── docker-compose.yml
 ├── install.sh
@@ -330,10 +332,11 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 | 认证 | 2 | `/api/auth/*` |
 | 用户 | 4 | `/api/users` |
 | 节点 | 4 | `/api/nodes` |
-| 网站 | 5 | `/api/websites` |
+| 网站 | 6 | `/api/websites` |
 | Docker | 13 | `/api/docker/*` |
 | 插件 | 13 | `/api/plugins/*` |
-| Web 服务器 | 16 | `/api/web-servers/*` |
+| 应用商店 | 11 | `/api/app-store/*` |
+| Web 服务器 | 19 | `/api/web-servers/*` |
 | 数据库 | 15 | `/api/databases/*` |
 | 文件 | 10 | `/api/files/*` |
 | 防火墙 | 11 | `/api/firewall/*` |
@@ -353,7 +356,9 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 - **Phase 4** ✅ 前端编辑对话框：用户/节点/网站视图编辑功能
 - **Phase 4** ✅ 优雅关闭：SIGTERM/Ctrl+C 信号处理
 - **Phase 4** 🔄 进行中：SSL 证书、定时任务、备份系统、告警通知、Web 服务器 / 数据库管理增强
-- **测试** ✅ 88 集成测试 + 单元测试，全部通过
+- **Phase 5** ✅ 应用商店：1Panel/宝塔/Flame 三格式适配器 + 容器/原生/WASM 三模式安装编排（变量映射、安全扫描、失败回滚）、WASM 内置工具持久化、完整 API + 前端商店视图（动态表单安装向导）
+- **Phase 5** ✅ Web 引擎统一：性能预设（资源感知推荐）+ 引擎一键切换（Web 服务器 & 网站）+ 预设应用，前端预设/切换 UI
+- **测试** ✅ 139 测试全部通过（84 集成 + 55 单元）
 
 ## License
 

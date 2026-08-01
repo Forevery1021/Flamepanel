@@ -20,6 +20,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use config::AppConfig;
+use application::app_store_service::AppStoreService;
 use application::service::*;
 use api::types::AppState;
 use event::{EventBus, handler::EventHandler};
@@ -34,7 +35,7 @@ use domain::entity::LogEntry;
 pub struct FlameKernel {
     pub config: AppConfig,
     pub event_bus: EventBus,
-    pub plugin_registry: PluginRegistry,
+    pub plugin_registry: Arc<PluginRegistry>,
     pub app_state: AppState,
 }
 
@@ -45,8 +46,8 @@ impl FlameKernel {
 
     pub fn new_with_backend(config: AppConfig, factory: RepoFactory) -> Self {
         let event_bus = EventBus::new(100);
-        let plugin_registry = PluginRegistry::new();
-        let plugin_sandbox = PluginSandbox::new();
+        let plugin_registry = Arc::new(PluginRegistry::new());
+        let plugin_sandbox = Arc::new(PluginSandbox::new());
 
         let user_repo = factory.create_user_repo();
         let node_repo = factory.create_node_repo();
@@ -58,6 +59,9 @@ impl FlameKernel {
         let settings_repo = factory.create_settings_repo();
         let database_repo = factory.create_database_repo();
         let firewall_repo = factory.create_firewall_repo();
+        let app_package_repo = factory.create_app_package_repo();
+        let installed_app_repo = factory.create_installed_app_repo();
+        let plugin_repo = factory.create_plugin_repo();
 
         let user_service = UserService::new(user_repo);
         let node_service = NodeService::new(node_repo);
@@ -73,6 +77,27 @@ impl FlameKernel {
         let operation_log_service = OperationLogService::new(log_repo);
         let sys_log_repo = factory.create_log_repo();
         let log_service = LogService::new(sys_log_repo);
+
+        let docker_service = Arc::new(docker_service);
+        let web_server_service = Arc::new(web_server_service);
+        let database_service = Arc::new(database_service);
+
+        let app_store_service = Arc::new(AppStoreService::new(
+            app_package_repo,
+            installed_app_repo,
+            docker_service.clone(),
+            web_server_service.clone(),
+            database_service.clone(),
+            plugin_sandbox.clone(),
+            plugin_registry.clone(),
+            plugin_repo.clone(),
+            AppStoreService::default_apps_dir(),
+        ));
+        let app_store_service_for_restore = app_store_service.clone();
+        tokio::spawn(async move {
+            let _ = app_store_service_for_restore.seed_builtin_apps().await;
+            let _ = app_store_service_for_restore.restore_wasm_plugins().await;
+        });
 
         let metrics_history = Arc::new(Mutex::new(MetricsHistory::new(60)));
         let (metrics_tx, _) = tokio::sync::broadcast::channel::<MetricsSnapshot>(16);
@@ -99,6 +124,8 @@ impl FlameKernel {
             log_tx,
             plugin_sandbox_for_state,
             plugin_registry_for_state,
+            plugin_repo,
+            app_store_service,
             web_server_service,
             settings_service,
             database_service,

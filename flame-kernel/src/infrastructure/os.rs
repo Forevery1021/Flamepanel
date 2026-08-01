@@ -138,6 +138,26 @@ impl PackageManager {
         Ok(out.map(|o| o.status.success()).unwrap_or(false))
     }
 
+    pub async fn uninstall(pkg: &str) -> Result<(), AppError> {
+        let distro = OsInfo::detect_distro().await;
+        let (cmd, args): (&str, Vec<String>) = match distro {
+            DistroType::Ubuntu | DistroType::Debian => ("apt-get", vec!["remove".into(), "-y".into(), pkg.into()]),
+            DistroType::CentOS | DistroType::RHEL | DistroType::Fedora => ("dnf", vec!["remove".into(), "-y".into(), pkg.into()]),
+            DistroType::Alpine => ("apk", vec!["del".into(), pkg.into()]),
+            DistroType::Unknown(_) => ("apt-get", vec!["remove".into(), "-y".into(), pkg.into()]),
+        };
+        let out = tokio::process::Command::new(cmd)
+            .args(&args)
+            .output()
+            .await
+            .map_err(|e| AppError::Internal(format!("Package uninstall failed: {}", e)))?;
+        if !out.status.success() {
+            let e = String::from_utf8_lossy(&out.stderr);
+            return Err(AppError::Internal(format!("Failed to uninstall {}: {}", pkg, e)));
+        }
+        Ok(())
+    }
+
     pub async fn get_version(pkg: &str) -> Result<String, AppError> {
         let distro = OsInfo::detect_distro().await;
         let args: Vec<&str> = match distro {

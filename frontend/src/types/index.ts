@@ -170,6 +170,13 @@ export interface WebServerResponse {
   created_at: string
 }
 
+export interface PerformancePresetInfo {
+  name: string
+  description: string
+  recommended: boolean
+  worker_processes: number
+}
+
 export interface PluginMetricsResponse {
   total_executions: number
   successful_executions: number

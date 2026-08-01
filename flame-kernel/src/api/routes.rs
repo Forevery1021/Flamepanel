@@ -1,5 +1,5 @@
 use axum::{Router, routing::get, routing::post, routing::put, routing::delete, middleware as axum_mw};
-use crate::api::handler::{user, node, website, docker, plugin, ws, operation_log, log, auth, web_server, settings, database, file, firewall};
+use crate::api::handler::{user, node, website, docker, plugin, ws, operation_log, log, auth, web_server, settings, database, file, firewall, app_store};
 use crate::api::types::AppState;
 use crate::api::middleware;
 
@@ -21,6 +21,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/websites/:id", get(website::get))
         .route("/api/websites/:id", put(website::update))
         .route("/api/websites/:id", delete(website::delete))
+        .route("/api/websites/:id/switch-engine", post(website::switch_engine))
         .route("/api/docker/containers", get(docker::list))
         .route("/api/docker/containers/:id", get(docker::get))
         .route("/api/docker/containers/:id/start", post(docker::start))
@@ -62,6 +63,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/web-servers/:id/configtest", post(web_server::config_test))
         .route("/api/web-servers/:id/config", get(web_server::get_config))
         .route("/api/web-servers/:id/config", post(web_server::update_config))
+        .route("/api/web-servers/:id/switch-engine", post(web_server::switch_engine))
+        .route("/api/web-servers/:id/preset", post(web_server::apply_preset))
+        .route("/api/web-servers/presets", get(web_server::list_presets))
         // Settings
         .route("/api/settings", get(settings::list_settings))
         .route("/api/settings/:key", get(settings::get_setting))
@@ -82,6 +86,18 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/databases/:id/users", post(database::create_user))
         .route("/api/databases/:id/users/:username", delete(database::drop_user))
         .route("/api/databases/:id/uninstall", post(database::uninstall))
+        // App store endpoints
+        .route("/api/app-store/packages", get(app_store::list_packages))
+        .route("/api/app-store/packages/import", post(app_store::import_package))
+        .route("/api/app-store/packages/:key", get(app_store::get_package))
+        .route("/api/app-store/packages/:key/versions/:version", get(app_store::list_versions))
+        .route("/api/app-store/packages/:key/install", post(app_store::install))
+        .route("/api/app-store/installed", get(app_store::list_installed))
+        .route("/api/app-store/installed/:id", get(app_store::get_installed))
+        .route("/api/app-store/installed/:id/upgrade", post(app_store::upgrade))
+        .route("/api/app-store/installed/:id/uninstall", post(app_store::uninstall))
+        .route("/api/app-store/installed/:id/logs", get(app_store::get_logs))
+        .route("/api/app-store/wasm-builtins", get(app_store::list_wasm_builtins))
         // File manager endpoints
         .route("/api/files", get(file::list))
         .route("/api/files/read", get(file::read))

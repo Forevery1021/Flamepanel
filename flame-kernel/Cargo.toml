@@ -30,6 +30,7 @@ wasmtime = "29"
 base64 = "0.22"
 sha2 = "0.10"
 mime_guess = "2"
+serde_yaml = "0.9"
 
 [dev-dependencies]
 axum-test = "14"

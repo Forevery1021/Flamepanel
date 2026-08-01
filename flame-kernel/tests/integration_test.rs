@@ -8,6 +8,7 @@ use serde_json::json;
 use chrono::Utc;
 use tokio::sync::Mutex;
 
+use flame_kernel::application::app_store_service::AppStoreService;
 use flame_kernel::application::service::*;
 use flame_kernel::infrastructure::db::*;
 use flame_kernel::infrastructure::factory::RepoFactory;
@@ -54,16 +55,33 @@ async fn setup_router() -> (axum::Router, AppState) {
     let (metrics_tx, _) = tokio::sync::broadcast::channel::<MetricsSnapshot>(16);
     let (log_tx, _) = tokio::sync::broadcast::channel::<LogEntry>(16);
     let terminal_manager = TerminalManager::new();
-    let plugin_sandbox = PluginSandbox::new();
-    let plugin_registry = PluginRegistry::new();
+    let plugin_sandbox = Arc::new(PluginSandbox::new());
+    let plugin_registry = Arc::new(PluginRegistry::new());
     // Seed admin user for RBAC
     user_repo.create("admin", "hash", "admin").await.unwrap();
+    let docker_service = Arc::new(DockerService::new(docker_repo));
+    let web_server_service = Arc::new(WebServerService::new(web_server_repo));
+    let database_service = Arc::new(DatabaseService::new(database_repo));
+    let app_package_repo = Arc::new(InMemoryAppPackageRepository::new());
+    let installed_app_repo = Arc::new(InMemoryInstalledAppRepository::new());
+    let plugin_repo = Arc::new(InMemoryPluginRepository::new());
+    let app_store_service = Arc::new(AppStoreService::new(
+        app_package_repo,
+        installed_app_repo,
+        docker_service.clone(),
+        web_server_service.clone(),
+        database_service.clone(),
+        plugin_sandbox.clone(),
+        plugin_registry.clone(),
+        plugin_repo.clone(),
+        AppStoreService::default_apps_dir(),
+    ));
     let state = AppState::new(
         "test-secret".to_string(),
         UserService::new(user_repo),
         NodeService::new(node_repo),
         WebsiteService::new(website_repo),
-        DockerService::new(docker_repo),
+        docker_service,
         RoleService::new(role_repo, perm_repo.clone()),
         PermissionService::new(perm_repo),
         OperationLogService::new(log_repo),
@@ -73,9 +91,11 @@ async fn setup_router() -> (axum::Router, AppState) {
         log_tx,
         plugin_sandbox,
         plugin_registry,
-        WebServerService::new(web_server_repo),
+        plugin_repo,
+        app_store_service,
+        web_server_service,
         SettingsService::new(settings_repo),
-        DatabaseService::new(database_repo),
+        database_service,
         FirewallService::new(firewall_repo),
         terminal_manager,
     );
@@ -747,6 +767,7 @@ async fn test_plugin_registry() {
         author: "Test".into(), description: "Logger plugin".into(),
         wasm_hash: "abc123".into(), created_at: now, updated_at: now,
         homepage: None, license: None, tags: vec![], config_schema: None, dependencies: vec![],
+        wasm_base64: String::new(),
     };
     let p2 = Plugin {
         id: "p2".into(), name: "Monitor".into(),
@@ -754,6 +775,7 @@ async fn test_plugin_registry() {
         author: "Test".into(), description: "Monitor plugin".into(),
         wasm_hash: "def456".into(), created_at: now, updated_at: now,
         homepage: None, license: None, tags: vec![], config_schema: None, dependencies: vec![],
+        wasm_base64: String::new(),
     };
 
     reg.register(p1.clone()).unwrap();
@@ -778,6 +800,7 @@ async fn test_plugin_registry_duplicate() {
         author: "Test".into(), description: "Duplicate".into(),
         wasm_hash: "abc".into(), created_at: now, updated_at: now,
         homepage: None, license: None, tags: vec![], config_schema: None, dependencies: vec![],
+        wasm_base64: String::new(),
     };
     reg.register(p.clone()).unwrap();
     let err = reg.register(p).unwrap_err();
@@ -795,6 +818,7 @@ async fn test_plugin_registry_unregister() {
         author: "A".into(), description: "D".into(),
         wasm_hash: "h".into(), created_at: now, updated_at: now,
         homepage: None, license: None, tags: vec![], config_schema: None, dependencies: vec![],
+        wasm_base64: String::new(),
     };
     reg.register(p).unwrap();
     let plugin = reg.unregister("test").unwrap();
@@ -814,6 +838,7 @@ async fn test_plugin_registry_enable_disable() {
         author: "A".into(), description: "D".into(),
         wasm_hash: "h".into(), created_at: now, updated_at: now,
         homepage: None, license: None, tags: vec![], config_schema: None, dependencies: vec![],
+        wasm_base64: String::new(),
     };
     reg.register(p).unwrap();
     let enabled = reg.enable("p1").unwrap();
@@ -833,6 +858,7 @@ async fn test_plugin_registry_get_and_exists() {
         author: "A".into(), description: "D".into(),
         wasm_hash: "h".into(), created_at: now, updated_at: now,
         homepage: None, license: None, tags: vec![], config_schema: None, dependencies: vec![],
+        wasm_base64: String::new(),
     };
     reg.register(p).unwrap();
     assert!(reg.exists("get-test"));
@@ -1346,6 +1372,7 @@ async fn test_plugin_serde() {
         author: "Author".into(), description: "Description".into(),
         wasm_hash: "hash".into(), created_at: now, updated_at: now,
         homepage: None, license: None, tags: vec![], config_schema: None, dependencies: vec![],
+        wasm_base64: String::new(),
     };
     let json = serde_json::to_string(&p).unwrap();
     let back: Plugin = serde_json::from_str(&json).unwrap();
@@ -1564,4 +1591,211 @@ async fn test_database_delete_not_found() {
                 .body(Body::empty()).unwrap()
         ).await.unwrap();
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+// ── 21. App Store ────────────────────────────────────────
+
+#[tokio::test]
+async fn test_app_store_list_packages() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/app-store/packages")
+                .header(h, v)
+                .body(Body::empty()).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_app_store_install_wasm_builtin() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+    let body = serde_json::to_vec(&json!({
+        "package_key": "wasm-hello",
+        "version": "1.0.0",
+        "mode": "wasm",
+        "name": "api-hello",
+        "values": { "name": "api-hello" }
+    })).unwrap();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/app-store/packages/wasm-hello/install")
+                .header(h, v)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body)).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let body_json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body_json["mode"], "wasm");
+    assert_eq!(body_json["status"], "running");
+}
+
+#[tokio::test]
+async fn test_app_store_list_installed_and_uninstall() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+    let body = serde_json::to_vec(&json!({
+        "package_key": "wasm-hello",
+        "version": "1.0.0",
+        "mode": "wasm",
+        "name": "api-hello-2",
+        "values": { "name": "api-hello-2" }
+    })).unwrap();
+    let install_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/app-store/packages/wasm-hello/install")
+                .header(h.clone(), v.clone())
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body)).unwrap()
+        ).await.unwrap();
+    assert_eq!(install_res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(install_res.into_body()).await.unwrap();
+    let installed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let id = installed["id"].as_i64().unwrap();
+
+    let list_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/app-store/installed")
+                .header(h.clone(), v.clone())
+                .body(Body::empty()).unwrap()
+        ).await.unwrap();
+    assert_eq!(list_res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(list_res.into_body()).await.unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(list.as_array().unwrap().iter().any(|a| a["id"].as_i64() == Some(id)));
+
+    let uninstall_res = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/app-store/installed/{}/uninstall", id))
+                .header(h, v)
+                .body(Body::empty()).unwrap()
+        ).await.unwrap();
+    assert_eq!(uninstall_res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_app_store_get_package_not_found() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/app-store/packages/nonexistent-app")
+                .header(h, v)
+                .body(Body::empty()).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+// ── 22. Web Engine presets & switching ───────────────────
+
+#[tokio::test]
+async fn test_web_server_presets_list() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/web-servers/presets")
+                .header(h, v)
+                .body(Body::empty()).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let names: Vec<&str> = list.as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"low") && names.contains(&"ultra"));
+    assert!(list.as_array().unwrap().iter().any(|p| p["recommended"] == true));
+}
+
+#[tokio::test]
+async fn test_web_server_switch_engine() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+    let create_body = serde_json::to_vec(&json!({
+        "engine": "nginx", "port": 8081
+    })).unwrap();
+    let create_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/web-servers")
+                .header(h.clone(), v.clone())
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(create_body)).unwrap()
+        ).await.unwrap();
+    assert_eq!(create_res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(create_res.into_body()).await.unwrap();
+    let created: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let id = created["id"].as_i64().unwrap();
+
+    let switch_body = serde_json::to_vec(&json!({ "engine": "caddy" })).unwrap();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/web-servers/{}/switch-engine", id))
+                .header(h, v)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(switch_body)).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let updated: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(updated["engine"], "caddy");
+}
+
+#[tokio::test]
+async fn test_website_switch_engine() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+    let create_body = serde_json::to_vec(&json!({
+        "website": {
+            "id": 0, "name": "switch-test", "domain": "switch.example.com",
+            "root_path": "/var/www/switch", "engine": "nginx", "node_id": 1,
+            "status": "running", "ssl_enabled": false, "proxy_enabled": false,
+            "created_at": "2026-01-01T00:00:00Z"
+        }
+    })).unwrap();
+    let create_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/websites")
+                .header(h.clone(), v.clone())
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(create_body)).unwrap()
+        ).await.unwrap();
+    assert_eq!(create_res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(create_res.into_body()).await.unwrap();
+    let id: i64 = serde_json::from_slice(&bytes).unwrap();
+
+    let switch_body = serde_json::to_vec(&json!({ "engine": "openlitespeed" })).unwrap();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/websites/{}/switch-engine", id))
+                .header(h, v)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(switch_body)).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let updated: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(updated["engine"], "openlitespeed");
 }

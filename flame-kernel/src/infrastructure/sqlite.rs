@@ -540,6 +540,75 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .await
     .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS app_packages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT '',
+            format TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            logo TEXT,
+            metadata_json TEXT NOT NULL,
+            source_path TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS installed_apps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            package_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            version TEXT NOT NULL,
+            mode TEXT NOT NULL DEFAULT 'container',
+            status TEXT NOT NULL DEFAULT 'stopped',
+            access_url TEXT,
+            install_path TEXT NOT NULL DEFAULT '',
+            container_name TEXT,
+            port INTEGER,
+            params_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS plugins (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            version TEXT NOT NULL DEFAULT '1.0.0',
+            author TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            wasm_base64 TEXT NOT NULL,
+            wasm_hash TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            homepage TEXT,
+            license TEXT,
+            tags TEXT NOT NULL DEFAULT '[]',
+            config_schema TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_installed_apps_key ON installed_apps(package_key)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+
     Ok(())
 }
 
@@ -1162,5 +1231,254 @@ impl FirewallRepository for SqliteFirewallRepository {
             priority += 10;
         }
         Ok(())
+    }
+}
+// ─── 应用商店仓储 ────────────────────────────────────────────────────────────
+
+pub struct SqliteAppPackageRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteAppPackageRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl AppPackageRepository for SqliteAppPackageRepository {
+    async fn list_all(&self) -> Result<Vec<AppPackage>, AppError> {
+        let rows = sqlx::query_as::<_, AppPackage>(
+            "SELECT id, key, name, category, format, description, logo, metadata_json, source_path, created_at, updated_at FROM app_packages ORDER BY id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(rows)
+    }
+
+    async fn find_by_key(&self, key: &str) -> Result<Option<AppPackage>, AppError> {
+        let row = sqlx::query_as::<_, AppPackage>(
+            "SELECT id, key, name, category, format, description, logo, metadata_json, source_path, created_at, updated_at FROM app_packages WHERE key = ?",
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(row)
+    }
+
+    async fn create(&self, pkg: &AppPackage) -> Result<i64, AppError> {
+        let result = sqlx::query(
+            "INSERT INTO app_packages (key, name, category, format, description, logo, metadata_json, source_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&pkg.key)
+        .bind(&pkg.name)
+        .bind(&pkg.category)
+        .bind(&pkg.format)
+        .bind(&pkg.description)
+        .bind(&pkg.logo)
+        .bind(&pkg.metadata_json)
+        .bind(&pkg.source_path)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(result.last_insert_rowid())
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM app_packages WHERE id=?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(())
+    }
+}
+
+pub struct SqliteInstalledAppRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteInstalledAppRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl InstalledAppRepository for SqliteInstalledAppRepository {
+    async fn list_all(&self) -> Result<Vec<InstalledApp>, AppError> {
+        let rows = sqlx::query_as::<_, InstalledApp>(
+            "SELECT id, package_key, name, version, mode, status, access_url, install_path, container_name, port, params_json, created_at, updated_at FROM installed_apps ORDER BY id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(rows)
+    }
+
+    async fn find_by_id(&self, id: i64) -> Result<Option<InstalledApp>, AppError> {
+        let row = sqlx::query_as::<_, InstalledApp>(
+            "SELECT id, package_key, name, version, mode, status, access_url, install_path, container_name, port, params_json, created_at, updated_at FROM installed_apps WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(row)
+    }
+
+    async fn create(&self, app: &InstalledApp) -> Result<i64, AppError> {
+        let result = sqlx::query(
+            "INSERT INTO installed_apps (package_key, name, version, mode, status, access_url, install_path, container_name, port, params_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&app.package_key)
+        .bind(&app.name)
+        .bind(&app.version)
+        .bind(&app.mode)
+        .bind(&app.status)
+        .bind(&app.access_url)
+        .bind(&app.install_path)
+        .bind(&app.container_name)
+        .bind(app.port)
+        .bind(&app.params_json)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(result.last_insert_rowid())
+    }
+
+    async fn update(&self, app: &InstalledApp) -> Result<(), AppError> {
+        sqlx::query(
+            "UPDATE installed_apps SET version=?, status=?, access_url=?, install_path=?, container_name=?, port=?, params_json=?, updated_at=datetime('now') WHERE id=?",
+        )
+        .bind(&app.version)
+        .bind(&app.status)
+        .bind(&app.access_url)
+        .bind(&app.install_path)
+        .bind(&app.container_name)
+        .bind(app.port)
+        .bind(&app.params_json)
+        .bind(app.id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(())
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM installed_apps WHERE id=?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(())
+    }
+}
+
+pub struct SqlitePluginRepository {
+    pool: SqlitePool,
+}
+
+impl SqlitePluginRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl PluginRepository for SqlitePluginRepository {
+    async fn save(&self, plugin: &Plugin) -> Result<(), AppError> {
+        sqlx::query(
+            "INSERT INTO plugins (id, name, version, author, description, wasm_base64, wasm_hash, enabled, homepage, license, tags, config_schema) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET name=excluded.name, version=excluded.version, author=excluded.author, description=excluded.description, wasm_base64=excluded.wasm_base64, wasm_hash=excluded.wasm_hash, enabled=excluded.enabled, homepage=excluded.homepage, license=excluded.license, tags=excluded.tags, config_schema=excluded.config_schema, updated_at=datetime('now')",
+        )
+        .bind(&plugin.id)
+        .bind(&plugin.name)
+        .bind(&plugin.version)
+        .bind(&plugin.author)
+        .bind(&plugin.description)
+        .bind(&plugin.wasm_base64)
+        .bind(&plugin.wasm_hash)
+        .bind(plugin.enabled)
+        .bind(&plugin.homepage)
+        .bind(&plugin.license)
+        .bind(serde_json::to_string(&plugin.tags).unwrap_or_default())
+        .bind(&plugin.config_schema)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(())
+    }
+
+    async fn list(&self) -> Result<Vec<Plugin>, AppError> {
+        let rows = sqlx::query_as::<_, PluginDbRow>(
+            "SELECT id, name, version, author, description, wasm_base64, wasm_hash, enabled, homepage, license, tags, config_schema, created_at, updated_at FROM plugins ORDER BY created_at",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        rows.into_iter().map(PluginDbRow::into_entity).collect()
+    }
+
+    async fn find_by_id(&self, id: &str) -> Result<Option<Plugin>, AppError> {
+        let row = sqlx::query_as::<_, PluginDbRow>(
+            "SELECT id, name, version, author, description, wasm_base64, wasm_hash, enabled, homepage, license, tags, config_schema, created_at, updated_at FROM plugins WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        row.map(|r| r.into_entity()).transpose()
+    }
+
+    async fn delete(&self, id: &str) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM plugins WHERE id=?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        Ok(())
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct PluginDbRow {
+    id: String,
+    name: String,
+    version: String,
+    author: String,
+    description: String,
+    wasm_base64: String,
+    wasm_hash: String,
+    enabled: bool,
+    homepage: Option<String>,
+    license: Option<String>,
+    tags: String,
+    config_schema: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl PluginDbRow {
+    fn into_entity(self) -> Result<Plugin, AppError> {
+        Ok(Plugin {
+            id: self.id,
+            name: self.name,
+            version: self.version,
+            author: self.author,
+            description: self.description,
+            wasm_hash: self.wasm_hash,
+            wasm_base64: self.wasm_base64,
+            enabled: self.enabled,
+            homepage: self.homepage,
+            license: self.license,
+            tags: serde_json::from_str(&self.tags).unwrap_or_default(),
+            config_schema: self.config_schema,
+            dependencies: Vec::new(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        })
     }
 }

@@ -57,6 +57,8 @@
             <el-button size="small" @click="handleConfigtest(row.id)">{{
               t('webServer.configtest')
             }}</el-button>
+            <el-button size="small" @click="openPreset(row)">{{ t('webServer.preset') }}</el-button>
+            <el-button size="small" @click="openSwitch(row)">{{ t('webServer.switchEngine') }}</el-button>
             <el-popconfirm
               :title="t('webServer.deleteConfirm', { name: row.engine + '-' + row.id })"
               @confirm="handleDelete(row.id)"
@@ -114,6 +116,45 @@
         }}</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showPreset" :title="t('webServer.preset')" width="520px">
+      <el-alert
+        :title="t('webServer.presetRecommend')"
+        type="info"
+        :closable="false"
+        class="preset-alert"
+      />
+      <el-radio-group v-model="selectedPreset" class="preset-group">
+        <el-radio v-for="p in presets" :key="p.name" :label="p.name" class="preset-radio">
+          {{ p.description }} <el-tag v-if="p.recommended" size="small" type="success">推荐</el-tag>
+        </el-radio>
+      </el-radio-group>
+      <template #footer>
+        <el-button @click="showPreset = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="submitting" @click="handleApplyPreset">{{
+          t('common.confirm')
+        }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showSwitch" :title="t('webServer.switchEngine')" width="480px">
+      <el-form label-width="120px">
+        <el-form-item :label="t('webServer.engine')" required>
+          <el-select v-model="switchEngine" class="full-width">
+            <el-option v-for="e in engines" :key="e.name" :label="e.name" :value="e.name" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <span class="switch-tip">{{ t('webServer.switchTip') }}</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showSwitch = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="submitting" @click="handleSwitchEngine">{{
+          t('common.confirm')
+        }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -131,8 +172,11 @@ import {
   restartWebServer,
   reloadWebServer,
   configtestWebServer,
+  switchWebServerEngine,
+  applyWebServerPreset,
+  listPresets,
 } from '@/api/webServers'
-import type { EngineInfo, WebServerResponse } from '@/types'
+import type { EngineInfo, WebServerResponse, PerformancePresetInfo } from '@/types'
 
 const { t } = useI18n()
 const instances = ref<WebServerResponse[]>([])
@@ -243,6 +287,62 @@ async function handleDelete(id: number) {
     await fetch()
   } catch {
     ElMessage.error(t('common.failed'))
+  }
+}
+
+const showPreset = ref(false)
+const showSwitch = ref(false)
+const presets = ref<PerformancePresetInfo[]>([])
+const selectedPreset = ref('')
+const switchEngine = ref('')
+let targetServerId = 0
+
+async function openPreset(row: WebServerResponse) {
+  targetServerId = row.id
+  try {
+    const res = await listPresets()
+    presets.value = res.data
+    const recommended = presets.value.find((p) => p.recommended)
+    selectedPreset.value = recommended ? recommended.name : 'medium'
+    showPreset.value = true
+  } catch {
+    ElMessage.error(t('common.failed'))
+  }
+}
+
+async function handleApplyPreset() {
+  if (!selectedPreset.value) return
+  submitting.value = true
+  try {
+    await applyWebServerPreset(targetServerId, selectedPreset.value)
+    ElMessage.success(t('common.success'))
+    showPreset.value = false
+    await fetch()
+  } catch {
+    ElMessage.error(t('common.failed'))
+  } finally {
+    submitting.value = false
+  }
+}
+
+function openSwitch(row: WebServerResponse) {
+  targetServerId = row.id
+  switchEngine.value = row.engine
+  showSwitch.value = true
+}
+
+async function handleSwitchEngine() {
+  if (!switchEngine.value) return
+  submitting.value = true
+  try {
+    await switchWebServerEngine(targetServerId, switchEngine.value)
+    ElMessage.success(t('common.success'))
+    showSwitch.value = false
+    await fetch()
+  } catch {
+    ElMessage.error(t('common.failed'))
+  } finally {
+    submitting.value = false
   }
 }
 

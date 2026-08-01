@@ -10,6 +10,11 @@ frontend/vite.config.js
 frontend/vite.config.js.map
 *.tsbuildinfo
 
+# Accidental lockfiles (canonical: frontend/package-lock.json, npm per CI)
+package-lock.json
+flame-kernel/package-lock.json
+frontend/pnpm-lock.yaml
+
 # IDE
 .vscode/
 .idea/
@@ -21,7 +26,6 @@ frontend/vite.config.js.map
 Thumbs.db
 
 # Database
-backend/data/
 data/*.db
 data/*.db-shm
 data/*.db-wal
