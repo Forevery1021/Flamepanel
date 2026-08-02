@@ -1,13 +1,19 @@
 use axum::{
-    Router, extract::State, http::{Request, StatusCode, header},
-    response::{Response, IntoResponse},
+    Router, extract::State, http::{Request, header},
+    response::Response,
     middleware::{self, Next},
 };
 use tower_http::trace::TraceLayer;
 use tracing::info;
+use crate::core::error::AppError;
 use crate::utils::jwt::JwtUtils;
 use crate::api::rate_limiter;
 use crate::api::types::{AppState, UserId, route_permission};
+
+/// 无需认证的白名单路径
+fn is_public_path(path: &str) -> bool {
+    path == "/health" || path.starts_with("/ws/") || path == "/api/auth/login"
+}
 
 pub fn add_middleware(router: Router, state: AppState) -> Router {
     rate_limiter::init_global_limiter(120, 60);
@@ -21,60 +27,54 @@ pub fn log_request(method: &str, uri: &str, status: u16) {
     info!(method = %method, uri = %uri, status = status, "HTTP request");
 }
 
+/// 认证 + RBAC 合并中间件：
+/// - 一次 JWT 校验 + 一次用户查询完成身份认证
+/// - 通过扩展注入 UserId 与用户角色，随后在同一处完成 RBAC 鉴权
+/// - 未登录路径直接放行（白名单）
 async fn auth_middleware<B>(
     State(state): State<AppState>,
     mut req: Request<B>,
     next: Next<B>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, AppError> {
     let path = req.uri().path();
-    if path == "/health" || path.starts_with("/ws/") || path == "/api/auth/login" {
+    if is_public_path(path) {
         return Ok(next.run(req).await);
     }
 
+    // 1. 解析并校验 JWT
     let auth_header = req.headers()
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .ok_or_else(|| AppError::Unauthorized("Missing Authorization header".to_string()))?;
 
     let token = auth_header
         .strip_prefix("Bearer ")
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .ok_or_else(|| AppError::Unauthorized("Invalid Authorization scheme".to_string()))?;
 
     let jwt = JwtUtils::new(&state.jwt_secret, 24);
-    let claims = jwt.verify(token).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let claims = jwt.verify(token)?;
 
-    let user_id: i64 = claims.sub.parse().map_err(|_| StatusCode::UNAUTHORIZED)?;
-    req.extensions_mut().insert(UserId(user_id));
+    let user_id: i64 = claims.sub.parse().map_err(|_| {
+        AppError::Unauthorized("Invalid token subject".to_string())
+    })?;
 
-    Ok(next.run(req).await)
-}
+    // 2. 一次用户查询（认证 + RBAC 共用）
+    let user = state.user_service.find_by_id(user_id).await?
+        .ok_or_else(|| AppError::Unauthorized("User no longer exists".to_string()))?;
 
-pub async fn rbac_middleware<B>(
-    State(state): State<AppState>,
-    req: Request<B>,
-    next: Next<B>,
-) -> Result<Response, StatusCode> {
-    let path = req.uri().path();
-    if path == "/health" || path.starts_with("/ws/") || path == "/api/auth/login" {
-        return Ok(next.run(req).await);
-    }
-
-    let user_id = req.extensions()
-        .get::<UserId>()
-        .map(|u| u.0)
-        .unwrap_or(0);
-
-    let user = state.user_service.user_repo.find_by_id(user_id).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-
+    // 3. RBAC 鉴权
     if let Some((resource, action)) = route_permission(req.method(), path) {
-        let allowed = state.role_service.check_permission(&user.role, resource, action).await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let allowed = state.role_service.check_permission(&user.role, resource, action).await?;
         if !allowed {
-            return Ok(StatusCode::FORBIDDEN.into_response());
+            return Err(AppError::Forbidden(format!(
+                "Missing permission: {}:{}",
+                resource, action
+            )));
         }
     }
+
+    // 4. 注入用户上下文
+    req.extensions_mut().insert(UserId(user_id));
 
     Ok(next.run(req).await)
 }

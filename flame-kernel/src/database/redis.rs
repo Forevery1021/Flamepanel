@@ -79,7 +79,7 @@ impl NativeDbManager for RedisManager {
             .arg("--version")
             .output()
             .await
-            .map_err(|e| AppError::Internal(format!("Failed to get Redis version: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to get Redis version: {}", e)))?;
         let s = String::from_utf8_lossy(&out.stdout);
         // redis-server x.y.z
         for word in s.split_whitespace() {
@@ -96,7 +96,7 @@ impl NativeDbManager for RedisManager {
             .args(["-c", &cmd])
             .output()
             .await
-            .map_err(|e| AppError::Internal(format!("Redis config set failed: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Redis config set failed: {}", e)))?;
         Ok(())
     }
 
@@ -105,7 +105,7 @@ impl NativeDbManager for RedisManager {
             .args(["CONFIG", "GET", key])
             .output()
             .await
-            .map_err(|e| AppError::Internal(format!("Redis config get failed: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Redis config get failed: {}", e)))?;
         let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
         if s.is_empty() {
             return Ok(None);
@@ -126,7 +126,7 @@ impl RedisManager {
             .args(["FLUSHALL"])
             .output()
             .await
-            .map_err(|e| AppError::Internal(format!("Redis flushall failed: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Redis flushall failed: {}", e)))?;
         Ok(())
     }
 
@@ -135,7 +135,7 @@ impl RedisManager {
             .args(["INFO"])
             .output()
             .await
-            .map_err(|e| AppError::Internal(format!("Redis info failed: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Redis info failed: {}", e)))?;
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     }
 

@@ -36,7 +36,7 @@ impl FileService {
             if e.kind() == std::io::ErrorKind::NotFound {
                 AppError::NotFound(format!("Path not found: {}", requested))
             } else {
-                AppError::Internal(format!("Path error: {}", e))
+                AppError::internal(format!("Path error: {}", e))
             }
         })?;
         Ok(canonical)
@@ -50,7 +50,7 @@ impl FileService {
 
         let mut entries = Vec::new();
         let mut read_dir = fs::read_dir(&dir).await
-            .map_err(|e| AppError::Internal(format!("Failed to read directory: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to read directory: {}", e)))?;
 
         while let Ok(Some(entry)) = read_dir.next_entry().await {
             let metadata = entry.metadata().await;
@@ -78,12 +78,12 @@ impl FileService {
         }
         let max_size: u64 = 10 * 1024 * 1024;
         let metadata = fs::metadata(&file_path).await
-            .map_err(|e| AppError::Internal(format!("Failed to read metadata: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to read metadata: {}", e)))?;
         if metadata.len() > max_size {
             return Err(AppError::BadRequest("File too large to read (max 10MB)".into()));
         }
         let content = fs::read_to_string(&file_path).await
-            .map_err(|e| AppError::Internal(format!("Failed to read file: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to read file: {}", e)))?;
         Ok(content)
     }
 
@@ -93,7 +93,7 @@ impl FileService {
             return Err(AppError::BadRequest(format!("Not a file: {}", path)));
         }
         fs::write(&file_path, content).await
-            .map_err(|e| AppError::Internal(format!("Failed to write file: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to write file: {}", e)))?;
         Ok(())
     }
 
@@ -108,7 +108,7 @@ impl FileService {
             return Err(AppError::BadRequest(format!("File already exists: {}", path)));
         }
         fs::write(&file_path, "").await
-            .map_err(|e| AppError::Internal(format!("Failed to create file: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to create file: {}", e)))?;
         Ok(())
     }
 
@@ -123,7 +123,7 @@ impl FileService {
             return Err(AppError::BadRequest(format!("Directory already exists: {}", path)));
         }
         fs::create_dir(&dir_path).await
-            .map_err(|e| AppError::Internal(format!("Failed to create directory: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to create directory: {}", e)))?;
         Ok(())
     }
 
@@ -132,19 +132,19 @@ impl FileService {
         if target.is_dir() {
             if recursive {
                 fs::remove_dir_all(&target).await
-                    .map_err(|e| AppError::Internal(format!("Failed to remove directory: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("Failed to remove directory: {}", e)))?;
             } else {
                 let mut entries = fs::read_dir(&target).await
-                    .map_err(|e| AppError::Internal(format!("Failed to read directory: {}", e)))?;
-                if entries.next_entry().await.map_err(|e| AppError::Internal(format!("Failed to read entry: {}", e)))?.is_some() {
+                    .map_err(|e| AppError::internal(format!("Failed to read directory: {}", e)))?;
+                if entries.next_entry().await.map_err(|e| AppError::internal(format!("Failed to read entry: {}", e)))?.is_some() {
                     return Err(AppError::BadRequest("Directory not empty. Use recursive delete.".into()));
                 }
                 fs::remove_dir(&target).await
-                    .map_err(|e| AppError::Internal(format!("Failed to remove directory: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("Failed to remove directory: {}", e)))?;
             }
         } else {
             fs::remove_file(&target).await
-                .map_err(|e| AppError::Internal(format!("Failed to delete file: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("Failed to delete file: {}", e)))?;
         }
         Ok(())
     }
@@ -161,7 +161,7 @@ impl FileService {
             }
         }
         fs::rename(&old, &new).await
-            .map_err(|e| AppError::Internal(format!("Failed to rename: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to rename: {}", e)))?;
         Ok(())
     }
 
@@ -173,7 +173,7 @@ impl FileService {
                 .map_err(|_| AppError::BadRequest(format!("Invalid mode: {}", mode)))?;
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&target, std::fs::Permissions::from_mode(mode_int)).await
-                .map_err(|e| AppError::Internal(format!("Failed to chmod: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("Failed to chmod: {}", e)))?;
             Ok(())
         }
         #[cfg(not(unix))]
@@ -193,7 +193,7 @@ impl FileService {
             return Err(AppError::BadRequest(format!("File already exists: {}", file_path.display())));
         }
         fs::write(&file_path, content).await
-            .map_err(|e| AppError::Internal(format!("Failed to upload file: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to upload file: {}", e)))?;
         Ok(())
     }
 
@@ -203,7 +203,7 @@ impl FileService {
             return Err(AppError::BadRequest(format!("Not a file: {}", path)));
         }
         let content = fs::read(&file_path).await
-            .map_err(|e| AppError::Internal(format!("Failed to read file: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to read file: {}", e)))?;
         let name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let mime = mime_guess::from_path(&name).first_or_octet_stream().to_string();
         Ok((name, content, mime))

@@ -1,5 +1,7 @@
 use axum::{Json, extract::{State, Path}};
+use axum::Router;
 use serde::{Deserialize, Serialize};
+use crate::api::extract::ApiJson;
 use crate::api::types::{AppState, PluginSettingRequest, PluginMetricsResponse, PluginReloadRequest};
 use crate::core::error::AppError;
 use crate::domain::entity::Plugin;
@@ -113,7 +115,7 @@ pub async fn get_plugin(
 
 pub async fn load_plugin(
     State(state): State<AppState>,
-    Json(req): Json<LoadPluginRequest>,
+    ApiJson(req): ApiJson<LoadPluginRequest>,
 ) -> Result<Json<PluginResponse>, AppError> {
     let wasm_bytes = general_purpose::STANDARD.decode(&req.wasm_base64)
         .map_err(|e| AppError::BadRequest(format!("Invalid base64: {}", e)))?;
@@ -181,7 +183,7 @@ pub async fn load_plugin(
 pub async fn reload_plugin(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(req): Json<PluginReloadRequest>,
+    ApiJson(req): ApiJson<PluginReloadRequest>,
 ) -> Result<Json<PluginResponse>, AppError> {
     let wasm_bytes = general_purpose::STANDARD.decode(&req.wasm_base64)
         .map_err(|e| AppError::BadRequest(format!("Invalid base64: {}", e)))?;
@@ -218,7 +220,7 @@ pub async fn reload_plugin(
 pub async fn execute_plugin(
     State(state): State<AppState>,
     Path((id, function)): Path<(String, String)>,
-    Json(req): Json<ExecutePluginRequest>,
+    ApiJson(req): ApiJson<ExecutePluginRequest>,
 ) -> Result<Json<ExecutionResponse>, AppError> {
     let plugin = state.plugin_registry.get(&id)?;
     if !plugin.enabled {
@@ -347,7 +349,7 @@ pub async fn list_plugin_settings(
 pub async fn set_plugin_setting(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(req): Json<PluginSettingRequest>,
+    ApiJson(req): ApiJson<PluginSettingRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     state.plugin_sandbox.set_plugin_setting(&id, &req.key, &req.value).await?;
     Ok(Json(serde_json::json!({"message": "Setting saved", "id": id, "key": req.key})))
@@ -359,4 +361,24 @@ pub async fn get_plugin_setting(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let value = state.plugin_sandbox.get_plugin_setting(&id, &key).await?;
     Ok(Json(serde_json::json!({"id": id, "key": key, "value": value})))
+}
+
+
+
+/// 路由表（集中注册于 routes.rs 组合根）
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/plugins", axum::routing::get(list_plugins))
+        .route("/api/plugins", axum::routing::post(load_plugin))
+        .route("/api/plugins/:id", axum::routing::get(get_plugin))
+        .route("/api/plugins/:id", axum::routing::post(unload_plugin))
+        .route("/api/plugins/:id/enable", axum::routing::post(enable_plugin))
+        .route("/api/plugins/:id/disable", axum::routing::post(disable_plugin))
+        .route("/api/plugins/:id/execute/:function", axum::routing::post(execute_plugin))
+        .route("/api/plugins/:id/reload", axum::routing::post(reload_plugin))
+        .route("/api/plugins/:id/metrics", axum::routing::get(get_plugin_metrics))
+        .route("/api/plugins/:id/metrics", axum::routing::delete(reset_plugin_metrics))
+        .route("/api/plugins/:id/settings", axum::routing::get(list_plugin_settings))
+        .route("/api/plugins/:id/settings", axum::routing::post(set_plugin_setting))
+        .route("/api/plugins/:id/settings/:key", axum::routing::get(get_plugin_setting))
 }

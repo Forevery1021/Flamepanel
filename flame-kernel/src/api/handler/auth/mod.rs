@@ -1,5 +1,7 @@
 use axum::{Json, extract::{State, Extension}};
+use axum::Router;
 use serde::{Deserialize, Serialize};
+use crate::api::extract::ApiJson;
 use crate::api::types::{AppState, UserId};
 use crate::core::error::AppError;
 use crate::utils::jwt::JwtUtils;
@@ -20,14 +22,13 @@ pub struct LoginResponse {
 
 pub async fn login(
     State(state): State<AppState>,
-    Json(req): Json<LoginRequest>,
+    ApiJson(req): ApiJson<LoginRequest>,
 ) -> Result<Json<LoginResponse>, AppError> {
-    let user = state.user_service.user_repo
-        .find_by_username(&req.username).await?
-        .ok_or(AppError::Unauthorized)?;
+    let user = state.user_service.find_by_username(&req.username).await?
+        .ok_or_else(|| AppError::Unauthorized("Invalid credentials".to_string()))?;
 
     if !PasswordUtils::verify(&req.password, &user.password_hash)? {
-        return Err(AppError::Unauthorized);
+        return Err(AppError::Unauthorized("Invalid password".to_string()));
     }
 
     let jwt = JwtUtils::new(&state.jwt_secret, 24);
@@ -39,20 +40,28 @@ pub async fn login(
 pub async fn change_password(
     State(state): State<AppState>,
     Extension(uid): Extension<UserId>,
-    Json(req): Json<serde_json::Value>,
+    ApiJson(req): ApiJson<serde_json::Value>,
 ) -> Result<Json<()>, AppError> {
-    let user = state.user_service.user_repo
-        .find_by_id(uid.0).await?
-        .ok_or(AppError::Unauthorized)?;
+    let user = state.user_service.find_by_id(uid.0).await?
+        .ok_or_else(|| AppError::Unauthorized("Invalid credentials".to_string()))?;
 
     let old_pw = req.get("old_password").and_then(|v| v.as_str()).ok_or_else(|| AppError::BadRequest("missing old_password".into()))?;
     if !PasswordUtils::verify(old_pw, &user.password_hash)? {
-        return Err(AppError::Unauthorized);
+        return Err(AppError::Unauthorized("Invalid password".to_string()));
     }
 
     let new_pw = req.get("new_password").and_then(|v| v.as_str()).ok_or_else(|| AppError::BadRequest("missing new_password".into()))?;
     let new_hash = PasswordUtils::hash(new_pw)?;
-    state.user_service.user_repo.update_password(user.id, &new_hash).await?;
+    state.user_service.update_password(user.id, &new_hash).await?;
 
     Ok(Json(()))
+}
+
+
+
+/// 路由表（集中注册于 routes.rs 组合根）
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/auth/login", axum::routing::post(login))
+        .route("/api/auth/change-password", axum::routing::post(change_password))
 }

@@ -1,4 +1,6 @@
 use axum::{Json, extract::{State, Path, Query}};
+use axum::Router;
+use crate::api::extract::ApiJson;
 use crate::domain::entity::Website;
 use crate::api::types::{AppState, CreateWebsiteRequest, PaginationParams, PaginatedResponse};
 use crate::core::error::AppError;
@@ -22,7 +24,7 @@ pub async fn get(
 
 pub async fn create(
     State(state): State<AppState>,
-    Json(payload): Json<CreateWebsiteRequest>,
+    ApiJson(payload): ApiJson<CreateWebsiteRequest>,
 ) -> Result<Json<i64>, AppError> {
     let id = state.website_service.create_website(&payload.website).await?;
     Ok(Json(id))
@@ -31,7 +33,7 @@ pub async fn create(
 pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(payload): Json<CreateWebsiteRequest>,
+    ApiJson(payload): ApiJson<CreateWebsiteRequest>,
 ) -> Result<Json<Website>, AppError> {
     let mut website = payload.website;
     website.id = id;
@@ -55,10 +57,23 @@ pub struct SwitchWebsiteEngineRequest {
 pub async fn switch_engine(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<SwitchWebsiteEngineRequest>,
+    ApiJson(req): ApiJson<SwitchWebsiteEngineRequest>,
 ) -> Result<Json<Website>, AppError> {
     let engine = WebServerEngine::from_str(&req.engine)
         .ok_or_else(|| AppError::BadRequest(format!("未知引擎: {}", req.engine)))?;
     let site = state.website_service.switch_engine(id, &engine).await?;
     Ok(Json(site))
+}
+
+
+
+/// 路由表（集中注册于 routes.rs 组合根）
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/websites", axum::routing::get(list))
+        .route("/api/websites", axum::routing::post(create))
+        .route("/api/websites/:id", axum::routing::get(get))
+        .route("/api/websites/:id", axum::routing::put(update))
+        .route("/api/websites/:id", axum::routing::delete(delete))
+        .route("/api/websites/:id/switch-engine", axum::routing::post(switch_engine))
 }

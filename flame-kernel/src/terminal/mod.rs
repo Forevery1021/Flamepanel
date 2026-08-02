@@ -79,7 +79,7 @@ impl TerminalSession {
         if let Some(ref stdin) = self.stdin {
             let mut stdin = stdin.lock().await;
             stdin.write_all(data.as_bytes()).await
-                .map_err(|e| AppError::Internal(format!("Terminal write error: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("Terminal write error: {}", e)))?;
         }
         Ok(())
     }

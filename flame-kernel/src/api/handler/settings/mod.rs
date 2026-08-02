@@ -1,5 +1,7 @@
 use axum::{Json, extract::{State, Query}};
+use axum::Router;
 use serde::{Deserialize, Serialize};
+use crate::api::extract::ApiJson;
 use crate::api::types::{AppState, PaginationParams, PaginatedResponse};
 use crate::core::error::AppError;
 
@@ -46,8 +48,18 @@ pub async fn get_setting(
 
 pub async fn update_setting(
     State(state): State<AppState>,
-    Json(req): Json<UpdateSettingRequest>,
+    ApiJson(req): ApiJson<UpdateSettingRequest>,
 ) -> Result<Json<()>, AppError> {
     state.settings_service.set(&req.key, &req.value).await?;
     Ok(Json(()))
+}
+
+
+
+/// 路由表（集中注册于 routes.rs 组合根）
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/settings", axum::routing::get(list_settings))
+        .route("/api/settings/:key", axum::routing::get(get_setting))
+        .route("/api/settings", axum::routing::put(update_setting))
 }

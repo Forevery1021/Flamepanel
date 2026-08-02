@@ -1,5 +1,7 @@
 use axum::{Json, extract::{State, Path, Query}};
+use axum::Router;
 use serde::{Serialize, Deserialize};
+use crate::api::extract::ApiJson;
 use crate::api::types::{AppState, PaginationParams, PaginatedResponse};
 use crate::core::error::AppError;
 use crate::domain::entity::DatabaseInstance;
@@ -94,7 +96,7 @@ pub async fn delete(
 
 pub async fn install_mysql(
     State(state): State<AppState>,
-    Json(req): Json<InstallMysqlRequest>,
+    ApiJson(req): ApiJson<InstallMysqlRequest>,
 ) -> Result<Json<DatabaseInstanceResponse>, AppError> {
     let port = req.port.unwrap_or(3306);
     let pw = req.root_password.unwrap_or_default();
@@ -106,7 +108,7 @@ pub async fn install_mysql(
 
 pub async fn install_redis(
     State(state): State<AppState>,
-    Json(req): Json<InstallRedisRequest>,
+    ApiJson(req): ApiJson<InstallRedisRequest>,
 ) -> Result<Json<DatabaseInstanceResponse>, AppError> {
     let port = req.port.unwrap_or(6379);
     let instance = state.database_service.install_redis(
@@ -150,7 +152,7 @@ pub async fn check_status(
 pub async fn create_database(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<CreateDatabaseRequest>,
+    ApiJson(req): ApiJson<CreateDatabaseRequest>,
 ) -> Result<Json<&'static str>, AppError> {
     state.database_service.create_database(id, &req.name, req.charset.as_deref().unwrap_or("utf8mb4")).await?;
     Ok(Json("created"))
@@ -175,7 +177,7 @@ pub async fn list_databases(
 pub async fn create_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<CreateUserRequest>,
+    ApiJson(req): ApiJson<CreateUserRequest>,
 ) -> Result<Json<&'static str>, AppError> {
     state.database_service.create_user(id, &req.username, &req.password, req.host.as_deref().unwrap_or("localhost")).await?;
     Ok(Json("created"))
@@ -195,4 +197,26 @@ pub async fn uninstall(
 ) -> Result<Json<&'static str>, AppError> {
     state.database_service.uninstall(id).await?;
     Ok(Json("uninstalled"))
+}
+
+
+
+/// 路由表（集中注册于 routes.rs 组合根）
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/databases", axum::routing::get(list))
+        .route("/api/databases/:id", axum::routing::get(get))
+        .route("/api/databases/:id", axum::routing::delete(delete))
+        .route("/api/databases/mysql/install", axum::routing::post(install_mysql))
+        .route("/api/databases/redis/install", axum::routing::post(install_redis))
+        .route("/api/databases/:id/start", axum::routing::post(start))
+        .route("/api/databases/:id/stop", axum::routing::post(stop))
+        .route("/api/databases/:id/restart", axum::routing::post(restart))
+        .route("/api/databases/:id/status", axum::routing::get(check_status))
+        .route("/api/databases/:id/databases", axum::routing::get(list_databases))
+        .route("/api/databases/:id/databases", axum::routing::post(create_database))
+        .route("/api/databases/:id/databases/:db_name", axum::routing::delete(drop_database))
+        .route("/api/databases/:id/users", axum::routing::post(create_user))
+        .route("/api/databases/:id/users/:username", axum::routing::delete(drop_user))
+        .route("/api/databases/:id/uninstall", axum::routing::post(uninstall))
 }

@@ -81,7 +81,7 @@ impl WasmSandbox {
         let mut config_builder = wasmtime::Config::new();
         config_builder.consume_fuel(true);
         let engine = wasmtime::Engine::new(&config_builder)
-            .map_err(|e| AppError::Internal(format!("Failed to create WASM engine: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to create WASM engine: {}", e)))?;
         Ok(Self { engine })
     }
 
@@ -92,28 +92,28 @@ impl WasmSandbox {
         fuel_limit: u64,
     ) -> Result<Vec<u8>, AppError> {
         let module = wasmtime::Module::new(&self.engine, wasm_bytes)
-            .map_err(|e| AppError::Internal(format!("Failed to compile WASM module: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to compile WASM module: {}", e)))?;
         let mut store = wasmtime::Store::new(&self.engine, ());
         store.set_fuel(fuel_limit)
-            .map_err(|e| AppError::Internal(format!("Failed to set fuel: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to set fuel: {}", e)))?;
         let instance = wasmtime::Instance::new(&mut store, &module, &[])
-            .map_err(|e| AppError::Internal(format!("Failed to instantiate WASM module: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to instantiate WASM module: {}", e)))?;
         if let Ok(func) = instance.get_typed_func::<(), i32>(&mut store, function) {
             let result = func.call(&mut store, ())
-                .map_err(|e| AppError::Internal(format!("WASM execution failed: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("WASM execution failed: {}", e)))?;
             return Ok(result.to_le_bytes().to_vec());
         }
         if let Ok(func) = instance.get_typed_func::<(), ()>(&mut store, function) {
             func.call(&mut store, ())
-                .map_err(|e| AppError::Internal(format!("WASM execution failed: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("WASM execution failed: {}", e)))?;
             return Ok(vec![]);
         }
         if let Ok(func) = instance.get_typed_func::<(i32, i32), i32>(&mut store, function) {
             let result = func.call(&mut store, (0, 0))
-                .map_err(|e| AppError::Internal(format!("WASM execution failed: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("WASM execution failed: {}", e)))?;
             return Ok(result.to_le_bytes().to_vec());
         }
-        Err(AppError::Internal(format!(
+        Err(AppError::internal(format!(
             "Function '{}' not found or unsupported signature", function
         )))
     }
@@ -216,7 +216,7 @@ impl PluginSandbox {
             plugin.wasm_bytes = old_bytes;
             plugin.config = old_config;
             plugin.status = PluginStatus::Error(format!("Reload hook failed: {}", e));
-            return Err(AppError::Internal(format!("Plugin reload hook 'on_reload' failed: {}", e)));
+            return Err(AppError::internal(format!("Plugin reload hook 'on_reload' failed: {}", e)));
         }
 
         Ok(plugin.clone())
@@ -247,7 +247,7 @@ impl PluginSandbox {
             sandbox.execute(&wasm_bytes, &function_name, fuel_limit)
         })
         .await
-        .map_err(|e| AppError::Internal(format!("WASM task failed: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("WASM task failed: {}", e)))?;
 
         let elapsed_ms = start.elapsed().as_millis() as u64;
 

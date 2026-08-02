@@ -101,7 +101,7 @@ impl AppStoreService {
                 description: metadata.short_desc_zh.clone(),
                 logo: metadata.logo.clone(),
                 metadata_json: serde_json::to_string(&metadata)
-                    .map_err(|e| AppError::Internal(format!("serialize metadata: {}", e)))?,
+                    .map_err(|e| AppError::internal(format!("serialize metadata: {}", e)))?,
                 source_path: None,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
@@ -137,7 +137,7 @@ impl AppStoreService {
         }
         let pkg = self.get_package(key).await?;
         serde_json::from_str(&pkg.metadata_json)
-            .map_err(|e| AppError::Internal(format!("parse metadata: {}", e)))
+            .map_err(|e| AppError::internal(format!("parse metadata: {}", e)))
     }
 
     /// 导入本地目录应用包（自动检测格式）
@@ -152,7 +152,7 @@ impl AppStoreService {
         // 复制到商店目录，保证独立性
         let dest = self.apps_dir.join(&metadata.key);
         std::fs::create_dir_all(&dest)
-            .map_err(|e| AppError::Internal(format!("创建商店目录失败: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("创建商店目录失败: {}", e)))?;
         copy_recursive(root, &dest)?;
 
         if self.package_repo.find_by_key(&metadata.key).await?.is_some() {
@@ -168,7 +168,7 @@ impl AppStoreService {
             description: metadata.short_desc_zh.clone(),
             logo: metadata.logo.clone(),
             metadata_json: serde_json::to_string(&metadata)
-                .map_err(|e| AppError::Internal(format!("serialize metadata: {}", e)))?,
+                .map_err(|e| AppError::internal(format!("serialize metadata: {}", e)))?,
             source_path: Some(dest.to_string_lossy().into_owned()),
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -257,7 +257,7 @@ impl AppStoreService {
         let port = req.port.or(version_info.default_port).unwrap_or(0);
         let install_path = self.apps_dir.join(&req.package_key).join(&container_name);
         std::fs::create_dir_all(&install_path)
-            .map_err(|e| AppError::Internal(format!("创建安装目录失败: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("创建安装目录失败: {}", e)))?;
 
         let mut mapper = VariableMapper::new(req.values.clone());
         mapper.insert("CONTAINER_NAME", &container_name);
@@ -285,7 +285,7 @@ impl AppStoreService {
         // 写入 compose 文件
         let compose_path = install_path.join("docker-compose.yml");
         std::fs::write(&compose_path, &rendered)
-            .map_err(|e| AppError::Internal(format!("写入 compose 失败: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("写入 compose 失败: {}", e)))?;
 
         // 部署
         let deploy_result = self
@@ -345,7 +345,7 @@ impl AppStoreService {
                     updated_at: Utc::now(),
                 };
                 let id = self.installed_repo.create(&app).await?;
-                return self.installed_repo.find_by_id(id).await?.ok_or_else(|| AppError::Internal("create installed app".into()));
+                return self.installed_repo.find_by_id(id).await?.ok_or_else(|| AppError::internal("create installed app"));
             }
             "redis" => {
                 let _ = self
@@ -368,7 +368,7 @@ impl AppStoreService {
                     updated_at: Utc::now(),
                 };
                 let id = self.installed_repo.create(&app).await?;
-                return self.installed_repo.find_by_id(id).await?.ok_or_else(|| AppError::Internal("create installed app".into()));
+                return self.installed_repo.find_by_id(id).await?.ok_or_else(|| AppError::internal("create installed app"));
             }
             "nginx" | "apache" | "openlitespeed" | "openresty" | "caddy" => {
                 let engine = WebServerEngine::from_str(key)
@@ -402,7 +402,7 @@ impl AppStoreService {
                     updated_at: Utc::now(),
                 };
                 let id = self.installed_repo.create(&app).await?;
-                return self.installed_repo.find_by_id(id).await?.ok_or_else(|| AppError::Internal("create installed app".into()));
+                return self.installed_repo.find_by_id(id).await?.ok_or_else(|| AppError::internal("create installed app"));
             }
             _ => {
                 // 通用原生脚本安装（Flame 格式 install.sh）
@@ -412,9 +412,9 @@ impl AppStoreService {
                             .arg("-c")
                             .arg(line)
                             .output()
-                            .map_err(|e| AppError::Internal(format!("执行安装脚本失败: {}", e)))?;
+                            .map_err(|e| AppError::internal(format!("执行安装脚本失败: {}", e)))?;
                         if !output.status.success() {
-                            return Err(AppError::Internal(format!(
+                            return Err(AppError::internal(format!(
                                 "安装脚本执行失败: {} (line: {})",
                                 String::from_utf8_lossy(&output.stderr),
                                 line
@@ -440,7 +440,7 @@ impl AppStoreService {
                     updated_at: Utc::now(),
                 };
                 let id = self.installed_repo.create(&app).await?;
-                return self.installed_repo.find_by_id(id).await?.ok_or_else(|| AppError::Internal("create installed app".into()));
+                return self.installed_repo.find_by_id(id).await?.ok_or_else(|| AppError::internal("create installed app"));
             }
         }
     }
@@ -593,7 +593,7 @@ impl AppStoreService {
                 let install_path = Path::new(&app.install_path);
                 let compose_path = install_path.join("docker-compose.yml");
                 std::fs::write(&compose_path, &rendered)
-                    .map_err(|e| AppError::Internal(format!("写入 compose 失败: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("写入 compose 失败: {}", e)))?;
                 let _ = self.docker_service.compose_down(app.container_name.as_deref().unwrap_or(&app.package_key)).await;
                 self.docker_service
                     .compose_deploy(app.container_name.as_deref().unwrap_or(&app.package_key), &rendered)
@@ -753,7 +753,7 @@ pub fn validate_fields(fields: &[FormField], values: &HashMap<String, String>) -
         }
         if let Some(pattern) = &field.pattern {
             let re = regex::Regex::new(pattern)
-                .map_err(|e| AppError::Internal(format!("校验规则无效: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("校验规则无效: {}", e)))?;
             if !re.is_match(value) {
                 return Err(AppError::BadRequest(format!("字段 [{}] 格式不正确", field.label_zh)));
             }
@@ -793,17 +793,17 @@ fn short_uuid() -> String {
 fn copy_recursive(src: &Path, dst: &Path) -> Result<(), AppError> {
     if src.is_dir() {
         std::fs::create_dir_all(dst)
-            .map_err(|e| AppError::Internal(format!("创建目录失败: {}", e)))?;
-        for entry in std::fs::read_dir(src).map_err(|e| AppError::Internal(format!("读取目录失败: {}", e)))? {
-            let entry = entry.map_err(|e| AppError::Internal(format!("读取目录失败: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("创建目录失败: {}", e)))?;
+        for entry in std::fs::read_dir(src).map_err(|e| AppError::internal(format!("读取目录失败: {}", e)))? {
+            let entry = entry.map_err(|e| AppError::internal(format!("读取目录失败: {}", e)))?;
             let file_type = entry
                 .file_type()
-                .map_err(|e| AppError::Internal(format!("读取类型失败: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("读取类型失败: {}", e)))?;
             if file_type.is_dir() {
                 copy_recursive(&entry.path(), &dst.join(entry.file_name()))?;
             } else {
                 std::fs::copy(entry.path(), dst.join(entry.file_name()))
-                    .map_err(|e| AppError::Internal(format!("复制文件失败: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("复制文件失败: {}", e)))?;
             }
         }
     }

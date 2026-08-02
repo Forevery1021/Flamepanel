@@ -23,7 +23,7 @@ impl UserRepository for SqliteUserRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(user)
     }
 
@@ -34,7 +34,7 @@ impl UserRepository for SqliteUserRepository {
         .bind(username)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(user)
     }
 
@@ -45,7 +45,7 @@ impl UserRepository for SqliteUserRepository {
             .bind(role)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
             .last_insert_rowid();
         self.find_by_id(id).await.map(|u| u.unwrap())
     }
@@ -58,7 +58,7 @@ impl UserRepository for SqliteUserRepository {
             .bind(user.id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound("User not found".into()));
         }
@@ -71,7 +71,7 @@ impl UserRepository for SqliteUserRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(users)
     }
 
@@ -81,7 +81,7 @@ impl UserRepository for SqliteUserRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -90,7 +90,7 @@ impl UserRepository for SqliteUserRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 }
@@ -114,7 +114,7 @@ impl NodeRepository for SqliteNodeRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(node)
     }
 
@@ -125,7 +125,7 @@ impl NodeRepository for SqliteNodeRepository {
         .bind(hostname)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(node)
     }
 
@@ -139,7 +139,7 @@ impl NodeRepository for SqliteNodeRepository {
         .bind(&node.status)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
         .last_insert_rowid();
         Ok(id)
     }
@@ -153,7 +153,7 @@ impl NodeRepository for SqliteNodeRepository {
             .bind(node.id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound("Node not found".into()));
         }
@@ -166,7 +166,7 @@ impl NodeRepository for SqliteNodeRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(nodes)
     }
 
@@ -175,7 +175,7 @@ impl NodeRepository for SqliteNodeRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 }
@@ -199,7 +199,7 @@ impl WebsiteRepository for SqliteWebsiteRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(site)
     }
 
@@ -210,7 +210,7 @@ impl WebsiteRepository for SqliteWebsiteRepository {
         .bind(domain)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(site)
     }
 
@@ -229,7 +229,7 @@ impl WebsiteRepository for SqliteWebsiteRepository {
         .bind(&website.proxy_pass)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
         .last_insert_rowid();
         Ok(id)
     }
@@ -249,7 +249,7 @@ impl WebsiteRepository for SqliteWebsiteRepository {
         .bind(website.id)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -258,7 +258,7 @@ impl WebsiteRepository for SqliteWebsiteRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -268,7 +268,7 @@ impl WebsiteRepository for SqliteWebsiteRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(sites)
     }
 }
@@ -292,7 +292,7 @@ impl WebServerRepository for SqliteWebServerRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(instance)
     }
 
@@ -303,7 +303,7 @@ impl WebServerRepository for SqliteWebServerRepository {
         .bind(engine)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(instances)
     }
 
@@ -319,7 +319,7 @@ impl WebServerRepository for SqliteWebServerRepository {
         .bind(instance.port)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(result.last_insert_rowid())
     }
 
@@ -336,7 +336,7 @@ impl WebServerRepository for SqliteWebServerRepository {
         .bind(instance.id)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -345,7 +345,7 @@ impl WebServerRepository for SqliteWebServerRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -355,7 +355,7 @@ impl WebServerRepository for SqliteWebServerRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(instances)
     }
 }
@@ -372,7 +372,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS nodes (
@@ -386,7 +386,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS websites (
@@ -405,7 +405,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS web_servers (
@@ -421,7 +421,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS operation_logs (
@@ -435,7 +435,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS permissions (
@@ -447,7 +447,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS roles (
@@ -458,7 +458,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS role_permissions (
@@ -471,7 +471,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS logs (
@@ -485,7 +485,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS databases (
@@ -505,7 +505,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS panel_settings (
@@ -517,7 +517,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS firewall_rules (
@@ -538,7 +538,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS app_packages (
@@ -557,7 +557,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS installed_apps (
@@ -578,7 +578,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS plugins (
@@ -600,14 +600,14 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_installed_apps_key ON installed_apps(package_key)",
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(format!("Migration error: {}", e)))?;
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     Ok(())
 }
@@ -630,7 +630,7 @@ impl DatabaseRepository for SqliteDatabaseRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows)
     }
 
@@ -641,7 +641,7 @@ impl DatabaseRepository for SqliteDatabaseRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(row)
     }
 
@@ -652,7 +652,7 @@ impl DatabaseRepository for SqliteDatabaseRepository {
         .bind(name)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(row)
     }
 
@@ -663,7 +663,7 @@ impl DatabaseRepository for SqliteDatabaseRepository {
         .bind(db_type)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows)
     }
 
@@ -682,7 +682,7 @@ impl DatabaseRepository for SqliteDatabaseRepository {
         .bind(&instance.root_user)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
         .last_insert_rowid();
         Ok(id)
     }
@@ -701,7 +701,7 @@ impl DatabaseRepository for SqliteDatabaseRepository {
         .bind(instance.id)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -710,7 +710,7 @@ impl DatabaseRepository for SqliteDatabaseRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -720,7 +720,7 @@ impl DatabaseRepository for SqliteDatabaseRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 }
@@ -744,7 +744,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         .bind(key)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(row)
     }
 
@@ -757,7 +757,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         .bind(value)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -767,7 +767,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows)
     }
 
@@ -775,7 +775,7 @@ impl SettingsRepository for SqliteSettingsRepository {
         let rows = sqlx::query("SELECT key, value FROM panel_settings")
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows.iter().map(|r| {
             (r.get::<String, _>("key"), r.get::<String, _>("value"))
         }).collect())
@@ -800,7 +800,7 @@ impl PermissionRepository for SqlitePermissionRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(perms)
     }
 
@@ -811,7 +811,7 @@ impl PermissionRepository for SqlitePermissionRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(perm)
     }
 
@@ -823,7 +823,7 @@ impl PermissionRepository for SqlitePermissionRepository {
         .bind(action)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(perm)
     }
 
@@ -836,7 +836,7 @@ impl PermissionRepository for SqlitePermissionRepository {
         .bind(&permission.description)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
         .last_insert_rowid();
         Ok(id)
     }
@@ -846,7 +846,7 @@ impl PermissionRepository for SqlitePermissionRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 }
@@ -869,7 +869,7 @@ impl RoleRepository for SqliteRoleRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(roles)
     }
 
@@ -880,7 +880,7 @@ impl RoleRepository for SqliteRoleRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(role)
     }
 
@@ -891,7 +891,7 @@ impl RoleRepository for SqliteRoleRepository {
         .bind(name)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(role)
     }
 
@@ -903,7 +903,7 @@ impl RoleRepository for SqliteRoleRepository {
         .bind(&role.description)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
         .last_insert_rowid();
         Ok(id)
     }
@@ -915,7 +915,7 @@ impl RoleRepository for SqliteRoleRepository {
             .bind(role.id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -929,7 +929,7 @@ impl RoleRepository for SqliteRoleRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -940,7 +940,7 @@ impl RoleRepository for SqliteRoleRepository {
         .bind(role_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
@@ -956,7 +956,7 @@ impl RoleRepository for SqliteRoleRepository {
                 .bind(pid)
                 .execute(&self.pool)
                 .await
-                .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         }
         Ok(())
     }
@@ -984,7 +984,7 @@ impl OperationLogRepository for SqliteOperationLogRepository {
         .bind(ip)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         let id = result.last_insert_rowid();
         Ok(OperationLog {
             id: id as i64,
@@ -1002,7 +1002,7 @@ impl OperationLogRepository for SqliteOperationLogRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows)
     }
 
@@ -1013,7 +1013,7 @@ impl OperationLogRepository for SqliteOperationLogRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(row)
     }
 
@@ -1024,7 +1024,7 @@ impl OperationLogRepository for SqliteOperationLogRepository {
         .bind(username)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows)
     }
 
@@ -1033,7 +1033,7 @@ impl OperationLogRepository for SqliteOperationLogRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 }
@@ -1060,7 +1060,7 @@ impl LogRepository for SqliteLogRepository {
         .bind(metadata)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         let id = result.last_insert_rowid();
         Ok(LogEntry {
             id: id as i64,
@@ -1078,7 +1078,7 @@ impl LogRepository for SqliteLogRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows)
     }
 
@@ -1089,7 +1089,7 @@ impl LogRepository for SqliteLogRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(row)
     }
 
@@ -1100,7 +1100,7 @@ impl LogRepository for SqliteLogRepository {
         .bind(source)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows)
     }
 
@@ -1111,7 +1111,7 @@ impl LogRepository for SqliteLogRepository {
         .bind(level)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows)
     }
 
@@ -1120,7 +1120,7 @@ impl LogRepository for SqliteLogRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 }
@@ -1143,7 +1143,7 @@ impl FirewallRepository for SqliteFirewallRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows)
     }
 
@@ -1154,7 +1154,7 @@ impl FirewallRepository for SqliteFirewallRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(row)
     }
 
@@ -1174,7 +1174,7 @@ impl FirewallRepository for SqliteFirewallRepository {
         .bind(&rule.direction)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
         .last_insert_rowid();
         Ok(id)
     }
@@ -1196,7 +1196,7 @@ impl FirewallRepository for SqliteFirewallRepository {
         .bind(rule.id)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -1205,7 +1205,7 @@ impl FirewallRepository for SqliteFirewallRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -1215,7 +1215,7 @@ impl FirewallRepository for SqliteFirewallRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -1227,7 +1227,7 @@ impl FirewallRepository for SqliteFirewallRepository {
                 .bind(id)
                 .execute(&self.pool)
                 .await
-                .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
             priority += 10;
         }
         Ok(())
@@ -1253,7 +1253,7 @@ impl AppPackageRepository for SqliteAppPackageRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows)
     }
 
@@ -1264,7 +1264,7 @@ impl AppPackageRepository for SqliteAppPackageRepository {
         .bind(key)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(row)
     }
 
@@ -1282,7 +1282,7 @@ impl AppPackageRepository for SqliteAppPackageRepository {
         .bind(&pkg.source_path)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(result.last_insert_rowid())
     }
 
@@ -1291,7 +1291,7 @@ impl AppPackageRepository for SqliteAppPackageRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 }
@@ -1314,7 +1314,7 @@ impl InstalledAppRepository for SqliteInstalledAppRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows)
     }
 
@@ -1325,7 +1325,7 @@ impl InstalledAppRepository for SqliteInstalledAppRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(row)
     }
 
@@ -1345,7 +1345,7 @@ impl InstalledAppRepository for SqliteInstalledAppRepository {
         .bind(&app.params_json)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(result.last_insert_rowid())
     }
 
@@ -1363,7 +1363,7 @@ impl InstalledAppRepository for SqliteInstalledAppRepository {
         .bind(app.id)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -1372,7 +1372,7 @@ impl InstalledAppRepository for SqliteInstalledAppRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 }
@@ -1408,7 +1408,7 @@ impl PluginRepository for SqlitePluginRepository {
         .bind(&plugin.config_schema)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 
@@ -1418,7 +1418,7 @@ impl PluginRepository for SqlitePluginRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         rows.into_iter().map(PluginDbRow::into_entity).collect()
     }
 
@@ -1429,7 +1429,7 @@ impl PluginRepository for SqlitePluginRepository {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         row.map(|r| r.into_entity()).transpose()
     }
 
@@ -1438,7 +1438,7 @@ impl PluginRepository for SqlitePluginRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::Internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
 }

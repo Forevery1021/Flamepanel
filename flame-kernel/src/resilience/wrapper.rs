@@ -91,7 +91,7 @@ mod tests {
         
         for _ in 0..2 {
             let _: Result<i32, AppError> = wrapper.call(|_| async {
-                Err(AppError::Internal("Permanent failure".into()))
+                Err(AppError::internal("Permanent failure"))
             }).await;
         }
         

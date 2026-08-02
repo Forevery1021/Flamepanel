@@ -335,6 +335,16 @@ export default {
     required: 'This field is required',
     confirmAction: 'Are you sure?',
     install: 'Install',
+    error: {
+      AUTH_UNAUTHORIZED: 'Not logged in or session expired, please sign in again',
+      AUTH_FORBIDDEN: 'No permission for this operation, contact your administrator',
+      NOT_FOUND: 'The requested resource does not exist',
+      BAD_REQUEST: 'Invalid request parameters',
+      VALIDATION_ERROR: 'Validation failed',
+      CONFLICT: 'Resource conflict, operation could not be completed',
+      SERVICE_UNAVAILABLE: 'Service temporarily unavailable, please retry later',
+      INTERNAL_ERROR: 'Internal server error, please retry later',
+    },
   },
   theme: {
     light: 'Light',

@@ -37,21 +37,21 @@ impl EmailNotifier {
 
     pub async fn send(&self, to: &str, subject: &str, body: &str) -> Result<(), AppError> {
         let email = Message::builder()
-            .from(self.config.from.parse().map_err(|e| AppError::Internal(format!("Invalid from: {}", e)))?)
-            .to(to.parse().map_err(|e| AppError::Internal(format!("Invalid to: {}", e)))?)
+            .from(self.config.from.parse().map_err(|e| AppError::internal(format!("Invalid from: {}", e)))?)
+            .to(to.parse().map_err(|e| AppError::internal(format!("Invalid to: {}", e)))?)
             .subject(subject)
             .header(ContentType::TEXT_PLAIN)
             .body(body.to_string())
-            .map_err(|e| AppError::Internal(format!("Email build: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Email build: {}", e)))?;
 
         let creds = Credentials::new(self.config.username.clone(), self.config.password.clone());
         let mailer = AsyncSmtpTransport::<Tokio1Executor>::relay(&self.config.host)
-            .map_err(|e| AppError::Internal(format!("SMTP relay: {}", e)))?
+            .map_err(|e| AppError::internal(format!("SMTP relay: {}", e)))?
             .port(self.config.port)
             .credentials(creds)
             .build();
 
-        mailer.send(email).await.map_err(|e| AppError::Internal(format!("Send email: {}", e)))?;
+        mailer.send(email).await.map_err(|e| AppError::internal(format!("Send email: {}", e)))?;
         Ok(())
     }
 }

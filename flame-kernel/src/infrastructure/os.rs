@@ -60,11 +60,11 @@ impl ServiceManager {
             .args(&args[1..])
             .output()
             .await
-            .map_err(|e| AppError::Internal(format!("Command failed: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Command failed: {}", e)))?;
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         if !out.status.success() {
-            return Err(AppError::Internal(format!("{}: {}", args.join(" "), stderr)));
+            return Err(AppError::internal(format!("{}: {}", args.join(" "), stderr)));
         }
         Ok(if stdout.is_empty() { stderr } else { stdout })
     }
@@ -117,11 +117,11 @@ impl PackageManager {
             .args(&cmd[1..])
             .output()
             .await
-            .map_err(|e| AppError::Internal(format!("Package install failed: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Package install failed: {}", e)))?;
         let s = String::from_utf8_lossy(&out.stdout).to_string();
         let e = String::from_utf8_lossy(&out.stderr).to_string();
         if !out.status.success() {
-            return Err(AppError::Internal(format!("Failed to install {}: {}", pkg, e)));
+            return Err(AppError::internal(format!("Failed to install {}: {}", pkg, e)));
         }
         Ok(if s.len() > 200 { format!("{}... ({} chars)", &s[..200], s.len()) } else { s })
     }
@@ -150,10 +150,10 @@ impl PackageManager {
             .args(&args)
             .output()
             .await
-            .map_err(|e| AppError::Internal(format!("Package uninstall failed: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Package uninstall failed: {}", e)))?;
         if !out.status.success() {
             let e = String::from_utf8_lossy(&out.stderr);
-            return Err(AppError::Internal(format!("Failed to uninstall {}: {}", pkg, e)));
+            return Err(AppError::internal(format!("Failed to uninstall {}: {}", pkg, e)));
         }
         Ok(())
     }
@@ -174,7 +174,7 @@ impl PackageManager {
         .args(&args)
         .output()
         .await
-        .map_err(|e| AppError::Internal(format!("Version check failed: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("Version check failed: {}", e)))?;
         let s = String::from_utf8_lossy(&out.stdout).to_string();
         for line in s.lines() {
             if line.starts_with("ii") && line.contains(pkg) {

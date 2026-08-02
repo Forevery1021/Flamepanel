@@ -1,5 +1,7 @@
 use axum::{Json, extract::{State, Path, Query}};
+use axum::Router;
 use serde::{Serialize, Deserialize};
+use crate::api::extract::ApiJson;
 use crate::api::types::{AppState, PaginationParams, PaginatedResponse};
 use crate::core::error::AppError;
 use crate::domain::entity::FirewallRule;
@@ -97,7 +99,7 @@ pub async fn get(
 
 pub async fn create(
     State(state): State<AppState>,
-    Json(req): Json<CreateFirewallRuleRequest>,
+    ApiJson(req): ApiJson<CreateFirewallRuleRequest>,
 ) -> Result<Json<FirewallRuleResponse>, AppError> {
     let rule = FirewallRule {
         id: 0,
@@ -121,7 +123,7 @@ pub async fn create(
 pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<UpdateFirewallRuleRequest>,
+    ApiJson(req): ApiJson<UpdateFirewallRuleRequest>,
 ) -> Result<Json<FirewallRuleResponse>, AppError> {
     let mut rule = state.firewall_service.get_rule(id).await?;
     if let Some(name) = req.name { rule.name = name; }
@@ -150,7 +152,7 @@ pub async fn delete(
 pub async fn toggle(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<ToggleRequest>,
+    ApiJson(req): ApiJson<ToggleRequest>,
 ) -> Result<Json<FirewallRuleResponse>, AppError> {
     let rule = state.firewall_service.toggle_rule(id, req.enabled).await?;
     Ok(Json(to_response(rule)))
@@ -186,8 +188,26 @@ pub async fn disable(
 
 pub async fn reorder(
     State(state): State<AppState>,
-    Json(req): Json<ReorderRequest>,
+    ApiJson(req): ApiJson<ReorderRequest>,
 ) -> Result<Json<&'static str>, AppError> {
     state.firewall_service.reorder_rules(&req.ids).await?;
     Ok(Json("reordered"))
+}
+
+
+
+/// 路由表（集中注册于 routes.rs 组合根）
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/firewall/rules", axum::routing::get(list))
+        .route("/api/firewall/rules", axum::routing::post(create))
+        .route("/api/firewall/rules/:id", axum::routing::get(get))
+        .route("/api/firewall/rules/:id", axum::routing::put(update))
+        .route("/api/firewall/rules/:id", axum::routing::delete(delete))
+        .route("/api/firewall/rules/:id/toggle", axum::routing::post(toggle))
+        .route("/api/firewall/apply", axum::routing::post(apply_all))
+        .route("/api/firewall/status", axum::routing::get(get_status))
+        .route("/api/firewall/enable", axum::routing::post(enable))
+        .route("/api/firewall/disable", axum::routing::post(disable))
+        .route("/api/firewall/reorder", axum::routing::post(reorder))
 }

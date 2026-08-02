@@ -51,7 +51,7 @@ where
         }
     }
     
-    Err(AppError::Internal(format!(
+    Err(AppError::internal(format!(
         "Operation failed after {} retries: {}",
         config.max_retries,
         last_error.map(|e: E| e.to_string()).unwrap_or_else(|| "Unknown error".into())

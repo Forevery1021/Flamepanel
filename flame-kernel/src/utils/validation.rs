@@ -8,7 +8,7 @@ impl ValidationUtils {
     /// 验证电子邮件格式
     pub fn validate_email(email: &str) -> Result<(), AppError> {
         let email_regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
-            .map_err(|e| AppError::Internal(format!("Failed to compile regex: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to compile regex: {}", e)))?;
         
         if !email_regex.is_match(email) {
             return Err(AppError::ValidationError("Invalid email format".to_string()));
@@ -28,7 +28,7 @@ impl ValidationUtils {
         }
         
         let username_regex = Regex::new(r"^[a-zA-Z0-9_-]+$")
-            .map_err(|e| AppError::Internal(format!("Failed to compile regex: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to compile regex: {}", e)))?;
         
         if !username_regex.is_match(username) {
             return Err(AppError::ValidationError("Username can only contain letters, numbers, underscores, and hyphens".to_string()));
@@ -66,7 +66,7 @@ impl ValidationUtils {
         }
         
         let domain_regex = Regex::new(r"^([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$")
-            .map_err(|e| AppError::Internal(format!("Failed to compile regex: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to compile regex: {}", e)))?;
         
         if !domain_regex.is_match(domain) {
             return Err(AppError::ValidationError("Invalid domain format".to_string()));

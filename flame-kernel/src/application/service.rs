@@ -20,6 +20,18 @@ impl UserService {
         self.user_repo.create(username, password_hash, role).await
     }
 
+    pub async fn find_by_id(&self, id: i64) -> Result<Option<User>, AppError> {
+        self.user_repo.find_by_id(id).await
+    }
+
+    pub async fn find_by_username(&self, username: &str) -> Result<Option<User>, AppError> {
+        self.user_repo.find_by_username(username).await
+    }
+
+    pub async fn update_password(&self, id: i64, new_hash: &str) -> Result<(), AppError> {
+        self.user_repo.update_password(id, new_hash).await
+    }
+
     pub async fn list_users(&self) -> Result<Vec<User>, AppError> {
         self.user_repo.list().await
     }
@@ -487,7 +499,7 @@ impl DatabaseService {
             updated_at: chrono::Utc::now(),
         };
         let id = self.repo.create(&instance).await?;
-        self.repo.find_by_id(id).await?.ok_or_else(|| AppError::Internal("Failed to create database instance".into()))
+        self.repo.find_by_id(id).await?.ok_or_else(|| AppError::internal("Failed to create database instance"))
     }
 
     pub async fn install_redis(&self, version: Option<&str>, port: i32, password: Option<&str>, name: &str) -> Result<DatabaseInstance, AppError> {
@@ -508,7 +520,7 @@ impl DatabaseService {
             updated_at: chrono::Utc::now(),
         };
         let id = self.repo.create(&instance).await?;
-        self.repo.find_by_id(id).await?.ok_or_else(|| AppError::Internal("Failed to create database instance".into()))
+        self.repo.find_by_id(id).await?.ok_or_else(|| AppError::internal("Failed to create database instance"))
     }
 
     pub async fn start(&self, id: i64) -> Result<(), AppError> {
@@ -715,7 +727,7 @@ impl FirewallManager {
                     .arg("status")
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("ufw status failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("ufw status failed: {}", e)))?;
                 Ok(String::from_utf8_lossy(&out.stdout).to_string())
             }
             FirewallBackend::Firewalld => {
@@ -723,7 +735,7 @@ impl FirewallManager {
                     .args(["--state"])
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("firewall-cmd state failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("firewall-cmd state failed: {}", e)))?;
                 let running = out.status.success();
                 Ok(if running { "running".into() } else { "stopped".into() })
             }
@@ -732,11 +744,11 @@ impl FirewallManager {
                     .args(["-L", "-n", "--line-numbers"])
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("iptables failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("iptables failed: {}", e)))?;
                 Ok(String::from_utf8_lossy(&out.stdout).to_string())
             }
             FirewallBackend::Unsupported(ref msg) => {
-                Err(AppError::Internal(format!("Unsupported firewall: {}", msg)))
+                Err(AppError::internal(format!("Unsupported firewall: {}", msg)))
             }
         }
     }
@@ -773,10 +785,10 @@ impl FirewallManager {
                     .args(&args[1..])
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("ufw apply failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("ufw apply failed: {}", e)))?;
                 if !out.status.success() {
                     let stderr = String::from_utf8_lossy(&out.stderr);
-                    return Err(AppError::Internal(format!("ufw error: {}", stderr)));
+                    return Err(AppError::internal(format!("ufw error: {}", stderr)));
                 }
                 Ok(())
             }
@@ -795,16 +807,16 @@ impl FirewallManager {
                             .args(["--permanent", &format!("--add-rich-rule={}", rich)])
                             .output()
                             .await
-                            .map_err(|e| AppError::Internal(format!("firewalld rich rule failed: {}", e)))?;
+                            .map_err(|e| AppError::internal(format!("firewalld rich rule failed: {}", e)))?;
                         if !out.status.success() {
                             let stderr = String::from_utf8_lossy(&out.stderr);
-                            return Err(AppError::Internal(format!("firewalld error: {}", stderr)));
+                            return Err(AppError::internal(format!("firewalld error: {}", stderr)));
                         }
                         tokio::process::Command::new("firewall-cmd")
                             .arg("--reload")
                             .output()
                             .await
-                            .map_err(|e| AppError::Internal(format!("firewalld reload failed: {}", e)))?;
+                            .map_err(|e| AppError::internal(format!("firewalld reload failed: {}", e)))?;
                         return Ok(());
                     }
                 }
@@ -812,24 +824,24 @@ impl FirewallManager {
                     .args(&["--permanent", &format!("--{}-port={}/{}", action, rule.port.as_deref().unwrap_or(""), proto)])
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("firewalld port rule failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("firewalld port rule failed: {}", e)))?;
                 if !out.status.success() {
                     // Try without protocol
                     let out2 = tokio::process::Command::new("firewall-cmd")
                         .args(&["--permanent", &format!("--{}-port={}", action, rule.port.as_deref().unwrap_or(""))])
                         .output()
                         .await
-                        .map_err(|e| AppError::Internal(format!("firewalld port rule failed: {}", e)))?;
+                        .map_err(|e| AppError::internal(format!("firewalld port rule failed: {}", e)))?;
                     if !out2.status.success() {
                         let stderr = String::from_utf8_lossy(&out2.stderr);
-                        return Err(AppError::Internal(format!("firewalld error: {}", stderr)));
+                        return Err(AppError::internal(format!("firewalld error: {}", stderr)));
                     }
                 }
                 tokio::process::Command::new("firewall-cmd")
                     .arg("--reload")
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("firewalld reload failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("firewalld reload failed: {}", e)))?;
                 Ok(())
             }
             FirewallBackend::Iptables => {
@@ -869,15 +881,15 @@ impl FirewallManager {
                     .args(&args.clone())
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("iptables failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("iptables failed: {}", e)))?;
                 if !out.status.success() {
                     let stderr = String::from_utf8_lossy(&out.stderr);
-                    return Err(AppError::Internal(format!("iptables error: {}", stderr)));
+                    return Err(AppError::internal(format!("iptables error: {}", stderr)));
                 }
                 Ok(())
             }
             FirewallBackend::Unsupported(ref msg) => {
-                Err(AppError::Internal(format!("Unsupported firewall: {}", msg)))
+                Err(AppError::internal(format!("Unsupported firewall: {}", msg)))
             }
         }
     }
@@ -890,10 +902,10 @@ impl FirewallManager {
                     .args(["delete", &rule.action, rule.port.as_deref().unwrap_or("")])
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("ufw delete failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("ufw delete failed: {}", e)))?;
                 if !out.status.success() {
                     let stderr = String::from_utf8_lossy(&out.stderr);
-                    return Err(AppError::Internal(format!("ufw error: {}", stderr)));
+                    return Err(AppError::internal(format!("ufw error: {}", stderr)));
                 }
                 Ok(())
             }
@@ -909,7 +921,7 @@ impl FirewallManager {
                         rule.port.as_deref().unwrap_or(""), proto)])
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("firewalld remove port failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("firewalld remove port failed: {}", e)))?;
                 tokio::process::Command::new("firewall-cmd")
                     .arg("--reload")
                     .output()
@@ -917,7 +929,7 @@ impl FirewallManager {
                     .ok();
                 if !out.status.success() {
                     let stderr = String::from_utf8_lossy(&out.stderr);
-                    return Err(AppError::Internal(format!("firewalld error: {}", stderr)));
+                    return Err(AppError::internal(format!("firewalld error: {}", stderr)));
                 }
                 Ok(())
             }
@@ -950,11 +962,11 @@ impl FirewallManager {
                     .args(&args)
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("iptables delete failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("iptables delete failed: {}", e)))?;
                 Ok(())
             }
             FirewallBackend::Unsupported(ref msg) => {
-                Err(AppError::Internal(format!("Unsupported firewall: {}", msg)))
+                Err(AppError::internal(format!("Unsupported firewall: {}", msg)))
             }
         }
     }
@@ -968,7 +980,7 @@ impl FirewallManager {
                     .arg("enable")
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("ufw enable failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("ufw enable failed: {}", e)))?;
                 Ok(())
             }
             FirewallBackend::Firewalld => {
@@ -976,12 +988,12 @@ impl FirewallManager {
                     .args(["start", "firewalld"])
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("firewalld start failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("firewalld start failed: {}", e)))?;
                 Ok(())
             }
             FirewallBackend::Iptables => Ok(()), // iptables is always active
             FirewallBackend::Unsupported(ref msg) => {
-                Err(AppError::Internal(format!("Unsupported firewall: {}", msg)))
+                Err(AppError::internal(format!("Unsupported firewall: {}", msg)))
             }
         }
     }
@@ -994,7 +1006,7 @@ impl FirewallManager {
                     .arg("disable")
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("ufw disable failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("ufw disable failed: {}", e)))?;
                 Ok(())
             }
             FirewallBackend::Firewalld => {
@@ -1002,7 +1014,7 @@ impl FirewallManager {
                     .args(["stop", "firewalld"])
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("firewalld stop failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("firewalld stop failed: {}", e)))?;
                 Ok(())
             }
             FirewallBackend::Iptables => {
@@ -1011,11 +1023,11 @@ impl FirewallManager {
                     .args(["-F"])
                     .output()
                     .await
-                    .map_err(|e| AppError::Internal(format!("iptables flush failed: {}", e)))?;
+                    .map_err(|e| AppError::internal(format!("iptables flush failed: {}", e)))?;
                 Ok(())
             }
             FirewallBackend::Unsupported(ref msg) => {
-                Err(AppError::Internal(format!("Unsupported firewall: {}", msg)))
+                Err(AppError::internal(format!("Unsupported firewall: {}", msg)))
             }
         }
     }

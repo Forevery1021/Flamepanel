@@ -335,6 +335,16 @@ export default {
     required: '此项为必填项',
     confirmAction: '确定执行此操作吗？',
     install: '安装',
+    error: {
+      AUTH_UNAUTHORIZED: '未登录或登录已过期，请重新登录',
+      AUTH_FORBIDDEN: '没有操作权限，请联系管理员',
+      NOT_FOUND: '请求的资源不存在',
+      BAD_REQUEST: '请求参数错误',
+      VALIDATION_ERROR: '参数校验失败',
+      CONFLICT: '资源冲突，操作无法完成',
+      SERVICE_UNAVAILABLE: '服务暂不可用，请稍后重试',
+      INTERNAL_ERROR: '服务器内部错误，请稍后重试',
+    },
   },
   theme: {
     light: '浅色',

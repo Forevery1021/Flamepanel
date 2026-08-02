@@ -22,7 +22,7 @@ use tokio::sync::Mutex;
 use config::AppConfig;
 use application::app_store_service::AppStoreService;
 use application::service::*;
-use api::types::AppState;
+use api::types::{AppState, Services};
 use event::{EventBus, handler::EventHandler};
 use notification::{EmailNotifier, SmtpConfig};
 use plugin::{PluginRegistry, PluginSandbox};
@@ -44,11 +44,8 @@ impl FlameKernel {
         Self::new_with_backend(config, RepoFactory::new_in_memory())
     }
 
-    pub fn new_with_backend(config: AppConfig, factory: RepoFactory) -> Self {
-        let event_bus = EventBus::new(100);
-        let plugin_registry = Arc::new(PluginRegistry::new());
-        let plugin_sandbox = Arc::new(PluginSandbox::new());
-
+    /// 从仓库工厂组装全部业务服务（应用层组合根）
+    fn build_services(factory: &RepoFactory) -> Services {
         let user_repo = factory.create_user_repo();
         let node_repo = factory.create_node_repo();
         let website_repo = factory.create_website_repo();
@@ -63,24 +60,12 @@ impl FlameKernel {
         let installed_app_repo = factory.create_installed_app_repo();
         let plugin_repo = factory.create_plugin_repo();
 
-        let user_service = UserService::new(user_repo);
-        let node_service = NodeService::new(node_repo);
-        let website_service = WebsiteService::new(website_repo);
-        let docker_service = DockerService::new(docker_repo);
-        let web_server_service = WebServerService::new(web_server_repo);
-        let settings_service = SettingsService::new(settings_repo);
-        let database_service = DatabaseService::new(database_repo);
-        let firewall_service = FirewallService::new(firewall_repo);
-        let role_service = RoleService::new(role_repo, perm_repo.clone());
-        let permission_service = PermissionService::new(perm_repo);
-        let log_repo = factory.create_operation_log_repo();
-        let operation_log_service = OperationLogService::new(log_repo);
-        let sys_log_repo = factory.create_log_repo();
-        let log_service = LogService::new(sys_log_repo);
+        let plugin_sandbox = Arc::new(PluginSandbox::new());
+        let plugin_registry = Arc::new(PluginRegistry::new());
 
-        let docker_service = Arc::new(docker_service);
-        let web_server_service = Arc::new(web_server_service);
-        let database_service = Arc::new(database_service);
+        let docker_service = Arc::new(DockerService::new(docker_repo));
+        let web_server_service = Arc::new(WebServerService::new(web_server_repo));
+        let database_service = Arc::new(DatabaseService::new(database_repo));
 
         let app_store_service = Arc::new(AppStoreService::new(
             app_package_repo,
@@ -93,7 +78,33 @@ impl FlameKernel {
             plugin_repo.clone(),
             AppStoreService::default_apps_dir(),
         ));
-        let app_store_service_for_restore = app_store_service.clone();
+
+        Services {
+            user_service: Arc::new(UserService::new(user_repo)),
+            node_service: Arc::new(NodeService::new(node_repo)),
+            website_service: Arc::new(WebsiteService::new(website_repo)),
+            docker_service,
+            role_service: Arc::new(RoleService::new(role_repo, perm_repo.clone())),
+            permission_service: Arc::new(PermissionService::new(perm_repo)),
+            operation_log_service: Arc::new(OperationLogService::new(factory.create_operation_log_repo())),
+            log_service: Arc::new(LogService::new(factory.create_log_repo())),
+            plugin_sandbox,
+            plugin_registry,
+            plugin_repo,
+            app_store_service,
+            web_server_service,
+            settings_service: Arc::new(SettingsService::new(settings_repo)),
+            database_service,
+            firewall_service: Arc::new(FirewallService::new(firewall_repo)),
+        }
+    }
+
+    pub fn new_with_backend(config: AppConfig, factory: RepoFactory) -> Self {
+        let event_bus = EventBus::new(100);
+        let services = Self::build_services(&factory);
+
+        // 内置应用种子 + WASM 插件恢复（后台异步，不阻塞启动）
+        let app_store_service_for_restore = services.app_store_service.clone();
         tokio::spawn(async move {
             let _ = app_store_service_for_restore.seed_builtin_apps().await;
             let _ = app_store_service_for_restore.restore_wasm_plugins().await;
@@ -106,30 +117,13 @@ impl FlameKernel {
 
         let terminal_manager = TerminalManager::new();
 
-        let plugin_sandbox_for_state = plugin_sandbox.clone();
-        let plugin_registry_for_state = plugin_registry.clone();
-
+        let plugin_registry = services.plugin_registry.clone();
         let app_state = AppState::new(
             config.jwt_secret.clone(),
-            user_service,
-            node_service,
-            website_service,
-            docker_service,
-            role_service,
-            permission_service,
-            operation_log_service,
-            log_service,
+            services,
             metrics_history,
             metrics_tx,
             log_tx,
-            plugin_sandbox_for_state,
-            plugin_registry_for_state,
-            plugin_repo,
-            app_store_service,
-            web_server_service,
-            settings_service,
-            database_service,
-            firewall_service,
             terminal_manager,
         );
 

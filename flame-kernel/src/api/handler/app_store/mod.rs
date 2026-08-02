@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use axum::Router;
 
 use axum::{
     extract::{Path, State},
@@ -6,6 +7,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::api::extract::ApiJson;
 use crate::api::types::AppState;
 use crate::application::app_store_service::InstallRequest;
 use crate::core::error::AppError;
@@ -66,12 +68,12 @@ pub async fn list_versions(
     Path((key, version)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let info = state.app_store_service.get_version(&key, &version).await?;
-    Ok(Json(serde_json::to_value(&info).map_err(|e| AppError::Internal(e.to_string()))?))
+    Ok(Json(serde_json::to_value(&info).map_err(|e| AppError::internal(e.to_string()))?))
 }
 
 pub async fn install(
     State(state): State<AppState>,
-    Json(req): Json<InstallAppRequest>,
+    ApiJson(req): ApiJson<InstallAppRequest>,
 ) -> Result<Json<InstalledApp>, AppError> {
     let values = req.values.unwrap_or_default();
     let request = InstallRequest {
@@ -90,7 +92,7 @@ pub async fn install(
 
 pub async fn import_package(
     State(state): State<AppState>,
-    Json(req): Json<ImportPackageRequest>,
+    ApiJson(req): ApiJson<ImportPackageRequest>,
 ) -> Result<Json<AppMetadata>, AppError> {
     let meta = state.app_store_service.import_package(&req.path).await?;
     Ok(Json(meta))
@@ -144,4 +146,22 @@ pub async fn list_wasm_builtins(
 ) -> Result<Json<Vec<AppMetadata>>, AppError> {
     let metas = state.app_store_service.wasm_builtins();
     Ok(Json(metas))
+}
+
+
+
+/// 路由表（集中注册于 routes.rs 组合根）
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/app-store/packages", axum::routing::get(list_packages))
+        .route("/api/app-store/packages/import", axum::routing::post(import_package))
+        .route("/api/app-store/packages/:key", axum::routing::get(get_package))
+        .route("/api/app-store/packages/:key/versions/:version", axum::routing::get(list_versions))
+        .route("/api/app-store/packages/:key/install", axum::routing::post(install))
+        .route("/api/app-store/installed", axum::routing::get(list_installed))
+        .route("/api/app-store/installed/:id", axum::routing::get(get_installed))
+        .route("/api/app-store/installed/:id/upgrade", axum::routing::post(upgrade))
+        .route("/api/app-store/installed/:id/uninstall", axum::routing::post(uninstall))
+        .route("/api/app-store/installed/:id/logs", axum::routing::get(get_logs))
+        .route("/api/app-store/wasm-builtins", axum::routing::get(list_wasm_builtins))
 }

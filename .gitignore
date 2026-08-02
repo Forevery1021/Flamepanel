@@ -29,6 +29,7 @@ Thumbs.db
 data/*.db
 data/*.db-shm
 data/*.db-wal
+flame-kernel/data/
 
 # Environment
 .env

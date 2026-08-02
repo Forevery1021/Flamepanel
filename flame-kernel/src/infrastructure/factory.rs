@@ -25,7 +25,7 @@ impl RepoFactory {
     pub async fn new_sqlite(database_url: &str) -> Result<Self, AppError> {
         let pool = SqlitePool::connect(database_url)
             .await
-            .map_err(|e| AppError::Internal(format!("Failed to connect to database: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to connect to database: {}", e)))?;
         run_migrations(&pool).await?;
         Ok(Self { kind: BackendKind::Sqlite(pool), docker: None })
     }

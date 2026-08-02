@@ -17,13 +17,13 @@ pub struct BollardDockerRepository {
 impl BollardDockerRepository {
     pub fn new() -> Result<Self, AppError> {
         let docker = Docker::connect_with_local_defaults()
-            .map_err(|e| AppError::Internal(format!("Failed to connect to Docker: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to connect to Docker: {}", e)))?;
         Ok(Self { docker })
     }
 
     pub fn connect_with_env() -> Result<Self, AppError> {
         let docker = Docker::connect_with_defaults()
-            .map_err(|e| AppError::Internal(format!("Failed to connect to Docker: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to connect to Docker: {}", e)))?;
         Ok(Self { docker })
     }
 
@@ -41,7 +41,7 @@ impl DockerRepository for BollardDockerRepository {
         };
         let containers = self.docker.list_containers(Some(options))
             .await
-            .map_err(|e| AppError::Internal(format!("Docker list error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Docker list error: {}", e)))?;
 
         let result = containers.into_iter().map(|c| {
             let names = c.names.unwrap_or_default();
@@ -63,7 +63,7 @@ impl DockerRepository for BollardDockerRepository {
         use bollard::container::InspectContainerOptions;
         let result = self.docker.inspect_container(id, None::<InspectContainerOptions>)
             .await
-            .map_err(|e| AppError::Internal(format!("Docker inspect error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Docker inspect error: {}", e)))?;
 
         let container = DockerContainer {
             id: id.to_string(),
@@ -81,7 +81,7 @@ impl DockerRepository for BollardDockerRepository {
     async fn start_container(&self, id: &str) -> Result<(), AppError> {
         self.docker.start_container::<String>(id, None::<StartContainerOptions<String>>)
             .await
-            .map_err(|e| AppError::Internal(format!("Docker start error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Docker start error: {}", e)))?;
         Ok(())
     }
 
@@ -89,17 +89,17 @@ impl DockerRepository for BollardDockerRepository {
         let options = StopContainerOptions { t: timeout as i64 };
         self.docker.stop_container(id, Some(options))
             .await
-            .map_err(|e| AppError::Internal(format!("Docker stop error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Docker stop error: {}", e)))?;
         Ok(())
     }
 
     async fn restart_container(&self, id: &str, timeout: u64) -> Result<(), AppError> {
         self.docker.stop_container(id, Some(StopContainerOptions { t: timeout as i64 }))
             .await
-            .map_err(|e| AppError::Internal(format!("Docker stop error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Docker stop error: {}", e)))?;
         self.docker.start_container::<String>(id, None::<StartContainerOptions<String>>)
             .await
-            .map_err(|e| AppError::Internal(format!("Docker start error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Docker start error: {}", e)))?;
         Ok(())
     }
 
@@ -108,7 +108,7 @@ impl DockerRepository for BollardDockerRepository {
         let options = RemoveContainerOptions { force, ..Default::default() };
         self.docker.remove_container(id, Some(options))
             .await
-            .map_err(|e| AppError::Internal(format!("Docker remove error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Docker remove error: {}", e)))?;
         Ok(())
     }
 
@@ -140,7 +140,7 @@ impl DockerRepository for BollardDockerRepository {
         let mut stats_stream = self.docker.stats(id, Some(options));
         
         if let Some(stats_result) = stats_stream.next().await {
-            let stats = stats_result.map_err(|e| AppError::Internal(format!("Docker stats error: {}", e)))?;
+            let stats = stats_result.map_err(|e| AppError::internal(format!("Docker stats error: {}", e)))?;
             Ok(serde_json::json!({
                 "cpu_stats": stats.cpu_stats,
                 "memory_stats": stats.memory_stats,
@@ -148,7 +148,7 @@ impl DockerRepository for BollardDockerRepository {
                 "pids_stats": stats.pids_stats,
             }))
         } else {
-            Err(AppError::Internal("No stats available".into()))
+            Err(AppError::internal("No stats available"))
         }
     }
 
@@ -160,7 +160,7 @@ impl DockerRepository for BollardDockerRepository {
         };
         let images = self.docker.list_images(Some(options))
             .await
-            .map_err(|e| AppError::Internal(format!("Docker images error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Docker images error: {}", e)))?;
         
         Ok(images.into_iter().map(|img| {
             serde_json::json!({
@@ -177,24 +177,24 @@ impl DockerRepository for BollardDockerRepository {
         let options = RemoveImageOptions { force: true, ..Default::default() };
         self.docker.remove_image(id, Some(options), None)
             .await
-            .map_err(|e| AppError::Internal(format!("Docker remove image error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Docker remove image error: {}", e)))?;
         Ok(())
     }
 
     async fn compose_deploy(&self, project_name: &str, compose_yaml: &str) -> Result<serde_json::Value, AppError> {
         let tmp_dir = std::env::temp_dir().join(format!("flame_compose_{}", project_name));
         fs::create_dir_all(&tmp_dir)
-            .map_err(|e| AppError::Internal(format!("Failed to create temp dir: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to create temp dir: {}", e)))?;
         let compose_path = tmp_dir.join("docker-compose.yml");
         fs::write(&compose_path, compose_yaml)
-            .map_err(|e| AppError::Internal(format!("Failed to write compose file: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to write compose file: {}", e)))?;
         let output = Command::new("docker")
             .args(["compose", "-p", project_name, "-f", &compose_path.to_string_lossy(), "up", "-d"])
             .output()
-            .map_err(|e| AppError::Internal(format!("Failed to execute docker compose: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to execute docker compose: {}", e)))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::Internal(format!("Docker compose up failed: {}", stderr)));
+            return Err(AppError::internal(format!("Docker compose up failed: {}", stderr)));
         }
         Ok(serde_json::json!({
             "project_name": project_name,
@@ -207,10 +207,10 @@ impl DockerRepository for BollardDockerRepository {
         let output = Command::new("docker")
             .args(["compose", "-p", project_name, "up", "-d"])
             .output()
-            .map_err(|e| AppError::Internal(format!("Failed to execute docker compose: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to execute docker compose: {}", e)))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::Internal(format!("Docker compose up failed: {}", stderr)));
+            return Err(AppError::internal(format!("Docker compose up failed: {}", stderr)));
         }
         Ok(())
     }
@@ -219,10 +219,10 @@ impl DockerRepository for BollardDockerRepository {
         let output = Command::new("docker")
             .args(["compose", "-p", project_name, "down"])
             .output()
-            .map_err(|e| AppError::Internal(format!("Failed to execute docker compose: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to execute docker compose: {}", e)))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::Internal(format!("Docker compose down failed: {}", stderr)));
+            return Err(AppError::internal(format!("Docker compose down failed: {}", stderr)));
         }
         Ok(())
     }

@@ -21,7 +21,8 @@
 - **Web 终端** — xterm.js + WebSocket，浏览器内直接连接服务器 Shell
 - **WASM 插件系统** — wasmtime 沙箱，生命周期钩子/指标追踪/热重载/依赖校验；内置 WASM 工具（插件表持久化 + 启动恢复）
 - **面板配置** — Key-Value 配置，主题/多语言/端口/日志/2FA/JWT 密钥轮换
-- **用户 & RBAC** — JWT + bcrypt，admin/operator/viewer 三角色，60+ 路由权限映射
+- **用户 & RBAC** — JWT + bcrypt，admin/operator/viewer 三角色，60+ 路由权限映射；认证+RBAC 合并中间件（一次查库）
+- **统一错误体系** — 全部错误（含中间件/404/JSON 解析失败）返回 `{code, error, message}` JSON，8 个稳定错误码，前端按码国际化提示；内部错误完整日志链
 - **国际化** — 简体中文 / English / 日本語 三语言支持，前端实时切换
 - **暗色主题** — 跟随系统 / 手动切换，Element Plus 暗色变量全覆盖
 - **审计日志 & 系统日志** — REST + WebSocket 双通道
@@ -51,7 +52,7 @@ Flamepanel/
 │   │   ├── application/   # 服务层 (UserService/DockerService/AppStoreService/…)
 │   │   ├── infrastructure/# 仓库实现 (InMemory + SQLite + Bollard + OS 抽象)
 │   │   │   └── app_store/ # 应用商店适配器 (Flame/1Panel/宝塔) + 变量映射 + 安全扫描
-│   │   ├── api/           # HTTP 层 (17 个 handler 模块, 113 路由, JWT+RBAC 中间件)
+│   │   ├── api/           # HTTP 层 (17 个 handler 模块各带 routes(), 113 路由, 统一错误/中间件)
 │   │   ├── plugin/        # WASM 沙箱 + 注册表
 │   │   ├── webserver/     # 5 引擎配置生成 + 性能预设 + 进程管理
 │   │   ├── database/      # MySQL/Redis 原生管理
@@ -358,7 +359,8 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 - **Phase 4** 🔄 进行中：SSL 证书、定时任务、备份系统、告警通知、Web 服务器 / 数据库管理增强
 - **Phase 5** ✅ 应用商店：1Panel/宝塔/Flame 三格式适配器 + 容器/原生/WASM 三模式安装编排（变量映射、安全扫描、失败回滚）、WASM 内置工具持久化、完整 API + 前端商店视图（动态表单安装向导）
 - **Phase 5** ✅ Web 引擎统一：性能预设（资源感知推荐）+ 引擎一键切换（Web 服务器 & 网站）+ 预设应用，前端预设/切换 UI
-- **测试** ✅ 139 测试全部通过（84 集成 + 55 单元）
+- **Phase 6** ✅ 内核优化：统一错误体系（8 稳定错误码 + JSON 化中间件/404/ApiJson）、认证+RBAC 合并中间件、Services 聚合 + 路由分模块、release profile 优化（18MB stripped）、前端错误码 i18n
+- **测试** ✅ 141 测试全部通过（86 集成 + 55 单元）
 
 ## License
 

@@ -1,6 +1,8 @@
 use axum::{Json, extract::{State, Path, Query}};
+use axum::Router;
 use serde::{Deserialize, Serialize};
 use crate::domain::entity::DockerContainer;
+use crate::api::extract::ApiJson;
 use crate::api::types::AppState;
 use crate::core::error::AppError;
 
@@ -113,7 +115,7 @@ pub async fn remove_image(
 
 pub async fn compose_deploy(
     State(state): State<AppState>,
-    Json(req): Json<ComposeDeployRequest>,
+    ApiJson(req): ApiJson<ComposeDeployRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let result = state.docker_service.compose_deploy(&req.project_name, &req.compose_yaml).await?;
     Ok(Json(result))
@@ -133,4 +135,23 @@ pub async fn compose_down(
 ) -> Result<Json<()>, AppError> {
     state.docker_service.compose_down(&project_name).await?;
     Ok(Json(()))
+}
+
+
+/// 路由表（集中注册于 routes.rs 组合根）
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/docker/containers", axum::routing::get(list))
+        .route("/api/docker/containers/:id", axum::routing::get(get))
+        .route("/api/docker/containers/:id/start", axum::routing::post(start))
+        .route("/api/docker/containers/:id/stop", axum::routing::post(stop))
+        .route("/api/docker/containers/:id/restart", axum::routing::post(restart))
+        .route("/api/docker/containers/:id/remove", axum::routing::post(remove))
+        .route("/api/docker/containers/:id/logs", axum::routing::get(logs))
+        .route("/api/docker/containers/:id/stats", axum::routing::get(stats))
+        .route("/api/docker/images", axum::routing::get(list_images))
+        .route("/api/docker/images/:id/remove", axum::routing::post(remove_image))
+        .route("/api/docker/compose/deploy", axum::routing::post(compose_deploy))
+        .route("/api/docker/compose/:project_name/up", axum::routing::post(compose_up))
+        .route("/api/docker/compose/:project_name/down", axum::routing::post(compose_down))
 }

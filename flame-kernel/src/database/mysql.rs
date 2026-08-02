@@ -21,11 +21,11 @@ impl MySqlManager {
             .args(["-u", "root", "-e", sql])
             .output()
             .await
-            .map_err(|e| AppError::Internal(format!("MySQL exec failed: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("MySQL exec failed: {}", e)))?;
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         if !out.status.success() && !stderr.is_empty() {
-            return Err(AppError::Internal(format!("MySQL error: {}", stderr)));
+            return Err(AppError::internal(format!("MySQL error: {}", stderr)));
         }
         Ok(stdout)
     }
@@ -117,7 +117,7 @@ impl NativeDbManager for MySqlManager {
             .args(["-u", "root", "-e", "SELECT VERSION();"])
             .output()
             .await
-            .map_err(|e| AppError::Internal(format!("Failed to get MySQL version: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to get MySQL version: {}", e)))?;
         let s = String::from_utf8_lossy(&out.stdout);
         for line in s.lines() {
             if line.contains('.') && !line.contains("VERSION") {

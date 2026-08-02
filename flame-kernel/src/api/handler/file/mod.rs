@@ -1,5 +1,7 @@
 use axum::{Json, extract::{Query, State}, body::Bytes};
+use axum::Router;
 use serde::Deserialize;
+use crate::api::extract::ApiJson;
 use crate::api::types::AppState;
 use crate::core::error::AppError;
 use crate::file::{FileService, FileInfo};
@@ -75,7 +77,7 @@ pub async fn read(
 
 pub async fn write(
     State(state): State<AppState>,
-    Json(req): Json<WriteRequest>,
+    ApiJson(req): ApiJson<WriteRequest>,
 ) -> Result<Json<&'static str>, AppError> {
     FileService::write(&req.path, &req.content).await?;
     log_file_op(&state, "file_write", &req.path).await;
@@ -84,7 +86,7 @@ pub async fn write(
 
 pub async fn create_file(
     State(state): State<AppState>,
-    Json(req): Json<CreateRequest>,
+    ApiJson(req): ApiJson<CreateRequest>,
 ) -> Result<Json<&'static str>, AppError> {
     FileService::create_file(&req.path).await?;
     log_file_op(&state, "file_create_file", &req.path).await;
@@ -93,7 +95,7 @@ pub async fn create_file(
 
 pub async fn create_dir(
     State(state): State<AppState>,
-    Json(req): Json<CreateRequest>,
+    ApiJson(req): ApiJson<CreateRequest>,
 ) -> Result<Json<&'static str>, AppError> {
     FileService::create_dir(&req.path).await?;
     log_file_op(&state, "file_create_dir", &req.path).await;
@@ -111,7 +113,7 @@ pub async fn delete(
 
 pub async fn rename(
     State(state): State<AppState>,
-    Json(req): Json<RenameRequest>,
+    ApiJson(req): ApiJson<RenameRequest>,
 ) -> Result<Json<&'static str>, AppError> {
     FileService::rename(&req.old_path, &req.new_path).await?;
     log_file_op(&state, "file_rename", &format!("{} -> {}", req.old_path, req.new_path)).await;
@@ -120,7 +122,7 @@ pub async fn rename(
 
 pub async fn chmod(
     State(state): State<AppState>,
-    Json(req): Json<ChmodRequest>,
+    ApiJson(req): ApiJson<ChmodRequest>,
 ) -> Result<Json<&'static str>, AppError> {
     FileService::chmod(&req.path, &req.mode).await?;
     log_file_op(&state, "file_chmod", &format!("{} {}", req.path, req.mode)).await;
@@ -152,4 +154,21 @@ pub async fn download(
         ],
         content,
     ))
+}
+
+
+
+/// 路由表（集中注册于 routes.rs 组合根）
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/files", axum::routing::get(list))
+        .route("/api/files/read", axum::routing::get(read))
+        .route("/api/files/write", axum::routing::post(write))
+        .route("/api/files/create-file", axum::routing::post(create_file))
+        .route("/api/files/create-dir", axum::routing::post(create_dir))
+        .route("/api/files/delete", axum::routing::delete(delete))
+        .route("/api/files/rename", axum::routing::post(rename))
+        .route("/api/files/chmod", axum::routing::post(chmod))
+        .route("/api/files/upload", axum::routing::post(upload))
+        .route("/api/files/download", axum::routing::get(download))
 }

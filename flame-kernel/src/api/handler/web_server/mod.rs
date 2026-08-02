@@ -1,5 +1,7 @@
 use axum::{Json, extract::{State, Path, Query}};
+use axum::Router;
 use serde::Serialize;
+use crate::api::extract::ApiJson;
 use crate::api::types::{AppState, WebServerResponse, CreateWebServerInstanceRequest, PaginationParams, PaginatedResponse};
 use crate::core::error::AppError;
 use crate::domain::entity::WebServerInstance;
@@ -57,7 +59,7 @@ pub async fn get(
 
 pub async fn create(
     State(state): State<AppState>,
-    Json(req): Json<CreateWebServerInstanceRequest>,
+    ApiJson(req): ApiJson<CreateWebServerInstanceRequest>,
 ) -> Result<Json<WebServerResponse>, AppError> {
     let engine = WebServerEngine::from_str(&req.engine)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown engine: {}", req.engine)))?;
@@ -80,7 +82,7 @@ pub async fn create(
 pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<serde_json::Value>,
+    ApiJson(req): ApiJson<serde_json::Value>,
 ) -> Result<Json<WebServerResponse>, AppError> {
     let mut server = state.web_server_service.get_server(id).await?;
     if let Some(engine) = req.get("engine").and_then(|v| v.as_str()) {
@@ -168,14 +170,14 @@ pub async fn get_config(
 pub async fn update_config(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<serde_json::Value>,
+    ApiJson(req): ApiJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let server = state.web_server_service.get_server(id).await?;
     let content = req.get("content").and_then(|v| v.as_str())
         .ok_or_else(|| AppError::BadRequest("Missing 'content' field".into()))?;
     tokio::fs::write(&server.config_path, content)
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to write config: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("Failed to write config: {}", e)))?;
     Ok(Json(serde_json::json!({"message": "Config updated", "id": id})))
 }
 
@@ -205,7 +207,7 @@ pub struct ApplyPresetRequest {
 pub async fn switch_engine(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<SwitchEngineRequest>,
+    ApiJson(req): ApiJson<SwitchEngineRequest>,
 ) -> Result<Json<WebServerInstance>, AppError> {
     let engine = WebServerEngine::from_str(&req.engine)
         .ok_or_else(|| AppError::BadRequest(format!("未知引擎: {}", req.engine)))?;
@@ -216,7 +218,7 @@ pub async fn switch_engine(
 pub async fn apply_preset(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<ApplyPresetRequest>,
+    ApiJson(req): ApiJson<ApplyPresetRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let preset = crate::webserver::preset::PerformancePreset::from_str(&req.preset)
         .ok_or_else(|| AppError::BadRequest(format!("未知预设: {}", req.preset)))?;
@@ -245,4 +247,27 @@ pub async fn list_presets() -> Json<Vec<serde_json::Value>> {
         "recommended": p == recommended,
         "worker_processes": p.worker_processes("nginx"),
     })).collect())
+}
+
+
+
+/// 路由表（集中注册于 routes.rs 组合根）
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/web-servers/engines", axum::routing::get(list_engines))
+        .route("/api/web-servers", axum::routing::get(list))
+        .route("/api/web-servers", axum::routing::post(create))
+        .route("/api/web-servers/:id", axum::routing::get(get))
+        .route("/api/web-servers/:id", axum::routing::put(update))
+        .route("/api/web-servers/:id", axum::routing::delete(delete))
+        .route("/api/web-servers/:id/start", axum::routing::post(start))
+        .route("/api/web-servers/:id/stop", axum::routing::post(stop))
+        .route("/api/web-servers/:id/restart", axum::routing::post(restart))
+        .route("/api/web-servers/:id/reload", axum::routing::post(reload))
+        .route("/api/web-servers/:id/configtest", axum::routing::post(config_test))
+        .route("/api/web-servers/:id/config", axum::routing::get(get_config))
+        .route("/api/web-servers/:id/config", axum::routing::post(update_config))
+        .route("/api/web-servers/:id/switch-engine", axum::routing::post(switch_engine))
+        .route("/api/web-servers/:id/preset", axum::routing::post(apply_preset))
+        .route("/api/web-servers/presets", axum::routing::get(list_presets))
 }

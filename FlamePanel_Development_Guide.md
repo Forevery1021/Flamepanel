@@ -1,6 +1,6 @@
 # FlamePanel 开发部署流程指南
 
-> Rust 内核 + Vue 3 前端 · 版本 v1.11 · 更新 2026-08-01
+> Rust 内核 + Vue 3 前端 · 版本 v1.13 · 更新 2026-08-02
 
 ## 目录
 
@@ -23,7 +23,7 @@
 |------|------|------|
 | Rust | 1.85+ | 编译后端内核 |
 | Node.js | 20+ | 构建前端面板 |
-| pnpm (推荐) 或 npm | 任意 | 前端包管理 |
+| npm (推荐, CI 使用 npm ci) | 任意 | 前端包管理 |
 | Docker (可选) | 任意 | 容器化部署 |
 | just (可选) | 任意 | 快捷命令 |
 
@@ -33,7 +33,6 @@ rustc --version   # rustc 1.85.0+
 node --version    # v20.0.0+
 npm --version     # 10+
 docker --version  # (可选)
-pnpm --version    # (可选)
 ```
 
 ---
@@ -86,7 +85,12 @@ just dev              # 后端热重载 (需 cargo-watch)
 just build-frontend   # 构建前端
 just build            # 完整构建 (前端 + 后端 release)
 just run              # 构建并启动
+just test             # 运行后端测试
+just check            # 后端 check + 前端类型检查
+just lint             # 前端 ESLint + Clippy
+just typecheck        # 前端 vue-tsc
 just clean            # 清理构建产物和数据库
+just docker-up        # Docker Compose 启动
 ```
 
 ---
@@ -100,11 +104,11 @@ Flamepanel/
 │   │   ├── main.rs        # 入口 #[tokio::main]
 │   │   ├── lib.rs         # FlameKernel 统一入口 + run()
 │   │   ├── config/        # TOML 配置加载
-│   │   ├── core/          # AppError 定义
+│   │   ├── core/          # 统一错误体系 (AppError + ErrorCode)
 │   │   ├── domain/        # 实体 + Repository trait
-│   │   ├── application/   # 服务层
-│   │   ├── infrastructure/# InMemory/SQLite/Docker 实现 + OS 抽象
-│   │   ├── api/           # Handler + 路由 + 中间件
+│   │   ├── application/   # 服务层 (含 app_store_service 三模式编排)
+│   │   ├── infrastructure/# InMemory/SQLite/Docker 实现 + OS 抽象 + app_store 适配器(Flame/1Panel/宝塔)
+│   │   ├── api/           # Handler(各带 routes()) + 组合根路由 + 中间件 + ApiJson 提取器
 │   │   ├── plugin/        # WASM 沙箱
 │   │   ├── webserver/     # 5 引擎配置生成 + 进程管理
 │   │   ├── database/      # MySQL/Redis 原生管理
@@ -114,13 +118,13 @@ Flamepanel/
 │   │   ├── resilience/    # 熔断 + 重试
 │   │   └── utils/         # JWT/bcrypt/验证
 │   └── tests/
-│       └── integration_test.rs  # 85 个测试
+│       └── integration_test.rs  # 86 个集成测试 (另有 55 个单元测试)
 ├── frontend/              # Vue 3 + Element Plus
 │   └── src/
 │       ├── api/           # Axios 客户端
 │       ├── components/    # Layout/Sidebar/TopBar
 │       ├── stores/        # Pinia
-│       ├── router/        # 16 条路由
+│       ├── router/        # 18 条路由
 │       ├── locales/       # i18n: zh-CN/en-US/ja-JP
 │       └── views/         # 17 个视图页面
 ├── agent/                 # 轻量 Rust Agent
@@ -132,15 +136,22 @@ Flamepanel/
 ```
 
 **后端架构层级**：
-```
-api/ → application/ → domain/  ← infrastructure/
+
+```mermaid
+flowchart TD
+    API["API 层 api/<br/>Handler + 中间件"] --> APP["应用层 application/<br/>Service 方法"]
+    APP --> DOM["领域层 domain/<br/>实体 + Trait"]
+    INF["基础设施层 infrastructure/<br/>InMemory ↔ SQLite"] -. 实现 Trait .-> DOM
+    %% 组合根: 各模块 routes() 在 routes.rs 汇聚
+    CR["组合根<br/>build_services + routes.rs"] --> API
 ```
 
 - `domain/` 零依赖，定义实体和 trait
 - `application/` 引用 domain，实现业务逻辑
 - `infrastructure/` 实现 domain 的 trait（可切换 InMemory ↔ SQLite）
 - `api/` 引用 application 和 domain，暴露 HTTP 端点
-- 严禁 infrastructure 或 api 绕过 service 直接访问仓库
+- 严禁 infrastructure 或 api 绕过 service 直接访问仓库（中间件/Handler 一律经 Service 方法）
+- 组合根：`FlameKernel::build_services` 组装 `Services` 聚合，路由在 `routes.rs` 汇聚各模块 `routes()`
 
 ---
 
@@ -154,7 +165,7 @@ cargo build              # debug
 cargo build --release    # release (优化二进制体积和性能)
 ```
 
-产物：`target/debug/flame-kernel.exe` 或 `target/release/flame-kernel.exe`
+产物：`target/debug/flame-kernel` 或 `target/release/flame-kernel`（release 已启用 lto="fat" + strip，约 18MB）
 
 ### 4.2 仅构建前端
 
@@ -183,7 +194,7 @@ cd ../flame-kernel && cargo build --release
 
 ```bash
 cargo check        # 零错误零警告
-cargo test         # 85 个测试全部通过
+cargo test         # 141 个测试全部通过 (86 集成 + 55 单元)
 cargo clippy       # (可选) lint 检查
 ```
 
@@ -207,10 +218,11 @@ sudo ./install.sh -u myadmin -p 'Str0ng!P@ss' -P 9090 -s 'your-jwt-secret'
 ```
 
 脚本自动完成：
-- 安装系统依赖（curl/wget/openssl）
-- 创建 `/opt/flamepanel/` 目录结构
-- 部署二进制到 `/usr/local/bin/flamepanel`
-- 创建 systemd 服务 `flamepanel.service`
+- 安装系统依赖（curl/wget/openssl/nginx）
+- 创建 `/opt/flamepanel/` 目录结构（含前端静态资源目录）
+- 部署二进制到 `/usr/local/bin/flamepanel`，前端产物到 `/opt/flamepanel/frontend`
+- 自动生成 nginx 反向代理配置（80 端口 → 后端 API + `/ws` WebSocket 透传）
+- 创建 systemd 服务 `flamepanel.service`（密钥存 `/opt/flamepanel/flamepanel.env`，600 权限）
 - 启动并设置开机自启
 
 ### 5.2 方式二：手动 systemd 部署
@@ -239,9 +251,7 @@ WorkingDirectory=/opt/flamepanel
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
-Environment=OP_PORT=8080
-Environment=OP_DATABASE_URL=sqlite:/opt/flamepanel/data/flamepanel.db?mode=rwc
-Environment=OP_JWT_SECRET=your-secret-key
+EnvironmentFile=/opt/flamepanel/flamepanel.env
 
 [Install]
 WantedBy=multi-user.target
@@ -265,11 +275,11 @@ docker compose logs -f
 docker compose down
 ```
 
-默认 Docker 配置：
-- 映射端口 `8080:8080`
+默认 Docker 配置（`docker-compose.yml`）：
+- 映射端口 `8080:80`（容器内 nginx 提供前端静态资源 + API/WS 反向代理）
 - 挂载 `./data:/app/data`（持久化数据库）
-- 挂载 `/var/run/docker.sock`（Docker 管理功能）
-- 挂载 `/etc/nginx`（Web 服务器管理）
+- 挂载 `/var/run/docker.sock:/var/run/docker.sock:ro`（Docker 管理功能，只读）
+- 环境变量 `OP_PORT` / `OP_JWT_SECRET` 注入
 
 ### 5.4 方式四：Nginx 反向代理 + 后端
 
@@ -379,8 +389,13 @@ admin_password = "your-admin-password"
 
 ### 7.1 新增功能标准流程
 
-```
-Domain 层 → Repository Trait → Infrastructure 实现 → Application Service → API Handler → 测试
+```mermaid
+flowchart LR
+    A["Domain 层<br/>实体 + Trait"] --> B["Infrastructure 层<br/>实现 + migration"]
+    B --> C["Application 层<br/>Service 方法"]
+    C --> D["API 层<br/>Handler + routes()"]
+    D --> E["测试<br/>集成测试"]
+    E --> F["验证<br/>check / test / build"]
 ```
 
 **步骤详解**：
@@ -398,10 +413,10 @@ Domain 层 → Repository Trait → Infrastructure 实现 → Application Servic
 - `flame-kernel/src/application/service.rs` — Service 结构体和方法
 
 **Step 4: API 层**
-- `flame-kernel/src/api/handler/xxx/mod.rs` — Handler 函数
-- `flame-kernel/src/api/types.rs` — 更新 AppState + 请求/响应类型
-- `flame-kernel/src/api/routes.rs` — 注册路由
-- `flame-kernel/src/api/types.rs` — 添加 route_permission() 映射
+- `flame-kernel/src/api/handler/xxx/mod.rs` — Handler 函数 + 模块路由表 `pub fn routes()`
+- `flame-kernel/src/api/types.rs` — 更新 `AppState`/`Services` + 请求/响应类型 + `route_permission()` 映射
+- `flame-kernel/src/api/routes.rs` — 组合根：`.merge(模块::routes())` 汇聚路由
+- 请求体提取使用 `ApiJson<T>`（`api/extract.rs`），统一 JSON 解析错误
 
 **Step 5: 测试**
 - `flame-kernel/tests/integration_test.rs` — 集成测试
@@ -415,12 +430,22 @@ cargo build    # 编译成功
 
 ### 7.2 中间件栈顺序
 
+```mermaid
+flowchart LR
+    REQ["请求"] --> TL["TraceLogger"]
+    TL --> RL["RateLimiter<br/>120 req/min"]
+    RL --> AUTH{"Auth+RBAC<br/>合并中间件"}
+    AUTH -- "白名单路由" --> H["Handler"]
+    AUTH -- "JWT 校验 + 一次查库通过" --> H
+    AUTH -- "未登录 / 令牌无效" --> E["401 AUTH_UNAUTHORIZED<br/>JSON"]
+    AUTH -- "无操作权限" --> F["403 AUTH_FORBIDDEN<br/>JSON"]
 ```
-TraceLogger → RateLimiter (120 req/min) → JWT Auth → RBAC → Handler
-```
+
+认证与 RBAC 合并为单个中间件（`api/middleware.rs`）：一次 JWT 校验 + 一次用户查询，完成身份认证与权限校验（此前为两次查库）。
 
 白名单路由（跳过认证）：
 - `GET /health`
+- `POST /api/auth/login`
 - `WS /ws/*`（metrics / logs / terminal）
 
 ### 7.3 RBAC 权限映射
@@ -453,6 +478,54 @@ fn route_permission(method: &Method, path: &str) -> Option<&'static str> {
 
 ---
 
+### 7.5 统一错误规范
+
+**错误响应格式**（所有错误均为 JSON，含中间件与 404）：
+
+```json
+{ "code": 400, "error": "BAD_REQUEST", "message": "Bad request: Invalid JSON body: ..." }
+```
+
+**错误处理时序**：
+
+```mermaid
+sequenceDiagram
+    participant F as 前端 client.ts
+    participant MW as 中间件
+    participant H as Handler
+    participant S as Service
+    participant D as 仓库/依赖
+    F->>MW: 请求(带 JWT)
+    MW-->>F: 401/403 JSON (AUTH_*)
+    MW->>H: 鉴权通过
+    H->>S: 业务调用
+    S->>D: 数据访问
+    D-->>S: 底层错误 (io/sqlx/...)
+    S-->>H: AppError::internal_with_source
+    H-->>F: 5xx JSON (INTERNAL_ERROR)
+    Note over S: 5xx 自动 tracing::error<br/>记录完整错误链，不泄露客户端
+```
+
+| `error` 错误码 | HTTP | 含义 |
+|----------------|------|------|
+| `AUTH_UNAUTHORIZED` | 401 | 未登录 / 令牌无效 / 令牌过期 |
+| `AUTH_FORBIDDEN` | 403 | 无操作权限（RBAC 拒绝） |
+| `NOT_FOUND` | 404 | 资源或路由不存在（含全局 fallback） |
+| `BAD_REQUEST` | 400 | 参数错误 / JSON 解析失败（统一 `ApiJson` 提取器） |
+| `VALIDATION_ERROR` | 400 | 业务校验失败 |
+| `CONFLICT` | 409 | 资源冲突（如用户名重复、端口占用） |
+| `SERVICE_UNAVAILABLE` | 503 | 依赖服务不可用 |
+| `INTERNAL_ERROR` | 500 | 内部错误（完整错误链仅记录日志，不暴露客户端） |
+
+**后端规则**：
+- 内部错误使用 `AppError::internal("上下文")` 或 `AppError::internal_with_source("上下文", err)`（保留 source 链，5xx 自动 `tracing::error` 记录）
+- 请求体反序列化统一走 `ApiJson<T>` 提取器（`api/extract.rs`），拒绝时返回 `BAD_REQUEST` 而非 axum 默认纯文本 422
+- 未知路由经 `routes::fallback_handler` 返回 JSON 404
+
+**前端规则**：
+- `api/client.ts` 拦截器将后端错误规范化为 `{ code, message, status }`，401 自动跳登录页
+- `utils/error.ts` 的 `getErrorMessage(e, fallback)` 优先按错误码查 i18n `common.error.<code>` 文案（三语言已内置 8 个错误码），再回退后端 message
+
 ## 8. 服务管理
 
 ### 8.1 Systemd 服务
@@ -480,7 +553,7 @@ docker compose build --no-cache  # 重新构建
 ### 8.3 手动运行
 
 ```bash
-# 后端
+# 后端（release profile 已优化：lto= fat / strip / panic=abort）
 cd flame-kernel && cargo run --release
 
 # 前端
@@ -566,7 +639,7 @@ lsof -i :8080
 netstat -tlnp | grep 8080
 
 # 查看错误日志
-RUST_LOG=debug ./flame-panel
+RUST_LOG=debug /usr/local/bin/flamepanel
 
 # 检查数据库权限
 ls -la /opt/flamepanel/data/
@@ -620,30 +693,48 @@ npm install
 
 ## 架构全景
 
-```
-前端 (Vue 3 + Element Plus)
-   │ HTTP API / WebSocket
-   ▼
-API 层 (Axum 0.6, 86+ 路由)
-   │ JWT + RBAC 中间件
-   ▼
-Application Service 层 (业务逻辑)
-   │
-   ▼
-Domain 层 (实体 + Trait)
-   ▲
-   │
-Infrastructure 层 (InMemory / SQLite / OS 命令)
+```mermaid
+flowchart TD
+    FE["前端<br/>Vue 3 + Element Plus"] -->|"HTTP API / WebSocket"| API["API 层<br/>Axum · 113 路由<br/>组合根 routes() 汇聚"]
+    API -->|"Auth+RBAC 合并中间件<br/>统一 JSON 错误格式"| APP["Application Service 层<br/>业务逻辑"]
+    APP --> DOM["Domain 层<br/>实体 + Trait"]
+    INF["Infrastructure 层<br/>InMemory / SQLite / OS 命令"] -. 实现 Trait .-> DOM
 ```
 
 **模块端点统计**：
 - 健康检查: 1 | 认证: 2 | 用户: 3 | 节点: 3 | 网站: 6
-- Docker: 13 | 插件: 13 | 应用商店: 11 | Web 服务器: 19 | 数据库: 15
+- Docker: 13 | 插件: 13 | 应用商店: 11 | Web 服务器: 16 | 数据库: 15
 - 文件: 10 | 防火墙: 11 | 设置: 3 | 日志: 2 | WebSocket: 3
 
 ---
 
 ## 11. 更新日志
+
+### v0.3.0 (2026-08-02)
+
+#### 统一错误体系
+- **稳定错误码** — `ErrorResponse` 新增 `error` 字段（`AUTH_UNAUTHORIZED`/`AUTH_FORBIDDEN`/`NOT_FOUND`/`BAD_REQUEST`/`VALIDATION_ERROR`/`CONFLICT`/`SERVICE_UNAVAILABLE`/`INTERNAL_ERROR`），跨版本稳定，供前端国际化
+- **新增错误变体** — `Conflict`（409，用户名重复等）、`ServiceUnavailable`（503）
+- **错误链保留** — `AppError::Internal` 改为 `{ message, source }`，`internal_with_source()` 保留底层错误；`From<io/serde_json/ParseInt/sqlx>` 自动转换；5xx 自动 `tracing::error` 记录完整错误链（不泄露客户端）；248 处调用点全部迁移
+- **中间件 JSON 化** — auth/RBAC 中间件返回统一 JSON 错误体（此前为裸状态码）；新增 `ApiJson<T>` 提取器，JSON 解析失败返回 `BAD_REQUEST` 统一格式（此前为 axum 纯文本 422）
+- **全局 404 fallback** — 未知路由返回 JSON `NOT_FOUND` 而非纯文本
+
+#### 架构细化
+- **认证+RBAC 中间件合并** — 一次 JWT 校验 + 一次用户查询完成认证与鉴权（此前两次查库）；消除中间件直通 `user_repo` 的架构违规
+- **Service 方法补齐** — `UserService` 新增 `find_by_id`/`find_by_username`/`update_password`，auth handler 不再直接访问仓库（遵循「严禁绕过 service」规范）
+- **Services 聚合结构体** — `AppState::new` 由 21 参数收敛为 `Services` 分组 + 6 参数；`FlameKernel::build_services` 独立组合根，构造器减半
+- **路由分模块** — 113 条路由按 handler 模块拆分为各自 `routes()`，`routes.rs` 收敛为组合根（merge + fallback）
+
+#### 编译优化
+- **release profile** — `opt-level=3` + `lto="fat"` + `codegen-units=1` + `panic="abort"` + `strip="symbols"`，二进制 18MB（stripped）
+- **dev profile** — `opt-level=1` 加速开发迭代
+
+#### 前端交互
+- **统一错误拦截** — `client.ts` 将后端错误规范化为 `{ code, message, status }`，401 自动跳登录页（登录页内不重复跳转）
+- **错误码 i18n** — `getErrorMessage()` 按错误码查 `common.error.<code>`（zh/en/ja 三语言 8 个错误码），回退后端 message
+
+#### 测试
+- 141 个测试全部通过（86 集成 + 55 单元），新增：401/403 JSON 错误格式、全局 404 JSON、错误响应结构断言
 
 ### v0.2.0 (2026-08-01)
 

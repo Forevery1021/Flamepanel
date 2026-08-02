@@ -1,5 +1,12 @@
 import axios from 'axios'
 
+/** 后端统一错误响应（见 flame-kernel/src/core/error.rs） */
+export interface ApiError {
+  code: string
+  message: string
+  status: number
+}
+
 const api = axios.create({
   baseURL: '/api',
   timeout: 15000,
@@ -20,8 +27,21 @@ api.interceptors.response.use(
       localStorage.removeItem('token')
       localStorage.removeItem('username')
       localStorage.removeItem('role')
-      window.location.href = '/login'
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
     }
+
+    // 规范化后端统一错误格式 {code, error, message}
+    const data = err.response?.data
+    if (data && typeof data === 'object' && 'error' in data) {
+      const normalized = new Error(data.message || err.message) as Error & ApiError
+      normalized.code = data.error
+      normalized.message = data.message || err.message
+      normalized.status = err.response.status
+      return Promise.reject(normalized)
+    }
+
     return Promise.reject(err)
   },
 )

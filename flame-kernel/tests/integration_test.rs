@@ -13,7 +13,7 @@ use flame_kernel::application::service::*;
 use flame_kernel::infrastructure::db::*;
 use flame_kernel::infrastructure::factory::RepoFactory;
 use flame_kernel::infrastructure::metrics::MetricsHistory;
-use flame_kernel::api::{routes, types::AppState};
+use flame_kernel::api::{routes, types::{AppState, Services}};
 use flame_kernel::api::middleware;
 use flame_kernel::domain::entity::*;
 use flame_kernel::domain::repository::*;
@@ -76,27 +76,30 @@ async fn setup_router() -> (axum::Router, AppState) {
         plugin_repo.clone(),
         AppStoreService::default_apps_dir(),
     ));
-    let state = AppState::new(
-        "test-secret".to_string(),
-        UserService::new(user_repo),
-        NodeService::new(node_repo),
-        WebsiteService::new(website_repo),
+    let services = Services {
+        user_service: Arc::new(UserService::new(user_repo)),
+        node_service: Arc::new(NodeService::new(node_repo)),
+        website_service: Arc::new(WebsiteService::new(website_repo)),
         docker_service,
-        RoleService::new(role_repo, perm_repo.clone()),
-        PermissionService::new(perm_repo),
-        OperationLogService::new(log_repo),
-        LogService::new(sys_log_repo),
-        metrics_history,
-        metrics_tx,
-        log_tx,
+        role_service: Arc::new(RoleService::new(role_repo, perm_repo.clone())),
+        permission_service: Arc::new(PermissionService::new(perm_repo)),
+        operation_log_service: Arc::new(OperationLogService::new(log_repo)),
+        log_service: Arc::new(LogService::new(sys_log_repo)),
         plugin_sandbox,
         plugin_registry,
         plugin_repo,
         app_store_service,
         web_server_service,
-        SettingsService::new(settings_repo),
+        settings_service: Arc::new(SettingsService::new(settings_repo)),
         database_service,
-        FirewallService::new(firewall_repo),
+        firewall_service: Arc::new(FirewallService::new(firewall_repo)),
+    };
+    let state = AppState::new(
+        "test-secret".to_string(),
+        services,
+        metrics_history,
+        metrics_tx,
+        log_tx,
         terminal_manager,
     );
     (routes::create_router(state.clone()), state)
@@ -557,6 +560,13 @@ async fn test_auth_missing_token_returns_401() {
         .oneshot(Request::builder().uri("/api/users").body(Body::empty()).unwrap())
         .await.unwrap();
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // 错误响应应为统一 JSON 格式 {code, error, message}
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], 401);
+    assert_eq!(body["error"], "AUTH_UNAUTHORIZED");
+    assert!(body["message"].is_string());
 }
 
 #[tokio::test]
@@ -569,6 +579,10 @@ async fn test_auth_invalid_token_returns_401() {
                 .header(h, v).body(Body::empty()).unwrap()
         ).await.unwrap();
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["error"], "AUTH_UNAUTHORIZED");
 }
 
 #[tokio::test]
@@ -1196,7 +1210,7 @@ async fn test_jwt_sign_and_verify() {
 async fn test_jwt_invalid_token() {
     let jwt = JwtUtils::new("test-secret", 1);
     let err = jwt.verify("invalid.token.here").unwrap_err();
-    assert!(matches!(err, AppError::Unauthorized));
+    assert!(matches!(err, AppError::Unauthorized(_)));
 }
 
 #[tokio::test]
@@ -1205,7 +1219,7 @@ async fn test_jwt_wrong_secret() {
     let verifier = JwtUtils::new("wrong-secret", 1);
     let token = signer.sign(1).unwrap();
     let err = verifier.verify(&token).unwrap_err();
-    assert!(matches!(err, AppError::Unauthorized));
+    assert!(matches!(err, AppError::Unauthorized(_)));
 }
 
 // ── 9. Password Utils ──────────────────────────────────
@@ -1228,11 +1242,11 @@ async fn test_app_error_into_response() {
 
     let tests = vec![
         (AppError::NotFound("x".into()), StatusCode::NOT_FOUND),
-        (AppError::Unauthorized, StatusCode::UNAUTHORIZED),
+        (AppError::Unauthorized("x".into()), StatusCode::UNAUTHORIZED),
         (AppError::Forbidden("x".into()), StatusCode::FORBIDDEN),
         (AppError::BadRequest("x".into()), StatusCode::BAD_REQUEST),
         (AppError::ValidationError("x".into()), StatusCode::BAD_REQUEST),
-        (AppError::Internal("x".into()), StatusCode::INTERNAL_SERVER_ERROR),
+        (AppError::internal("x"), StatusCode::INTERNAL_SERVER_ERROR),
     ];
     for (err, expected) in tests {
         let resp = err.into_response();
@@ -1798,4 +1812,49 @@ async fn test_website_switch_engine() {
     let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
     let updated: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(updated["engine"], "openlitespeed");
+}
+
+// ── 13. Unified Error Format ────────────────────────────
+
+/// 未知路由应返回统一 JSON 404（而非 axum 默认纯文本）
+#[tokio::test]
+async fn test_unknown_route_returns_json_404() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+    let res = app
+        .oneshot(Request::builder().uri("/api/nonexistent-route").header(h, v).body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], 404);
+    assert_eq!(body["error"], "NOT_FOUND");
+    assert!(body["message"].is_string());
+}
+
+/// 无权限用户（viewer）访问管理端点应返回统一 JSON 403
+#[tokio::test]
+async fn test_forbidden_returns_json_403() {
+    let (router, state) = setup_router().await;
+    // 创建 viewer 用户（id=2），以 viewer 身份访问用户管理（仅 admin 可写）
+    state.user_service.create_user("viewer", "hash", "viewer").await.unwrap();
+    let jwt = JwtUtils::new("test-secret", 24);
+    let token = jwt.sign(2).unwrap();
+    let app = middleware::add_middleware(router, state);
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/users")
+                .header(header::AUTHORIZATION, format!("Bearer {}", token))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"username":"x","password":"x","role":"viewer"}"#)).unwrap()
+        ).await.unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], 403);
+    assert_eq!(body["error"], "AUTH_FORBIDDEN");
 }

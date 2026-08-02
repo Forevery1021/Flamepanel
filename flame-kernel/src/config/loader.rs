@@ -66,10 +66,10 @@ impl Default for AppConfig {
 impl AppConfig {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, AppError> {
         let content = fs::read_to_string(&path)
-            .map_err(|e| AppError::Internal(format!("Failed to read config file: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to read config file: {}", e)))?;
         
         let config: Self = toml::from_str(&content)
-            .map_err(|e| AppError::Internal(format!("Failed to parse config: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to parse config: {}", e)))?;
         
         Ok(config)
     }

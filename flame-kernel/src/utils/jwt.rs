@@ -25,9 +25,9 @@ impl JwtUtils {
     pub fn sign(&self, user_id: i64) -> Result<String, AppError> {
         let expiration = SystemTime::now()
             .checked_add(std::time::Duration::from_hours(self.expiry_hours))
-            .ok_or_else(|| AppError::Internal("Invalid expiration time".to_string()))?
+            .ok_or_else(|| AppError::internal("Invalid expiration time".to_string()))?
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| AppError::Internal(format!("Time error: {}", e)))?
+            .map_err(|e| AppError::internal(format!("Time error: {}", e)))?
             .as_secs() as usize;
 
         let claims = Claims {
@@ -40,7 +40,7 @@ impl JwtUtils {
             &claims,
             &EncodingKey::from_secret(&self.secret),
         )
-        .map_err(|e| AppError::Internal(format!("Failed to encode JWT: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("Failed to encode JWT: {}", e)))?;
 
         Ok(token)
     }
@@ -51,7 +51,7 @@ impl JwtUtils {
             &DecodingKey::from_secret(&self.secret),
             &Validation::default(),
         )
-        .map_err(|_| AppError::Unauthorized)?;
+        .map_err(|_| AppError::Unauthorized("Invalid or expired token".to_string()))?;
 
         Ok(token_data.claims)
     }

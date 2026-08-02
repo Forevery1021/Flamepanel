@@ -73,15 +73,15 @@ impl CircuitBreaker {
                         inner.half_open_calls = 0;
                         inner.success_count = 0;
                     } else {
-                        return Err(AppError::Internal("Circuit breaker is open".into()));
+                        return Err(AppError::internal("Circuit breaker is open"));
                     }
                 } else {
-                    return Err(AppError::Internal("Circuit breaker is open".into()));
+                    return Err(AppError::internal("Circuit breaker is open"));
                 }
             }
             CircuitState::HalfOpen => {
                 if inner.half_open_calls >= inner.config.half_open_max_calls {
-                    return Err(AppError::Internal("Circuit breaker is open".into()));
+                    return Err(AppError::internal("Circuit breaker is open"));
                 }
                 inner.half_open_calls += 1;
             }
@@ -109,7 +109,7 @@ impl CircuitBreaker {
                     }
                     _ => {}
                 }
-                result.map_err(|e| AppError::Internal(e.to_string()))
+                result.map_err(|e| AppError::internal(e.to_string()))
             }
             Err(e) => {
                 inner.failure_count += 1;
@@ -119,7 +119,7 @@ impl CircuitBreaker {
                     inner.state = CircuitState::Open;
                 }
                 
-                Err(AppError::Internal(e.to_string()))
+                Err(AppError::internal(e.to_string()))
             }
         }
     }

@@ -335,6 +335,16 @@ export default {
     required: 'この項目は必須です',
     confirmAction: 'この操作を実行してもよろしいですか？',
     install: 'インストール',
+    error: {
+      AUTH_UNAUTHORIZED: '未ログインまたはセッション切れです。再ログインしてください',
+      AUTH_FORBIDDEN: '操作権限がありません。管理者に連絡してください',
+      NOT_FOUND: 'リクエストされたリソースが見つかりません',
+      BAD_REQUEST: 'リクエストパラメータが不正です',
+      VALIDATION_ERROR: 'バリデーションに失敗しました',
+      CONFLICT: 'リソースが競合しています。操作を完了できません',
+      SERVICE_UNAVAILABLE: 'サービスが一時的に利用できません。後でもう一度お試しください',
+      INTERNAL_ERROR: 'サーバー内部エラーが発生しました。後でもう一度お試しください',
+    },
   },
   theme: {
     light: 'ライト',
