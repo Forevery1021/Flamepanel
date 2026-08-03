@@ -255,6 +255,22 @@ for try_path in \
     fi
 done
 
+# GitHub Releases 下载（直连失败时自动尝试镜像站加速）
+GH_BASE="https://github.com/Forevery1021/Flamepanel"
+GH_MIRRORS=(
+    "https://ghfast.top/https://github.com/Forevery1021/Flamepanel"
+    "https://gh-proxy.com/https://github.com/Forevery1021/Flamepanel"
+)
+gh_download() {
+    local url="$1" out="$2"
+    curl -L --connect-timeout 10 --max-time 300 "$url" -o "$out" 2>/dev/null && return 0
+    for mirror in "${GH_MIRRORS[@]}"; do
+        echo "  直连失败，尝试镜像: ${mirror}${url#${GH_BASE}}"
+        curl -L --connect-timeout 10 --max-time 300 "${mirror}${url#${GH_BASE}}" -o "$out" 2>/dev/null && return 0
+    done
+    return 1
+}
+
 if [[ -n "$LOCAL_BINARY" ]]; then
     echo "  使用本地编译产物: $LOCAL_BINARY"
     cp "$LOCAL_BINARY" /usr/local/bin/flamepanel
@@ -266,9 +282,9 @@ else
         x86_64)  ARCH="amd64" ;;
         aarch64) ARCH="arm64" ;;
     esac
-    DOWNLOAD_URL="https://github.com/Forevery1021/Flamepanel/releases/latest/download/flamepanel-linux-${ARCH}.tar.gz"
+    DOWNLOAD_URL="${GH_BASE}/releases/latest/download/flamepanel-linux-${ARCH}.tar.gz"
     echo "  下载地址: $DOWNLOAD_URL"
-    if curl -L --connect-timeout 10 "$DOWNLOAD_URL" -o /tmp/flamepanel.tar.gz 2>/dev/null; then
+    if gh_download "$DOWNLOAD_URL" /tmp/flamepanel.tar.gz; then
         tar -xzf /tmp/flamepanel.tar.gz -C /usr/local/bin/ 2>/dev/null
         rm -f /tmp/flamepanel.tar.gz
         chmod +x /usr/local/bin/flamepanel
@@ -306,9 +322,9 @@ if [[ -n "$LOCAL_FRONTEND" ]]; then
     echo -e "${GREEN}  -> 前端资源部署完成${NC}"
 else
     echo "  从 GitHub Releases 下载前端资源..."
-    FRONTEND_URL="https://github.com/Forevery1021/Flamepanel/releases/latest/download/flamepanel-frontend.tar.gz"
+    FRONTEND_URL="${GH_BASE}/releases/latest/download/flamepanel-frontend.tar.gz"
     echo "  下载地址: $FRONTEND_URL"
-    if curl -L --connect-timeout 10 "$FRONTEND_URL" -o /tmp/flamepanel-frontend.tar.gz 2>/dev/null; then
+    if gh_download "$FRONTEND_URL" /tmp/flamepanel-frontend.tar.gz; then
         rm -rf "$FRONTEND_DIR/dist"
         mkdir -p "$FRONTEND_DIR/dist"
         tar -xzf /tmp/flamepanel-frontend.tar.gz -C "$FRONTEND_DIR/dist" 2>/dev/null
