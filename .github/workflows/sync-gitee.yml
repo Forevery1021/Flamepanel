@@ -28,5 +28,6 @@ jobs:
             exit 0
           fi
           git remote add gitee "https://Forever1021yy:${GITEE_TOKEN}@gitee.com/Forever1021yy/Flamepanel.git"
-          git push gitee --all --tags --force
+          git push gitee --all --force
+          git push gitee --tags --force
           echo "Gitee 镜像同步完成"

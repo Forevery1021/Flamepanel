@@ -15,6 +15,7 @@ echo "==> 拉取 GitHub 上游最新引用..."
 git fetch origin --prune
 
 echo "==> 推送全部分支 + 标签到 Gitee (镜像覆盖)..."
-git push "$REMOTE" --all --tags --force
+git push "$REMOTE" --all --force
+git push "$REMOTE" --tags --force
 
 echo "==> 完成: Gitee 镜像已与 GitHub 同步"
