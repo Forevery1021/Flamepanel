@@ -9,6 +9,7 @@ pub mod log;
 pub mod node;
 pub mod operation_log;
 pub mod plugin;
+pub mod scheduled_task;
 pub mod settings;
 pub mod user;
 pub mod web_server;

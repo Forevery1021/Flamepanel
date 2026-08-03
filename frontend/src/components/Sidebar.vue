@@ -26,6 +26,10 @@
         <el-icon><Files /></el-icon>
         <span>{{ t('nav.backups') }}</span>
       </el-menu-item>
+      <el-menu-item index="/scheduled-tasks">
+        <el-icon><Timer /></el-icon>
+        <span>{{ t('nav.scheduledTasks') }}</span>
+      </el-menu-item>
     </el-sub-menu>
 
     <el-sub-menu index="resource">
@@ -118,6 +122,7 @@ import {
   Folder,
   Collection,
   Files,
+  Timer,
   Lock,
   Box,
 } from '@element-plus/icons-vue'

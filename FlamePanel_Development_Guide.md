@@ -1,6 +1,6 @@
 # FlamePanel 开发部署流程指南
 
-> Rust 内核 + Vue 3 前端 · 版本 v1.17 · 更新 2026-08-03
+> Rust 内核 + Vue 3 前端 · 版本 v1.18 · 更新 2026-08-03
 
 ## 目录
 
@@ -413,6 +413,8 @@ flowchart LR
 **Step 3: Application 层**
 - `flame-kernel/src/application/service.rs` — Service 结构体和方法
 - `flame-kernel/src/application/backup_service.rs` — 备份服务（创建/列表/下载/删除/恢复）
+- `flame-kernel/src/application/scheduled_task_service.rs` — 定时任务服务（CRUD/立即执行/到期 tick）
+- `flame-kernel/src/utils/cron.rs` — 标准 5 字段 cron 解析器（下次执行时间计算）
 
 **Step 4: API 层**
 - `flame-kernel/src/api/handler/xxx/mod.rs` — Handler 函数 + 模块路由表 `pub fn routes()`
@@ -706,11 +708,24 @@ flowchart TD
 **模块端点统计**：
 - 健康检查: 1 | 认证: 2 | 用户: 3 | 节点: 3 | 网站: 6
 - Docker: 13 | 插件: 13 | 应用商店: 11 | Web 服务器: 16 | 数据库: 15
-- 文件: 10 | 防火墙: 11 | 设置: 3 | 日志: 2 | 备份: 5 | WebSocket: 3
+- 文件: 10 | 防火墙: 11 | 设置: 3 | 日志: 2 | 备份: 5 | 定时任务: 5 | WebSocket: 3
 
 ---
 
 ## 11. 更新日志
+
+### v0.4.2 (2026-08-03)
+
+#### 定时任务（新增）
+- **cron 解析器** — `utils/cron.rs`：标准 5 字段（分 时 日 月 周几）解析，支持 `*` / `*/n` / `a-b` / `a,b`，日与周几同时受限按「或」语义；`next_run()` 计算严格晚于当前时刻的下次执行时间（向后搜索上限 5 年），7 个单元测试覆盖边界
+- **ScheduledTaskService** — 服务层：CRUD + `run_now`（立即执行）+ `tick`（批量执行到期任务）；命令经 `sh -c` 执行，60 秒超时，stdout/stderr 合并记录并截断至 4KB；`create/update` 校验 cron 合法性并自动计算 `next_run_at`；`toggle_enabled` 关闭时清空下次执行时间
+- **后台调度器** — `FlameKernel::new_with_backend` 内启动 tokio 任务，每 30 秒 `tick()` 一次，失败仅告警不中断
+- **API** — 5 个端点：`GET/POST /api/scheduled-tasks`、`PUT/DELETE /api/scheduled-tasks/:id`、`POST /api/scheduled-tasks/:id/run`、`POST /api/scheduled-tasks/:id/toggle`；新增 `scheduled_task` 资源权限（read/create/update/delete/execute），角色自动派生
+- **持久化** — 新增 `scheduled_tasks` 表 + `enabled` 索引迁移；InMemory + SQLite 双实现
+- **前端** — 定时任务视图（ScheduledTasksView）：表格 + 创建/编辑对话框（cron 输入）、启用开关、立即执行（结果输出弹窗）、状态标签；侧边栏「系统管理」新增入口；zh/en/ja 三语言
+
+#### 测试
+- 154 个测试全部通过（92 集成 + 62 单元），新增 cron 校验、服务 CRUD/执行状态、tick 到期执行、API 全流程（含 400 无效 cron、toggle 清空 next_run_at）
 
 ### v0.4.1 (2026-08-03)
 

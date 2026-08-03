@@ -928,6 +928,72 @@ impl FirewallRepository for InMemoryFirewallRepository {
         Ok(())
     }
 }
+
+// ─── 定时任务 InMemory 仓储 ────────────────────────────────────────────────
+
+pub struct InMemoryScheduledTaskRepository {
+    tasks: Mutex<Vec<ScheduledTask>>,
+    next_id: Mutex<i64>,
+}
+
+impl Default for InMemoryScheduledTaskRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InMemoryScheduledTaskRepository {
+    pub fn new() -> Self {
+        Self {
+            tasks: Mutex::new(Vec::new()),
+            next_id: Mutex::new(100),
+        }
+    }
+}
+
+#[async_trait]
+impl ScheduledTaskRepository for InMemoryScheduledTaskRepository {
+    async fn list_all(&self) -> Result<Vec<ScheduledTask>, AppError> {
+        Ok(self.tasks.lock().unwrap().clone())
+    }
+
+    async fn find_by_id(&self, id: i64) -> Result<Option<ScheduledTask>, AppError> {
+        Ok(self
+            .tasks
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|t| t.id == id)
+            .cloned())
+    }
+
+    async fn create(&self, task: &ScheduledTask) -> Result<i64, AppError> {
+        let mut tasks = self.tasks.lock().unwrap();
+        let mut next = self.next_id.lock().unwrap();
+        let id = *next;
+        *next += 1;
+        let mut t = task.clone();
+        t.id = id;
+        tasks.push(t);
+        Ok(id)
+    }
+
+    async fn update(&self, task: &ScheduledTask) -> Result<(), AppError> {
+        let mut tasks = self.tasks.lock().unwrap();
+        if let Some(existing) = tasks.iter_mut().find(|t| t.id == task.id) {
+            *existing = task.clone();
+            Ok(())
+        } else {
+            Err(AppError::NotFound("Scheduled task not found".into()))
+        }
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        let mut tasks = self.tasks.lock().unwrap();
+        tasks.retain(|t| t.id != id);
+        Ok(())
+    }
+}
 // ─── 应用商店 InMemory 仓储 ──────────────────────────────────────────────────
 
 pub struct InMemoryAppPackageRepository {

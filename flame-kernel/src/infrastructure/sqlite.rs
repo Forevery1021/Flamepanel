@@ -610,6 +610,32 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .await
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS scheduled_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            command TEXT NOT NULL,
+            schedule TEXT NOT NULL DEFAULT '* * * * *',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            last_status TEXT NOT NULL DEFAULT 'never',
+            last_output TEXT NOT NULL DEFAULT '',
+            last_run_at TEXT,
+            next_run_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_installed_apps_key ON installed_apps(package_key)")
         .execute(pool)
         .await
@@ -1500,5 +1526,88 @@ impl PluginDbRow {
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
+    }
+}
+
+// ─── 定时任务 SQLite 仓储 ────────────────────────────────────────────────
+
+pub struct SqliteScheduledTaskRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteScheduledTaskRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl ScheduledTaskRepository for SqliteScheduledTaskRepository {
+    async fn list_all(&self) -> Result<Vec<ScheduledTask>, AppError> {
+        let rows = sqlx::query_as::<_, ScheduledTask>(
+            "SELECT id, name, command, schedule, enabled, last_status, last_output, last_run_at, next_run_at, created_at, updated_at FROM scheduled_tasks ORDER BY id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(rows)
+    }
+
+    async fn find_by_id(&self, id: i64) -> Result<Option<ScheduledTask>, AppError> {
+        let row = sqlx::query_as::<_, ScheduledTask>(
+            "SELECT id, name, command, schedule, enabled, last_status, last_output, last_run_at, next_run_at, created_at, updated_at FROM scheduled_tasks WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(row)
+    }
+
+    async fn create(&self, task: &ScheduledTask) -> Result<i64, AppError> {
+        let id = sqlx::query(
+            "INSERT INTO scheduled_tasks (name, command, schedule, enabled, last_status, last_output, last_run_at, next_run_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&task.name)
+        .bind(&task.command)
+        .bind(&task.schedule)
+        .bind(task.enabled)
+        .bind(&task.last_status)
+        .bind(&task.last_output)
+        .bind(task.last_run_at)
+        .bind(task.next_run_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        .last_insert_rowid();
+        Ok(id)
+    }
+
+    async fn update(&self, task: &ScheduledTask) -> Result<(), AppError> {
+        sqlx::query(
+            "UPDATE scheduled_tasks SET name=?, command=?, schedule=?, enabled=?, last_status=?, last_output=?, last_run_at=?, next_run_at=?, updated_at=datetime('now') WHERE id=?",
+        )
+        .bind(&task.name)
+        .bind(&task.command)
+        .bind(&task.schedule)
+        .bind(task.enabled)
+        .bind(&task.last_status)
+        .bind(&task.last_output)
+        .bind(task.last_run_at)
+        .bind(task.next_run_at)
+        .bind(task.id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(())
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM scheduled_tasks WHERE id=?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(())
     }
 }

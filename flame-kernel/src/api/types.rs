@@ -1,5 +1,6 @@
 use crate::application::app_store_service::AppStoreService;
 use crate::application::backup_service::BackupServiceRef;
+use crate::application::scheduled_task_service::ScheduledTaskService;
 use crate::application::service::*;
 use crate::domain::entity::{LogEntry, MetricsSnapshot};
 use crate::domain::repository::PluginRepository;
@@ -34,6 +35,7 @@ pub struct AppState {
     pub settings_service: Arc<SettingsService>,
     pub database_service: Arc<DatabaseService>,
     pub firewall_service: Arc<FirewallService>,
+    pub scheduled_task_service: Arc<ScheduledTaskService>,
     pub terminal_manager: Arc<TerminalManager>,
 }
 
@@ -125,6 +127,7 @@ pub struct Services {
     pub settings_service: Arc<SettingsService>,
     pub database_service: Arc<DatabaseService>,
     pub firewall_service: Arc<FirewallService>,
+    pub scheduled_task_service: Arc<ScheduledTaskService>,
     pub backup_service: BackupServiceRef,
     pub event_bus: EventBus,
 }
@@ -159,6 +162,7 @@ impl AppState {
             settings_service: services.settings_service,
             database_service: services.database_service,
             firewall_service: services.firewall_service,
+            scheduled_task_service: services.scheduled_task_service,
             backup_service: services.backup_service,
             terminal_manager: Arc::new(terminal_manager),
         }
@@ -419,6 +423,21 @@ pub fn route_permission(
         ("GET", p) if p.starts_with("/api/backups/") => Some(("backup", "read")),
         ("DELETE", p) if p.starts_with("/api/backups/") => Some(("backup", "delete")),
         ("POST", p) if p.starts_with("/api/backups/") => Some(("backup", "create")),
+        ("GET", "/api/scheduled-tasks") => Some(("scheduled_task", "read")),
+        ("POST", "/api/scheduled-tasks") => Some(("scheduled_task", "create")),
+        ("GET", p) if p.starts_with("/api/scheduled-tasks/") && !p.ends_with("/run") => {
+            Some(("scheduled_task", "read"))
+        }
+        ("PUT", p) if p.starts_with("/api/scheduled-tasks/") => Some(("scheduled_task", "update")),
+        ("DELETE", p) if p.starts_with("/api/scheduled-tasks/") => {
+            Some(("scheduled_task", "delete"))
+        }
+        ("POST", p) if p.starts_with("/api/scheduled-tasks/") && p.ends_with("/run") => {
+            Some(("scheduled_task", "execute"))
+        }
+        ("POST", p) if p.starts_with("/api/scheduled-tasks/") && p.ends_with("/toggle") => {
+            Some(("scheduled_task", "update"))
+        }
         _ => None,
     }
 }

@@ -22,6 +22,7 @@ use tokio::sync::Mutex;
 use api::types::{AppState, Services};
 use application::app_store_service::AppStoreService;
 use application::backup_service::{db_path_from_url, BackupService};
+use application::scheduled_task_service::ScheduledTaskService;
 use application::service::*;
 use config::AppConfig;
 use domain::entity::LogEntry;
@@ -61,6 +62,7 @@ impl FlameKernel {
         let app_package_repo = factory.create_app_package_repo();
         let installed_app_repo = factory.create_installed_app_repo();
         let plugin_repo = factory.create_plugin_repo();
+        let scheduled_task_repo = factory.create_scheduled_task_repo();
 
         let plugin_sandbox = Arc::new(PluginSandbox::new());
         let plugin_registry = Arc::new(PluginRegistry::new());
@@ -100,6 +102,7 @@ impl FlameKernel {
             settings_service: Arc::new(SettingsService::new(settings_repo)),
             database_service,
             firewall_service: Arc::new(FirewallService::new(firewall_repo)),
+            scheduled_task_service: Arc::new(ScheduledTaskService::new(scheduled_task_repo)),
             backup_service: Arc::new(BackupService::new("data/app.db", "data/backups")),
             event_bus,
         }
@@ -116,6 +119,18 @@ impl FlameKernel {
         tokio::spawn(async move {
             let _ = app_store_service_for_restore.seed_builtin_apps().await;
             let _ = app_store_service_for_restore.restore_wasm_plugins().await;
+        });
+
+        // 定时任务调度器（每 30 秒检查一次到期任务）
+        let scheduled_task_service = services.scheduled_task_service.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                if let Err(e) = scheduled_task_service.tick().await {
+                    tracing::warn!("Scheduled task tick failed: {}", e);
+                }
+            }
         });
 
         let metrics_history = Arc::new(Mutex::new(MetricsHistory::new(60)));

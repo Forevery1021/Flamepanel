@@ -135,6 +135,13 @@ impl RepoFactory {
         }
     }
 
+    pub fn create_scheduled_task_repo(&self) -> Arc<dyn ScheduledTaskRepository> {
+        match &self.kind {
+            BackendKind::InMemory => Arc::new(InMemoryScheduledTaskRepository::new()),
+            BackendKind::Sqlite(pool) => Arc::new(SqliteScheduledTaskRepository::new(pool.clone())),
+        }
+    }
+
     pub fn create_app_package_repo(&self) -> Arc<dyn AppPackageRepository> {
         match &self.kind {
             BackendKind::InMemory => Arc::new(InMemoryAppPackageRepository::new()),

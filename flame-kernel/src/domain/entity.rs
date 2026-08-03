@@ -460,6 +460,11 @@ pub fn default_permissions() -> Vec<Permission> {
         ("backup", "read", "查看备份"),
         ("backup", "create", "创建/恢复备份"),
         ("backup", "delete", "删除备份"),
+        ("scheduled_task", "read", "查看定时任务"),
+        ("scheduled_task", "create", "创建定时任务"),
+        ("scheduled_task", "update", "修改定时任务"),
+        ("scheduled_task", "delete", "删除定时任务"),
+        ("scheduled_task", "execute", "执行定时任务"),
     ];
     perms
         .into_iter()
@@ -680,6 +685,23 @@ pub fn default_firewall_rules() -> Vec<FirewallRule> {
             updated_at: Utc::now(),
         },
     ]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ScheduledTask {
+    pub id: i64,
+    pub name: String,
+    pub command: String,
+    /// 标准 5 字段 cron 表达式
+    pub schedule: String,
+    pub enabled: bool,
+    /// never | success | failed
+    pub last_status: String,
+    pub last_output: String,
+    pub last_run_at: Option<DateTime<Utc>>,
+    pub next_run_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 pub fn builtin_apps() -> Vec<AppManifest> {

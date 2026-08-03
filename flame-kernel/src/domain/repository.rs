@@ -151,6 +151,15 @@ pub trait FirewallRepository: Send + Sync {
 }
 
 #[async_trait]
+pub trait ScheduledTaskRepository: Send + Sync {
+    async fn list_all(&self) -> Result<Vec<ScheduledTask>, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<ScheduledTask>, AppError>;
+    async fn create(&self, task: &ScheduledTask) -> Result<i64, AppError>;
+    async fn update(&self, task: &ScheduledTask) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+}
+
+#[async_trait]
 pub trait WebServerRepository: Send + Sync {
     async fn find_by_id(&self, id: i64) -> Result<Option<WebServerInstance>, AppError>;
     async fn find_by_engine(&self, engine: &str) -> Result<Vec<WebServerInstance>, AppError>;
