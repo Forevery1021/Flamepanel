@@ -1,7 +1,6 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>{{ t('nav.backups') }}</h2>
       <el-button type="primary" :loading="creating" @click="onCreate">
         {{ t('backup.create') }}
       </el-button>

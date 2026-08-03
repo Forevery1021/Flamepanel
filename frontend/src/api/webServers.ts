@@ -1,5 +1,11 @@
 import api from './client'
-import type { WebServerResponse, EngineInfo, PaginatedResponse, PerformancePresetInfo } from '@/types'
+import type {
+  WebServerResponse,
+  EngineInfo,
+  PaginatedResponse,
+  PerformancePresetInfo,
+  NativeWebServerInfo,
+} from '@/types'
 
 export function listEngines() {
   return api.get<EngineInfo[]>('/web-servers/engines')
@@ -71,4 +77,29 @@ export function applyWebServerPreset(id: number, preset: string) {
 
 export function listPresets() {
   return api.get<PerformancePresetInfo[]>('/web-servers/presets')
+}
+
+// ── 原生控制（检测 / 安装 / 卸载 / 开机自启） ──
+export function detectNativeWebServers() {
+  return api.get<NativeWebServerInfo[]>('/web-servers/native/detect')
+}
+
+export function nativeInstallWebServer(engine: string, version?: string) {
+  return api.post<WebServerResponse>('/web-servers/native/install', { engine, version })
+}
+
+export function nativeUninstallWebServer(engine: string) {
+  return api.post('/web-servers/native/uninstall', { engine })
+}
+
+export function nativeAutostartWebServer(engine: string, enabled: boolean) {
+  return api.post('/web-servers/native/autostart', { engine, enabled })
+}
+
+export function setWebServerAutostart(id: number, enabled: boolean) {
+  return api.post(`/web-servers/${id}/autostart`, { enabled })
+}
+
+export function nativeStatusWebServer(id: number) {
+  return api.get<NativeWebServerInfo>(`/web-servers/${id}/native-status`)
 }

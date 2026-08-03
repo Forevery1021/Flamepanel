@@ -1,11 +1,10 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>{{ t('settings.title') }}</h2>
     </div>
 
     <el-row :gutter="16">
-      <el-col :span="12">
+      <el-col :xs="24" :md="12">
         <el-card shadow="hover">
           <template #header
             ><span class="font-semibold">{{ t('settings.changePassword') }}</span></template
@@ -28,7 +27,7 @@
           </el-form>
         </el-card>
       </el-col>
-      <el-col :span="12">
+      <el-col :xs="24" :md="12">
         <el-card shadow="hover">
           <template #header
             ><span class="font-semibold">{{ t('settings.panelInfo') }}</span></template
@@ -62,12 +61,12 @@
       >
       <el-form v-loading="loading" :model="settingsForm" :label-width="labelWidth">
         <el-row :gutter="16">
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item :label="t('settings.panelName')">
               <el-input v-model="settingsForm.panel_name" placeholder="FlamePanel" />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item :label="t('settings.theme')">
               <el-select v-model="settingsForm.theme" class="full-width">
                 <el-option :label="t('settings.light')" value="light" />
@@ -77,7 +76,7 @@
           </el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item :label="t('settings.language')">
               <el-select
                 v-model="settingsForm.language"
@@ -90,7 +89,7 @@
               </el-select>
             </el-form-item>
           </el-col>
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item :label="t('settings.panelPort')">
               <el-input-number
                 v-model="settingsForm.panel_port_num"
@@ -102,7 +101,7 @@
           </el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item :label="t('settings.sessionTimeout')">
               <el-input-number
                 v-model="settingsForm.session_timeout_num"
@@ -112,7 +111,7 @@
               />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item :label="t('settings.logLevel')">
               <el-select v-model="settingsForm.log_level" class="full-width">
                 <el-option label="Trace" value="trace" />
@@ -125,7 +124,7 @@
           </el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item :label="t('settings.logRetention')">
               <el-input-number
                 v-model="settingsForm.log_retention_num"
@@ -135,7 +134,7 @@
               />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
+          <el-col :xs="24" :md="12">
             <el-form-item :label="t('settings.twoFactor')">
               <el-switch v-model="settingsForm.two_factor_enabled_bool" />
             </el-form-item>

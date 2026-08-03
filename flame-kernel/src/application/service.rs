@@ -291,6 +291,100 @@ impl DockerService {
     pub async fn compose_down(&self, project_name: &str) -> Result<(), AppError> {
         self.docker_repo.compose_down(project_name).await
     }
+
+    pub async fn inspect_container(&self, id: &str) -> Result<serde_json::Value, AppError> {
+        self.docker_repo.inspect_container(id).await
+    }
+
+    pub async fn rename_container(&self, id: &str, new_name: &str) -> Result<(), AppError> {
+        self.docker_repo.rename_container(id, new_name).await
+    }
+
+    pub async fn pause_container(&self, id: &str) -> Result<(), AppError> {
+        self.docker_repo.pause_container(id).await
+    }
+
+    pub async fn unpause_container(&self, id: &str) -> Result<(), AppError> {
+        self.docker_repo.unpause_container(id).await
+    }
+
+    pub async fn kill_container(&self, id: &str) -> Result<(), AppError> {
+        self.docker_repo.kill_container(id).await
+    }
+
+    pub async fn prune_containers(&self) -> Result<serde_json::Value, AppError> {
+        self.docker_repo.prune_containers().await
+    }
+
+    pub async fn list_networks(&self) -> Result<Vec<serde_json::Value>, AppError> {
+        self.docker_repo.list_networks().await
+    }
+
+    pub async fn create_network(
+        &self,
+        name: &str,
+        driver: &str,
+        subnet: Option<&str>,
+    ) -> Result<serde_json::Value, AppError> {
+        self.docker_repo.create_network(name, driver, subnet).await
+    }
+
+    pub async fn remove_network(&self, id: &str) -> Result<(), AppError> {
+        self.docker_repo.remove_network(id).await
+    }
+
+    pub async fn connect_network(&self, network_id: &str, container_id: &str) -> Result<(), AppError> {
+        self.docker_repo
+            .connect_network(network_id, container_id)
+            .await
+    }
+
+    pub async fn disconnect_network(
+        &self,
+        network_id: &str,
+        container_id: &str,
+        force: bool,
+    ) -> Result<(), AppError> {
+        self.docker_repo
+            .disconnect_network(network_id, container_id, force)
+            .await
+    }
+
+    pub async fn prune_networks(&self) -> Result<serde_json::Value, AppError> {
+        self.docker_repo.prune_networks().await
+    }
+
+    pub async fn list_volumes(&self) -> Result<Vec<serde_json::Value>, AppError> {
+        self.docker_repo.list_volumes().await
+    }
+
+    pub async fn create_volume(&self, name: &str, driver: &str) -> Result<serde_json::Value, AppError> {
+        self.docker_repo.create_volume(name, driver).await
+    }
+
+    pub async fn remove_volume(&self, name: &str, force: bool) -> Result<(), AppError> {
+        self.docker_repo.remove_volume(name, force).await
+    }
+
+    pub async fn prune_volumes(&self) -> Result<serde_json::Value, AppError> {
+        self.docker_repo.prune_volumes().await
+    }
+
+    pub async fn pull_image(&self, image: &str) -> Result<String, AppError> {
+        self.docker_repo.pull_image(image).await
+    }
+
+    pub async fn tag_image(&self, image_id: &str, repo: &str, tag: &str) -> Result<(), AppError> {
+        self.docker_repo.tag_image(image_id, repo, tag).await
+    }
+
+    pub async fn prune_images(&self) -> Result<serde_json::Value, AppError> {
+        self.docker_repo.prune_images().await
+    }
+
+    pub async fn compose_ls(&self) -> Result<Vec<serde_json::Value>, AppError> {
+        self.docker_repo.compose_ls().await
+    }
 }
 
 pub struct RoleService {
@@ -380,6 +474,7 @@ impl PermissionService {
 pub struct WebServerService {
     pub server_repo: Arc<dyn WebServerRepository>,
     pub manager: WebServerManager,
+    pub native_manager: crate::webserver::native::WebServerNativeManager,
 }
 
 impl WebServerService {
@@ -387,6 +482,7 @@ impl WebServerService {
         Self {
             server_repo,
             manager: WebServerManager::new(),
+            native_manager: crate::webserver::native::WebServerNativeManager::new(),
         }
     }
 
@@ -555,6 +651,97 @@ impl WebServerService {
             .write_config_file(&instance.config_path, &config)
             .await?;
         Ok(instance)
+    }
+
+    // ── 原生安装 / 卸载 / 服务控制（对接系统包管理器与 systemd） ──
+
+    /// 检测本机已安装的 Web 服务器（1Panel 风格）
+    pub async fn native_detect(&self) -> Vec<crate::webserver::native::NativeWebServerInfo> {
+        self.native_manager.detect_all().await
+    }
+
+    /// 原生安装指定引擎并注册实例
+    pub async fn native_install(
+        &self,
+        engine: &WebServerEngine,
+        version: Option<&str>,
+    ) -> Result<WebServerInstance, AppError> {
+        let message = self.native_manager.install(engine, version).await?;
+        // 自动注册实例，便于统一管理
+        let instance = WebServerInstance {
+            id: 0,
+            engine: engine.as_str().into(),
+            version: Some(message),
+            status: "running".into(),
+            config_path: engine.default_config_path().into(),
+            binary_path: Some(engine.binary_name().into()),
+            port: engine.default_port() as i32,
+            created_at: chrono::Utc::now(),
+        };
+        let id = self.server_repo.create(&instance).await?;
+        let created = self.get_server(id).await?;
+        Ok(created)
+    }
+
+    /// 原生卸载并删除注册实例
+    pub async fn native_uninstall(&self, id: i64) -> Result<(), AppError> {
+        let instance = self.get_server(id).await?;
+        let engine = WebServerEngine::from_name(&instance.engine)
+            .ok_or_else(|| AppError::BadRequest(format!("Unknown engine: {}", instance.engine)))?;
+        self.native_manager.uninstall(&engine).await?;
+        self.server_repo.delete(id).await
+    }
+
+    /// 按引擎名原生卸载（同时清理该引擎的注册实例）
+    pub async fn native_uninstall_by_engine(&self, engine: &WebServerEngine) -> Result<(), AppError> {
+        self.native_manager.uninstall(engine).await?;
+        let instances = self.server_repo.find_by_engine(engine.as_str()).await?;
+        for inst in instances {
+            self.server_repo.delete(inst.id).await?;
+        }
+        Ok(())
+    }
+
+    /// systemd 开机自启开关（systemd 不可用时容错降级）
+    pub async fn set_autostart(
+        &self,
+        id: i64,
+        enabled: bool,
+    ) -> Result<WebServerInstance, AppError> {
+        let instance = self.get_server(id).await?;
+        let engine = WebServerEngine::from_name(&instance.engine)
+            .ok_or_else(|| AppError::BadRequest(format!("Unknown engine: {}", instance.engine)))?;
+        self.set_autostart_by_engine(&engine, enabled).await?;
+        Ok(instance)
+    }
+
+    /// 按引擎名设置开机自启
+    pub async fn set_autostart_by_engine(
+        &self,
+        engine: &WebServerEngine,
+        enabled: bool,
+    ) -> Result<(), AppError> {
+        let result = self.native_manager.set_autostart(engine, enabled).await;
+        if let Err(e) = result {
+            tracing::warn!(
+                "systemd autostart {} for {} unavailable, ignored: {}",
+                if enabled { "enable" } else { "disable" },
+                engine.as_str(),
+                e
+            );
+        }
+        Ok(())
+    }
+
+    /// 实例的原生状态详情（安装/版本/服务/端口）
+    pub async fn native_status(
+        &self,
+        id: i64,
+    ) -> Result<crate::webserver::native::NativeWebServerInfo, AppError> {
+        let instance = self.get_server(id).await?;
+        let engine = WebServerEngine::from_name(&instance.engine)
+            .ok_or_else(|| AppError::BadRequest(format!("Unknown engine: {}", instance.engine)))?;
+        Ok(self.native_manager.detect(&engine).await)
     }
 }
 

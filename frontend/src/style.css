@@ -116,10 +116,48 @@ body {
 
 .view-container { padding: var(--space-5); }
 
+.layout-sidebar {
+  flex-shrink: 0;
+  width: var(--sidebar-width);
+  transition: width var(--transition-base);
+}
+.layout.is-collapsed .layout-sidebar {
+  width: 64px;
+}
+
+/* 响应式：卡片栅格在窄屏下自动堆叠 */
+.el-card,
+.el-table,
+.el-dialog {
+  max-width: 100%;
+}
+
+@media (max-width: 992px) {
+  .view-container {
+    padding: var(--space-4);
+  }
+  .card-header-title h2 {
+    font-size: 17px;
+  }
+}
+@media (max-width: 768px) {
+  .view-container {
+    padding: var(--space-3);
+  }
+  .chart-box {
+    height: 260px;
+  }
+  /* 表格在窄屏下横向滚动 */
+  .el-table {
+    overflow-x: auto;
+  }
+}
+
 .card-header-title {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
+  gap: var(--space-2);
   margin-bottom: var(--space-4);
 }
 .card-header-title h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }

@@ -1,7 +1,6 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>{{ t('nav.operationLogs') }}</h2>
       <el-button text @click="fetch">{{ t('common.refresh') }}</el-button>
     </div>
 

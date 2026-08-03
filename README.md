@@ -12,8 +12,8 @@
 ## 核心特性
 
 - **系统监控** — WebSocket 实时推送 CPU/内存/磁盘/负载，ECharts 趋势图表
-- **Docker 管理** — 容器/镜像/Compose 全生命周期管理（13 端点）
-- **Web 服务器引擎** — 原生支持 Nginx/Apache/OpenLiteSpeed/OpenResty/Caddy，自动生成配置，进程管理（19 端点）；性能预设（low/medium/high/ultra 资源感知推荐）+ 一键引擎切换
+- **Docker 管理** — 容器/镜像/网络/卷/Compose 全生命周期管理（29 端点，参考 1Panel）：容器 inspect/重命名/暂停/恢复/强杀/清理，网络创建/连接/断开/清理，卷创建/删除/清理，镜像拉取/打标签/清理，Compose 项目列表
+- **Web 服务器引擎** — 原生支持 Nginx/Apache/OpenLiteSpeed/OpenResty/Caddy，自动生成配置，进程管理（25 端点）；性能预设（low/medium/high/ultra 资源感知推荐）+ 一键引擎切换；原生控制：系统包管理器安装/卸载、systemd 开机自启、安装状态/版本/监听端口自动检测（1Panel 风格）
 - **数据库管理** — MySQL/MariaDB/Redis 原生安装（apt/yum/apk），数据库/用户 CRUD，服务启停（15 端点）
 - **应用商店** — 统一支持 1Panel / 宝塔 / Flame 内置三格式应用包，容器 / 原生 / WASM 三模式安装编排（compose 模板变量映射 + 安全扫描 + 失败回滚），升级 / 卸载 / 日志全生命周期（11 端点）
 - **文件管理** — Web 端浏览/编辑/上传/下载/重命名/权限（10 端点）
@@ -334,10 +334,10 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 | 用户 | 4 | `/api/users` |
 | 节点 | 4 | `/api/nodes` |
 | 网站 | 6 | `/api/websites` |
-| Docker | 13 | `/api/docker/*` |
+| Docker | 29 | `/api/docker/*` |
 | 插件 | 13 | `/api/plugins/*` |
 | 应用商店 | 11 | `/api/app-store/*` |
-| Web 服务器 | 19 | `/api/web-servers/*` |
+| Web 服务器 | 25 | `/api/web-servers/*` |
 | 数据库 | 15 | `/api/databases/*` |
 | 文件 | 10 | `/api/files/*` |
 | 防火墙 | 11 | `/api/firewall/*` |
@@ -360,7 +360,9 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 - **Phase 5** ✅ 应用商店：1Panel/宝塔/Flame 三格式适配器 + 容器/原生/WASM 三模式安装编排（变量映射、安全扫描、失败回滚）、WASM 内置工具持久化、完整 API + 前端商店视图（动态表单安装向导）
 - **Phase 5** ✅ Web 引擎统一：性能预设（资源感知推荐）+ 引擎一键切换（Web 服务器 & 网站）+ 预设应用，前端预设/切换 UI
 - **Phase 6** ✅ 内核优化：统一错误体系（8 稳定错误码 + JSON 化中间件/404/ApiJson）、认证+RBAC 合并中间件、Services 聚合 + 路由分模块、release profile 优化（18MB stripped）、前端错误码 i18n
-- **测试** ✅ 142 测试全部通过（87 集成 + 55 单元）
+- **Phase 6** ✅ Docker 增强（参考 1Panel）：容器 inspect/重命名/暂停/恢复/强杀/清理，网络/卷管理（创建/连接/断开/清理），镜像拉取/打标签/清理，Compose 项目列表（Docker 端点 13→29）
+- **Phase 6** ✅ Web 服务器原生控制：系统包管理器安装/卸载、systemd 开机自启、安装状态/版本/监听端口自动检测（原生 Tab 一键操作）
+- **测试** ✅ 162 测试全部通过（98 集成 + 64 单元）
 
 ## License
 

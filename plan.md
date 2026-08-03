@@ -74,3 +74,22 @@
 - [x] 阶段 6：WebEngine 统一（PerformancePreset 资源感知推荐 + switch-engine/preset 端点 + 8 个单元测试 + 3 个集成测试）
 - [x] 阶段 7：前端（AppStoreView 三 Tab + 动态表单安装向导 + 安全风险确认 + 导入/日志；WebServersView 预设与引擎切换；WebsitesView 引擎切换；三语言 i18n）
 - [x] 阶段 8：文档（开发指南 v0.2.0 更新日志）+ 全量验证（cargo test 139 通过、clippy 无新增警告、vue-tsc/eslint/vite build 通过）
+
+# 阶段 9：Docker 增强 + Web 服务器原生控制（v0.5.0）
+
+## 9.1 Docker 增强（参考 1Panel 容器部分）
+
+1. `DockerRepository` trait 扩展 18 个方法：容器 inspect/rename/pause/unpause/kill/prune；网络 list/create/remove/connect/disconnect/prune；卷 list/create/remove/prune；镜像 pull/tag/prune；compose ls
+2. `BollardDockerRepository` 全量实现（create_image 流式拉取、Ipam 子网、split_image_tag 解析）；InMemory 降级实现
+3. `DockerService` 透传 + `api/handler/docker` 新增 16 个端点（容器 6、网络 6、卷 4、镜像 3、compose 1）+ `route_permission` 映射（docker:create/update 新增权限）
+
+## 9.2 Web 服务器原生控制
+
+4. `webserver/native.rs`：`NativeWebServerInfo`（installed/package/version/service/running/enabled/listening_ports）+ `WebServerNativeManager`（detect_all/install/uninstall/set_autostart/版本正则解析/ss 端口扫描）
+5. `WebServerService`：native_detect/native_install（自动注册实例）/native_uninstall_by_engine/set_autostart_by_engine/native_status
+6. 端点：GET /api/web-servers/native/detect、POST /native/install|uninstall|autostart、POST /:id/autostart、GET /:id/native-status
+
+## 9.3 前端 + 验证
+
+7. DockerView：容器搜索/详情/重命名/暂停/强杀/清理 + 网络/卷 Tab + 镜像拉取/清理 + Compose 项目列表；WebServersView 原生控制 Tab（检测/安装/卸载/自启开关）；三语言 i18n
+8. 全量验证：cargo test 162 通过（98 集成 + 64 单元）、clippy 零警告、vue-tsc/eslint/vite build 通过

@@ -225,6 +225,103 @@ pub struct ApplyPresetRequest {
     pub preset: String,
 }
 
+#[derive(serde::Deserialize)]
+pub struct NativeInstallRequest {
+    pub engine: String,
+    pub version: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct NativeUninstallRequest {
+    pub engine: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct AutostartRequest {
+    pub enabled: bool,
+}
+
+#[derive(serde::Deserialize)]
+pub struct NativeAutostartRequest {
+    pub engine: String,
+    pub enabled: bool,
+}
+
+// ── 原生控制（检测 / 安装 / 卸载 / 开机自启） ────────────────────
+
+pub async fn native_detect(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::webserver::native::NativeWebServerInfo>>, AppError> {
+    let result = state.web_server_service.native_detect().await;
+    Ok(Json(result))
+}
+
+pub async fn native_install(
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<NativeInstallRequest>,
+) -> Result<Json<WebServerResponse>, AppError> {
+    let engine = WebServerEngine::from_name(&req.engine)
+        .ok_or_else(|| AppError::BadRequest(format!("未知引擎: {}", req.engine)))?;
+    let instance = state
+        .web_server_service
+        .native_install(&engine, req.version.as_deref())
+        .await?;
+    Ok(Json(to_response(instance)))
+}
+
+pub async fn native_uninstall(
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<NativeUninstallRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let engine = WebServerEngine::from_name(&req.engine)
+        .ok_or_else(|| AppError::BadRequest(format!("未知引擎: {}", req.engine)))?;
+    state
+        .web_server_service
+        .native_uninstall_by_engine(&engine)
+        .await?;
+    Ok(Json(serde_json::json!({"deleted": true, "engine": engine.as_str()})))
+}
+
+pub async fn set_autostart(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    ApiJson(req): ApiJson<AutostartRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let instance = state
+        .web_server_service
+        .set_autostart(id, req.enabled)
+        .await?;
+    Ok(Json(serde_json::json!({
+        "id": instance.id,
+        "engine": instance.engine,
+        "autostart": req.enabled,
+    })))
+}
+
+pub async fn native_autostart(
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<NativeAutostartRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let engine = WebServerEngine::from_name(&req.engine)
+        .ok_or_else(|| AppError::BadRequest(format!("未知引擎: {}", req.engine)))?;
+    state
+        .web_server_service
+        .set_autostart_by_engine(&engine, req.enabled)
+        .await?;
+    Ok(Json(serde_json::json!({
+        "engine": engine.as_str(),
+        "autostart": req.enabled,
+    })))
+}
+
+pub async fn native_status(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<crate::webserver::native::NativeWebServerInfo>, AppError> {
+    let info = state.web_server_service.native_status(id).await?;
+    Ok(Json(info))
+}
+
 pub async fn switch_engine(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -311,4 +408,28 @@ pub fn routes() -> Router<AppState> {
             axum::routing::post(apply_preset),
         )
         .route("/api/web-servers/presets", axum::routing::get(list_presets))
+        .route(
+            "/api/web-servers/native/detect",
+            axum::routing::get(native_detect),
+        )
+        .route(
+            "/api/web-servers/native/install",
+            axum::routing::post(native_install),
+        )
+        .route(
+            "/api/web-servers/native/uninstall",
+            axum::routing::post(native_uninstall),
+        )
+        .route(
+            "/api/web-servers/native/autostart",
+            axum::routing::post(native_autostart),
+        )
+        .route(
+            "/api/web-servers/:id/autostart",
+            axum::routing::post(set_autostart),
+        )
+        .route(
+            "/api/web-servers/:id/native-status",
+            axum::routing::get(native_status),
+        )
 }

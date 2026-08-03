@@ -1,9 +1,23 @@
 <template>
   <header class="topbar">
     <div class="topbar-left">
-      <span class="topbar-logo">FlamePanel</span>
-      <span class="topbar-divider" />
-      <span class="topbar-title">{{ t(`nav.${routeName}`) || routeName }}</span>
+      <el-tooltip :content="t('nav.toggleSidebar')" placement="bottom">
+        <el-button
+          v-if="isMobile"
+          text
+          circle
+          class="menu-btn"
+          @click="$emit('open-mobile')"
+        >
+          <el-icon size="18"><Expand /></el-icon>
+        </el-button>
+        <el-button v-else text circle class="menu-btn" @click="$emit('toggle-collapse')">
+          <el-icon size="18"><Fold v-if="!collapsed" /><Expand v-else /></el-icon>
+        </el-button>
+      </el-tooltip>
+      <el-breadcrumb separator="/" class="topbar-breadcrumb">
+        <el-breadcrumb-item>{{ breadcrumb }}</el-breadcrumb-item>
+      </el-breadcrumb>
     </div>
     <div class="topbar-right">
       <el-dropdown trigger="click" @command="handleLangChange">
@@ -37,8 +51,8 @@
       <el-dropdown trigger="click" @command="handleCommand">
         <span class="user-dropdown">
           <el-icon><UserFilled /></el-icon>
-          <span>{{ auth.username }}</span>
-          <el-icon><ArrowDown /></el-icon>
+          <span class="user-name">{{ auth.username }}</span>
+          <el-icon class="user-arrow"><ArrowDown /></el-icon>
         </span>
         <template #dropdown>
           <el-dropdown-menu>
@@ -71,7 +85,18 @@ import {
   Moon,
   Sunny,
   ChatDotRound,
+  Fold,
+  Expand,
 } from '@element-plus/icons-vue'
+
+defineProps<{
+  collapsed?: boolean
+  isMobile?: boolean
+}>()
+defineEmits<{
+  (e: 'toggle-collapse'): void
+  (e: 'open-mobile'): void
+}>()
 
 const { t, locale } = useI18n()
 const route = useRoute()
@@ -79,6 +104,11 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const routeName = computed(() => (route.name as string) || '')
+const breadcrumb = computed(() => {
+  const key = `nav.${routeName.value}`
+  const label = t(key)
+  return label === key ? routeName.value : label
+})
 
 const isDark = computed(() => document.documentElement.classList.contains('dark'))
 
@@ -102,11 +132,11 @@ function handleCommand(cmd: string) {
 
 <style scoped>
 .topbar {
-  height: 56px;
+  height: var(--header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 var(--space-4);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
@@ -114,28 +144,22 @@ function handleCommand(cmd: string) {
 .topbar-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-2);
+  min-width: 0;
 }
-.topbar-logo {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--brand);
-  letter-spacing: 1px;
+.menu-btn {
+  flex-shrink: 0;
 }
-.topbar-divider {
-  width: 1px;
-  height: 20px;
-  background: var(--border-strong);
-}
-.topbar-title {
-  font-size: 15px;
-  color: var(--text-primary);
-  font-weight: 500;
+.topbar-breadcrumb {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 .user-dropdown {
   display: flex;
@@ -153,12 +177,23 @@ function handleCommand(cmd: string) {
 .user-dropdown:hover {
   background: var(--bg-hover);
 }
+.user-arrow {
+  font-size: 12px;
+}
+@media (max-width: 480px) {
+  .user-name {
+    max-width: 72px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .user-arrow {
+    display: none;
+  }
+}
 .dark .topbar {
   background: var(--bg-secondary);
   border-color: var(--border-color);
-}
-.dark .topbar-title {
-  color: var(--text-primary);
 }
 .dark .user-dropdown {
   color: var(--text-secondary);

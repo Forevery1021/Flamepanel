@@ -1,7 +1,6 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>{{ t('nav.files') }}</h2>
       <div class="actions">
         <el-button @click="showUpload = true">{{ t('file.upload') }}</el-button>
         <el-button @click="showCreateFile = true">{{ t('file.createFile') }}</el-button>

@@ -1,7 +1,6 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>{{ t('nav.scheduledTasks') }}</h2>
       <el-button type="primary" @click="openCreate">{{ t('scheduledTask.create') }}</el-button>
     </div>
 

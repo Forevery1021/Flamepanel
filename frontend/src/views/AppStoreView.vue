@@ -1,7 +1,6 @@
 <template>
   <div class="app-store">
     <div class="header">
-      <h2>{{ t('appStore.title') }}</h2>
       <div class="header-actions">
         <el-input
           v-model="search"
@@ -21,7 +20,7 @@
     <el-tabs v-model="activeTab">
       <el-tab-pane :label="t('appStore.tabStore')" name="store">
         <el-row v-loading="loading" :gutter="16">
-          <el-col v-for="pkg in filteredPackages" :key="pkg.key" :span="6" class="app-card-col">
+          <el-col v-for="pkg in filteredPackages" :key="pkg.key" :xs="24" :sm="12" :md="8" :lg="6" class="app-card-col">
             <el-card shadow="hover" class="app-card">
               <div class="app-card-body">
                 <div class="app-logo" :class="pkg.category === 'wasm' ? 'wasm-logo' : ''">
@@ -86,7 +85,7 @@
 
       <el-tab-pane :label="t('appStore.tabWasm')" name="wasm">
         <el-row v-loading="loadingWasm" :gutter="16">
-          <el-col v-for="pkg in wasmBuiltins" :key="pkg.key" :span="6" class="app-card-col">
+          <el-col v-for="pkg in wasmBuiltins" :key="pkg.key" :xs="24" :sm="12" :md="8" :lg="6" class="app-card-col">
             <el-card shadow="hover" class="app-card">
               <div class="app-card-body">
                 <div class="app-logo wasm-logo">
@@ -471,8 +470,9 @@ onMounted(() => {
 }
 .header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
+  gap: 8px;
   margin-bottom: 16px;
 }
 .header-actions {

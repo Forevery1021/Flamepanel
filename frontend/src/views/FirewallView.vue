@@ -1,7 +1,6 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>{{ t('nav.firewall') }}</h2>
       <div class="actions">
         <el-tag :type="statusTag" size="large" class="status-tag">
           {{ backendInfo }}

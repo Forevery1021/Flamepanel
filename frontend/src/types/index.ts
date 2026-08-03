@@ -43,6 +43,60 @@ export interface DockerImage {
   repo_tags?: string[]
 }
 
+export interface DockerNetwork {
+  id: string
+  name: string
+  driver: string
+  scope: string
+  internal: boolean
+  attachable: boolean
+  created: string | null
+  ipam?: { driver?: string; config?: Array<{ subnet?: string; gateway?: string }> } | null
+  containers?:
+    | Array<{ name: string; ipv4_address: string | null; ipv6_address: string | null }>
+    | null
+}
+
+export interface DockerVolume {
+  name: string
+  driver: string
+  mountpoint: string
+  created_at: string | null
+  scope?: string
+  labels?: Record<string, string> | null
+  options?: Record<string, string> | null
+}
+
+export interface ComposeProject {
+  name: string
+  status: string
+  config_files: string
+}
+
+export interface PruneResult {
+  containers_deleted?: string[] | null
+  networks_deleted?: string[] | null
+  volumes_deleted?: string[] | null
+  images_deleted?: unknown[] | null
+  space_reclaimed?: number | null
+  mode?: string
+}
+
+export interface NativeWebServerInfo {
+  engine: string
+  description: string
+  installed: boolean
+  package_installed: boolean
+  version: string | null
+  service_name: string | null
+  running: boolean
+  enabled: boolean
+  binary_path: string | null
+  config_path: string
+  default_port: number
+  listening_ports: number[]
+}
+
 export interface PluginResponse {
   id: string
   name: string

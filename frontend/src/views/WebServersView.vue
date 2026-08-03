@@ -1,12 +1,11 @@
 <template>
   <div class="view-container">
+    <el-tabs v-model="activeTab">
+      <el-tab-pane :label="t('webServer.instances')" name="instances">
     <div class="card-header-title">
-      <h2>{{ t('nav.webServers') }}</h2>
-      <div>
-        <el-button type="primary" @click="showInstall = true">{{
-          t('webServer.install')
-        }}</el-button>
-      </div>
+      <el-button type="primary" @click="showInstall = true">{{
+        t('webServer.install')
+      }}</el-button>
     </div>
 
     <el-card shadow="hover">
@@ -82,6 +81,111 @@
         @current-change="fetch"
       />
     </el-card>
+      </el-tab-pane>
+
+      <el-tab-pane :label="t('webServer.nativeTab')" name="native">
+        <el-card shadow="hover">
+          <div class="native-toolbar">
+            <el-button size="small" type="primary" :loading="detecting" @click="fetchNative">{{
+              t('webServer.nativeDetect')
+            }}</el-button>
+            <el-alert
+              :title="t('webServer.nativeHint')"
+              type="info"
+              :closable="false"
+              class="native-hint"
+            />
+          </div>
+          <el-table
+            v-loading="detecting"
+            :empty-text="t('common.noData')"
+            :data="nativeList"
+            stripe
+            class="full-width mt-2"
+          >
+            <el-table-column prop="engine" :label="t('webServer.engine')" width="130" />
+            <el-table-column :label="t('webServer.status')" width="110">
+              <template #default="{ row }">
+                <el-tag :type="row.installed ? 'success' : 'info'" size="small">
+                  {{
+                    row.installed
+                      ? t('webServer.nativeInstalled')
+                      : t('webServer.nativeNotInstalled')
+                  }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="version" :label="t('webServer.nativeVersion')" width="100">
+              <template #default="{ row }">{{ row.version || '—' }}</template>
+            </el-table-column>
+            <el-table-column :label="t('webServer.nativeRunning')" width="90">
+              <template #default="{ row }">
+                <el-tag :type="row.running ? 'success' : 'info'" size="small" effect="plain">
+                  {{ row.running ? t('webServer.nativeRunning') : t('webServer.nativeStopped') }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('webServer.nativeAutostart')" width="110">
+              <template #default="{ row }">
+                <el-switch
+                  :model-value="row.enabled"
+                  :disabled="!row.installed"
+                  @change="(val: string | number | boolean) => handleNativeAutostart(row, Boolean(val))"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('webServer.nativeListenPorts')" width="140">
+              <template #default="{ row }">
+                <el-tag
+                  v-for="p in row.listening_ports"
+                  :key="p"
+                  size="small"
+                  class="mr-1"
+                  effect="plain"
+                  >{{ p }}</el-tag
+                >
+                <span v-if="!row.listening_ports || !row.listening_ports.length">—</span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              prop="binary_path"
+              :label="t('webServer.nativePath')"
+              min-width="160"
+              show-overflow-tooltip
+            >
+              <template #default="{ row }">{{ row.binary_path || '—' }}</template>
+            </el-table-column>
+            <el-table-column :label="t('webServer.actions')" width="180" fixed="right">
+              <template #default="{ row }">
+                <el-popconfirm
+                  v-if="!row.installed"
+                  :title="t('webServer.nativeInstallConfirm', { name: row.engine })"
+                  @confirm="handleNativeInstall(row.engine)"
+                >
+                  <template #reference>
+                    <el-button size="small" type="primary">{{
+                      t('webServer.nativeInstallBtn')
+                    }}</el-button>
+                  </template>
+                </el-popconfirm>
+                <el-popconfirm
+                  v-else
+                  :title="t('webServer.nativeUninstallConfirm', { name: row.engine })"
+                  @confirm="handleNativeUninstall(row.engine)"
+                >
+                  <template #reference>
+                    <el-button size="small" type="danger">{{
+                      t('webServer.nativeUninstallBtn')
+                    }}</el-button>
+                  </template>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-tab-pane>
+    </el-tabs>
+
 
     <el-dialog v-model="showInstall" :title="t('webServer.installTitle')" width="500px">
       <el-form :model="form" label-width="120px">
@@ -175,10 +279,20 @@ import {
   switchWebServerEngine,
   applyWebServerPreset,
   listPresets,
+  detectNativeWebServers,
+  nativeInstallWebServer,
+  nativeUninstallWebServer,
+  nativeAutostartWebServer,
 } from '@/api/webServers'
-import type { EngineInfo, WebServerResponse, PerformancePresetInfo } from '@/types'
+import type {
+  EngineInfo,
+  WebServerResponse,
+  PerformancePresetInfo,
+  NativeWebServerInfo,
+} from '@/types'
 
 const { t } = useI18n()
+const activeTab = ref('instances')
 const instances = ref<WebServerResponse[]>([])
 const engines = ref<EngineInfo[]>([])
 const loading = ref(false)
@@ -346,5 +460,84 @@ async function handleSwitchEngine() {
   }
 }
 
-onMounted(fetch)
+// ── 原生控制 ──
+const nativeList = ref<NativeWebServerInfo[]>([])
+const detecting = ref(false)
+const nativeBusy = ref(false)
+
+async function fetchNative() {
+  detecting.value = true
+  try {
+    const res = await detectNativeWebServers()
+    nativeList.value = res.data
+  } catch {
+    ElMessage.error(t('common.failed'))
+  } finally {
+    detecting.value = false
+  }
+}
+
+async function handleNativeInstall(engine: string) {
+  if (nativeBusy.value) return
+  nativeBusy.value = true
+  try {
+    await nativeInstallWebServer(engine)
+    ElMessage.success(t('common.success'))
+    await fetchNative()
+    await fetch()
+  } catch {
+    ElMessage.error(t('common.failed'))
+  } finally {
+    nativeBusy.value = false
+  }
+}
+
+async function handleNativeUninstall(engine: string) {
+  if (nativeBusy.value) return
+  nativeBusy.value = true
+  try {
+    await nativeUninstallWebServer(engine)
+    ElMessage.success(t('common.success'))
+    await fetchNative()
+    await fetch()
+  } catch {
+    ElMessage.error(t('common.failed'))
+  } finally {
+    nativeBusy.value = false
+  }
+}
+
+async function handleNativeAutostart(row: NativeWebServerInfo, enabled: boolean) {
+  try {
+    await nativeAutostartWebServer(row.engine, enabled)
+    ElMessage.success(t('common.success'))
+    await fetchNative()
+  } catch {
+    ElMessage.error(t('common.failed'))
+  }
+}
+
+onMounted(() => {
+  fetch()
+  fetchNative()
+})
 </script>
+
+<style scoped>
+.native-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.native-hint {
+  flex: 1;
+  min-width: 260px;
+}
+.mr-1 {
+  margin-right: 4px;
+}
+.mt-2 {
+  margin-top: 8px;
+}
+</style>

@@ -305,6 +305,97 @@ impl DockerRepository for InMemoryDockerRepository {
     async fn compose_down(&self, _project_name: &str) -> Result<(), AppError> {
         Ok(())
     }
+
+    // ── 容器高级操作（内存降级：返回空/成功，避免破坏单测环境） ──
+    async fn inspect_container(&self, _id: &str) -> Result<serde_json::Value, AppError> {
+        Ok(serde_json::json!({ "mode": "memory" }))
+    }
+
+    async fn rename_container(&self, _id: &str, _new_name: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn pause_container(&self, _id: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn unpause_container(&self, _id: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn kill_container(&self, _id: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn prune_containers(&self) -> Result<serde_json::Value, AppError> {
+        Ok(serde_json::json!({ "mode": "memory", "containers_deleted": null, "space_reclaimed": 0 }))
+    }
+
+    async fn list_networks(&self) -> Result<Vec<serde_json::Value>, AppError> {
+        Ok(vec![])
+    }
+
+    async fn create_network(
+        &self,
+        _name: &str,
+        _driver: &str,
+        _subnet: Option<&str>,
+    ) -> Result<serde_json::Value, AppError> {
+        Ok(serde_json::json!({ "mode": "memory", "id": "mem-net", "name": _name }))
+    }
+
+    async fn remove_network(&self, _id: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn connect_network(&self, _network_id: &str, _container_id: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn disconnect_network(
+        &self,
+        _network_id: &str,
+        _container_id: &str,
+        _force: bool,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn prune_networks(&self) -> Result<serde_json::Value, AppError> {
+        Ok(serde_json::json!({ "mode": "memory", "networks_deleted": null }))
+    }
+
+    async fn list_volumes(&self) -> Result<Vec<serde_json::Value>, AppError> {
+        Ok(vec![])
+    }
+
+    async fn create_volume(&self, _name: &str, _driver: &str) -> Result<serde_json::Value, AppError> {
+        Ok(serde_json::json!({ "mode": "memory", "name": _name }))
+    }
+
+    async fn remove_volume(&self, _name: &str, _force: bool) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn prune_volumes(&self) -> Result<serde_json::Value, AppError> {
+        Ok(serde_json::json!({ "mode": "memory", "volumes_deleted": null }))
+    }
+
+    async fn pull_image(&self, _image: &str) -> Result<String, AppError> {
+        Ok(format!("Image {} pulled (memory mode)", _image))
+    }
+
+    async fn tag_image(&self, _image_id: &str, _repo: &str, _tag: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn prune_images(&self) -> Result<serde_json::Value, AppError> {
+        Ok(serde_json::json!({ "mode": "memory", "images_deleted": null, "space_reclaimed": 0 }))
+    }
+
+    async fn compose_ls(&self) -> Result<Vec<serde_json::Value>, AppError> {
+        Ok(vec![])
+    }
 }
 
 pub struct InMemoryPermissionRepository {

@@ -1,7 +1,6 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>{{ t('nav.websites') }}</h2>
       <el-button type="primary" @click="showCreate = true">{{ t('website.create') }}</el-button>
     </div>
 

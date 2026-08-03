@@ -1,7 +1,6 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>{{ t('nav.databases') }}</h2>
       <div>
         <el-button type="primary" @click="showInstallMysql = true">{{
           t('database.installMysql')

@@ -198,6 +198,9 @@ pub fn route_permission(
         ("GET", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/stats") => {
             Some(("docker", "read"))
         }
+        ("GET", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/inspect") => {
+            Some(("docker", "read"))
+        }
         ("POST", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/start") => {
             Some(("docker", "start"))
         }
@@ -210,10 +213,44 @@ pub fn route_permission(
         ("POST", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/remove") => {
             Some(("docker", "delete"))
         }
+        ("POST", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/rename") => {
+            Some(("docker", "update"))
+        }
+        ("POST", p)
+            if p.starts_with("/api/docker/containers/")
+                && (p.ends_with("/pause") || p.ends_with("/unpause") || p.ends_with("/kill")) =>
+        {
+            Some(("docker", "start"))
+        }
+        ("POST", "/api/docker/containers/prune") => Some(("docker", "delete")),
         ("GET", "/api/docker/images") => Some(("docker", "read")),
+        ("POST", "/api/docker/images/pull") => Some(("docker", "start")),
         ("POST", p) if p.starts_with("/api/docker/images/") && p.ends_with("/remove") => {
             Some(("docker", "delete"))
         }
+        ("POST", p) if p.starts_with("/api/docker/images/") && p.ends_with("/tag") => {
+            Some(("docker", "update"))
+        }
+        ("POST", "/api/docker/images/prune") => Some(("docker", "delete")),
+        ("GET", "/api/docker/networks") => Some(("docker", "read")),
+        ("POST", "/api/docker/networks") => Some(("docker", "create")),
+        ("DELETE", p) if p.starts_with("/api/docker/networks/") && !p.ends_with("/prune") => {
+            Some(("docker", "delete"))
+        }
+        ("POST", p) if p.starts_with("/api/docker/networks/") && p.ends_with("/connect") => {
+            Some(("docker", "update"))
+        }
+        ("POST", p) if p.starts_with("/api/docker/networks/") && p.ends_with("/disconnect") => {
+            Some(("docker", "update"))
+        }
+        ("POST", "/api/docker/networks/prune") => Some(("docker", "delete")),
+        ("GET", "/api/docker/volumes") => Some(("docker", "read")),
+        ("POST", "/api/docker/volumes") => Some(("docker", "create")),
+        ("DELETE", p) if p.starts_with("/api/docker/volumes/") && !p.ends_with("/prune") => {
+            Some(("docker", "delete"))
+        }
+        ("POST", "/api/docker/volumes/prune") => Some(("docker", "delete")),
+        ("GET", "/api/docker/compose") => Some(("docker", "read")),
         ("POST", "/api/docker/compose/deploy") => Some(("docker", "start")),
         ("POST", p) if p.starts_with("/api/docker/compose/") && p.ends_with("/up") => {
             Some(("docker", "start"))
@@ -303,6 +340,16 @@ pub fn route_permission(
         }
         ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/preset") => {
             Some(("web_server", "update"))
+        }
+        ("GET", "/api/web-servers/native/detect") => Some(("web_server", "read")),
+        ("POST", "/api/web-servers/native/install") => Some(("web_server", "create")),
+        ("POST", "/api/web-servers/native/uninstall") => Some(("web_server", "delete")),
+        ("POST", "/api/web-servers/native/autostart") => Some(("web_server", "update")),
+        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/autostart") => {
+            Some(("web_server", "update"))
+        }
+        ("GET", p) if p.starts_with("/api/web-servers/") && p.ends_with("/native-status") => {
+            Some(("web_server", "read"))
         }
         ("GET", "/api/web-servers/presets") => Some(("web_server", "read")),
         ("POST", p) if p.starts_with("/api/websites/") && p.ends_with("/switch-engine") => {

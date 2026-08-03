@@ -1,7 +1,6 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>{{ t('nav.users') }}</h2>
       <el-button type="primary" @click="dialogVisible = true">{{ t('user.createUser') }}</el-button>
     </div>
 

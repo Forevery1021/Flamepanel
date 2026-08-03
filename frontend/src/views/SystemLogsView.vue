@@ -1,7 +1,6 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>{{ t('nav.systemLogs') }}</h2>
       <div class="row-gap">
         <el-tag :type="wsConnected ? 'success' : 'danger'" size="small">
           {{ wsConnected ? t('log.wsConnected') : t('log.wsDisconnected') }}

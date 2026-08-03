@@ -57,6 +57,46 @@ pub trait DockerRepository: Send + Sync {
     ) -> Result<serde_json::Value, AppError>;
     async fn compose_up(&self, project_name: &str) -> Result<(), AppError>;
     async fn compose_down(&self, project_name: &str) -> Result<(), AppError>;
+
+    // ── 容器高级操作 (参考 1Panel: inspect/rename/pause/unpause/kill/prune) ──
+    async fn inspect_container(&self, id: &str) -> Result<serde_json::Value, AppError>;
+    async fn rename_container(&self, id: &str, new_name: &str) -> Result<(), AppError>;
+    async fn pause_container(&self, id: &str) -> Result<(), AppError>;
+    async fn unpause_container(&self, id: &str) -> Result<(), AppError>;
+    async fn kill_container(&self, id: &str) -> Result<(), AppError>;
+    async fn prune_containers(&self) -> Result<serde_json::Value, AppError>;
+
+    // ── 网络管理 ──
+    async fn list_networks(&self) -> Result<Vec<serde_json::Value>, AppError>;
+    async fn create_network(
+        &self,
+        name: &str,
+        driver: &str,
+        subnet: Option<&str>,
+    ) -> Result<serde_json::Value, AppError>;
+    async fn remove_network(&self, id: &str) -> Result<(), AppError>;
+    async fn connect_network(&self, network_id: &str, container_id: &str) -> Result<(), AppError>;
+    async fn disconnect_network(
+        &self,
+        network_id: &str,
+        container_id: &str,
+        force: bool,
+    ) -> Result<(), AppError>;
+    async fn prune_networks(&self) -> Result<serde_json::Value, AppError>;
+
+    // ── 卷管理 ──
+    async fn list_volumes(&self) -> Result<Vec<serde_json::Value>, AppError>;
+    async fn create_volume(&self, name: &str, driver: &str) -> Result<serde_json::Value, AppError>;
+    async fn remove_volume(&self, name: &str, force: bool) -> Result<(), AppError>;
+    async fn prune_volumes(&self) -> Result<serde_json::Value, AppError>;
+
+    // ── 镜像管理 ──
+    async fn pull_image(&self, image: &str) -> Result<String, AppError>;
+    async fn tag_image(&self, image_id: &str, repo: &str, tag: &str) -> Result<(), AppError>;
+    async fn prune_images(&self) -> Result<serde_json::Value, AppError>;
+
+    // ── Compose 项目列表 ──
+    async fn compose_ls(&self) -> Result<Vec<serde_json::Value>, AppError>;
 }
 
 #[async_trait]

@@ -1,7 +1,6 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>{{ t('nav.plugins') }}</h2>
       <el-button type="primary" @click="showLoad = true">{{ t('plugin.load') }}</el-button>
     </div>
     <el-card shadow="hover">

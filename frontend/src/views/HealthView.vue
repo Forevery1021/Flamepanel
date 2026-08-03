@@ -1,10 +1,9 @@
 <template>
   <div class="view-container">
     <div class="card-header-title">
-      <h2>{{ t('health.title') }}</h2>
     </div>
     <el-row :gutter="16">
-      <el-col :span="8">
+      <el-col :xs="24" :md="8">
         <el-card shadow="hover">
           <template #header>{{ t('health.backend') }}</template>
           <div class="health-item">
@@ -14,7 +13,7 @@
           <div class="health-detail">Status: 200 OK</div>
         </el-card>
       </el-col>
-      <el-col :span="8">
+      <el-col :xs="24" :md="8">
         <el-card shadow="hover">
           <template #header>{{ t('health.websocket') }}</template>
           <div class="health-item">
@@ -24,7 +23,7 @@
           <div class="health-detail">Endpoint: /ws/metrics</div>
         </el-card>
       </el-col>
-      <el-col :span="8">
+      <el-col :xs="24" :md="8">
         <el-card shadow="hover">
           <template #header>{{ t('health.storage') }}</template>
           <div class="health-item">

@@ -11,10 +11,11 @@ use tower::ServiceExt;
 use flame_kernel::api::middleware;
 use flame_kernel::api::{
     routes,
-    types::{AppState, Services},
+    types::{AppState, PaginationParams, Services},
 };
 use flame_kernel::application::app_store_service::AppStoreService;
 use flame_kernel::application::backup_service::BackupService;
+use flame_kernel::application::scheduled_task_service::ScheduledTaskService;
 use flame_kernel::application::service::*;
 use flame_kernel::config::AppConfig;
 use flame_kernel::core::error::AppError;
@@ -104,6 +105,9 @@ async fn setup_router() -> (axum::Router, AppState) {
             backup_dir.join("app.db"),
             backup_dir.join("backups"),
         )),
+        scheduled_task_service: Arc::new(ScheduledTaskService::new(Arc::new(
+            InMemoryScheduledTaskRepository::new(),
+        ))),
         event_bus: EventBus::new(100),
     };
     let state = AppState::new(
@@ -720,6 +724,436 @@ async fn test_docker_images_endpoints() {
                 .method(Method::POST)
                 .uri("/api/docker/images/sha256:abc/remove")
                 .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_docker_container_advanced_operations() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // inspect
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/docker/containers/c1/inspect")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // rename
+    let body = serde_json::json!({ "new_name": "c1-renamed" });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/docker/containers/c1/rename")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // pause / unpause / kill
+    for action in ["pause", "unpause", "kill"] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/docker/containers/c1/{}", action))
+                    .header(h.clone(), v.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "action {} failed", action);
+    }
+
+    // prune containers
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/docker/containers/prune")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_docker_networks_endpoints() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // list
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/docker/networks")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // create
+    let body = serde_json::json!({ "name": "test-net", "driver": "bridge", "subnet": "172.28.0.0/16" });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/docker/networks")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // connect / disconnect
+    let body = serde_json::json!({ "container_id": "c1" });
+    for action in ["connect", "disconnect"] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/docker/networks/test-net/{}", action))
+                    .header("Content-Type", "application/json")
+                    .header(h.clone(), v.clone())
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "action {} failed", action);
+    }
+
+    // prune
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/docker/networks/prune")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // remove
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/api/docker/networks/test-net")
+                .header(h, v)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_docker_volumes_endpoints() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // list
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/docker/volumes")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // create
+    let body = serde_json::json!({ "name": "test-vol", "driver": "local" });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/docker/volumes")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // prune
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/docker/volumes/prune")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // remove
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/api/docker/volumes/test-vol?force=true")
+                .header(h, v)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_docker_images_pull_tag_prune() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // pull
+    let body = serde_json::json!({ "image": "nginx:alpine" });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/docker/images/pull")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // tag
+    let body = serde_json::json!({ "repo": "mynginx", "tag": "latest" });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/docker/images/sha256:abc/tag")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // prune
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/docker/images/prune")
+                .header(h, v)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_docker_compose_ls() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/docker/compose")
+                .header(h, v)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_web_server_native_detect_and_autostart() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // detect native engines
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/web-servers/native/detect")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let arr = value.as_array().unwrap();
+    assert_eq!(arr.len(), 5);
+    for item in arr {
+        assert!(item.get("engine").is_some());
+        assert!(item.get("installed").is_some());
+        assert!(item.get("default_port").is_some());
+    }
+
+    // native install (in-memory 环境无包管理器，预期 BadRequest/错误)
+    let body = serde_json::json!({ "engine": "nginx" });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/web-servers/native/install")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // 可能是 400（已安装/未知）或 500（无包管理器）——验证不是 401/403
+    assert_ne!(res.status(), StatusCode::UNAUTHORIZED);
+    assert_ne!(res.status(), StatusCode::FORBIDDEN);
+
+    // native uninstall / autostart（容错路径，systemd 不可用时不报错）
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/web-servers/native/uninstall")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(
+                    serde_json::to_string(&serde_json::json!({ "engine": "nginx" })).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_ne!(res.status(), StatusCode::UNAUTHORIZED);
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/web-servers/native/autostart")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(
+                    serde_json::to_string(&serde_json::json!({
+                        "engine": "nginx",
+                        "enabled": true
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 创建实例后 autostart 与 native-status
+    let create_body = serde_json::json!({ "engine": "nginx" });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/web-servers")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&create_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let created: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let id = created["id"].as_i64().unwrap();
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/web-servers/{}/autostart", id))
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(
+                    serde_json::to_string(&serde_json::json!({ "enabled": true })).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/web-servers/{}/native-status", id))
+                .header(h, v)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2686,4 +3120,283 @@ async fn test_backup_api_flow() {
     let body: serde_json::Value =
         serde_json::from_slice(&hyper::body::to_bytes(res.into_body()).await.unwrap()).unwrap();
     assert_eq!(body.as_array().unwrap().len(), 0);
+}
+
+// ── 15. Scheduled Tasks ─────────────────────────────────
+
+#[tokio::test]
+async fn test_scheduled_task_service_crud_and_execution() {
+    let repo = Arc::new(InMemoryScheduledTaskRepository::new());
+    let svc = ScheduledTaskService::new(repo.clone());
+
+    // create with invalid cron rejected
+    let mut task = ScheduledTask {
+        id: 0,
+        name: "bad".into(),
+        command: "echo hi".into(),
+        schedule: "not a cron".into(),
+        enabled: true,
+        last_status: "never".into(),
+        last_output: String::new(),
+        last_run_at: None,
+        next_run_at: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    assert!(svc.create_task(task.clone()).await.is_err());
+
+    // create valid task
+    task.name = "cleanup".into();
+    task.schedule = "0 3 * * *".into();
+    let created = svc.create_task(task).await.unwrap();
+    assert!(created.id > 0);
+    assert_eq!(created.last_status, "never");
+    assert!(created.next_run_at.is_some());
+
+    // list
+    let params = PaginationParams {
+        page: Some(1),
+        page_size: Some(10),
+    };
+    let list = svc.list_tasks(&params).await.unwrap();
+    assert_eq!(list.total, 1);
+    assert_eq!(list.data[0].name, "cleanup");
+
+    // get / 404
+    assert!(svc.get_task(created.id).await.is_ok());
+    assert!(svc.get_task(9999).await.is_err());
+
+    // run now (shell command succeeds)
+    let mut runner = created.clone();
+    runner.id = 0;
+    runner.name = "runner".into();
+    runner.command = "echo hello".into();
+    runner.schedule = "* * * * *".into();
+    let runner = svc.create_task(runner).await.unwrap();
+    let ran = svc.run_now(runner.id).await.unwrap();
+    assert_eq!(ran.last_status, "success");
+    assert!(ran.last_run_at.is_some());
+    assert_eq!(ran.last_output.trim(), "hello");
+
+    // failing command
+    let mut failer = runner.clone();
+    failer.id = 0;
+    failer.name = "failer".into();
+    failer.command = "exit 3".into();
+    let failer = svc.create_task(failer).await.unwrap();
+    let ran = svc.run_now(failer.id).await.unwrap();
+    assert_eq!(ran.last_status, "failed");
+
+    // toggle
+    let toggled = svc.toggle_enabled(runner.id, false).await.unwrap();
+    assert!(!toggled.enabled);
+    assert!(toggled.next_run_at.is_none());
+    let reenabled = svc.toggle_enabled(runner.id, true).await.unwrap();
+    assert!(reenabled.enabled);
+    assert!(reenabled.next_run_at.is_some());
+
+    // delete
+    svc.delete_task(runner.id).await.unwrap();
+    assert!(svc.get_task(runner.id).await.is_err());
+}
+
+#[tokio::test]
+async fn test_scheduled_task_tick_executes_due_tasks() {
+    let repo = Arc::new(InMemoryScheduledTaskRepository::new());
+    let svc = ScheduledTaskService::new(repo.clone());
+    let now = Utc::now();
+
+    // task due in the past (next_run_at already passed) - inject via repo,
+    // since create_task recomputes next_run_at from now
+    let task = ScheduledTask {
+        id: 0,
+        name: "due".into(),
+        command: "echo ticked".into(),
+        schedule: "* * * * *".into(),
+        enabled: true,
+        last_status: "never".into(),
+        last_output: String::new(),
+        last_run_at: None,
+        next_run_at: Some(now - chrono::Duration::seconds(60)),
+        created_at: now,
+        updated_at: now,
+    };
+    let created_id = repo.create(&task).await.unwrap();
+
+    // disabled task not executed
+    let disabled = ScheduledTask {
+        id: 0,
+        name: "disabled".into(),
+        command: "echo no".into(),
+        schedule: "* * * * *".into(),
+        enabled: false,
+        last_status: "never".into(),
+        last_output: String::new(),
+        last_run_at: None,
+        next_run_at: Some(now - chrono::Duration::seconds(60)),
+        created_at: now,
+        updated_at: now,
+    };
+    let disabled_id = repo.create(&disabled).await.unwrap();
+
+    svc.tick().await.unwrap();
+
+    let due_after = svc.get_task(created_id).await.unwrap();
+    assert_eq!(due_after.last_status, "success");
+    assert_eq!(due_after.last_output.trim(), "ticked");
+    assert!(due_after.next_run_at.unwrap() > now);
+
+    let disabled_after = svc.get_task(disabled_id).await.unwrap();
+    assert_eq!(disabled_after.last_status, "never");
+}
+
+#[tokio::test]
+async fn test_scheduled_task_api_flow() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // create
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/scheduled-tasks")
+                .header(h.clone(), v.clone())
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "daily backup",
+                        "command": "echo backup",
+                        "schedule": "0 2 * * *",
+                        "enabled": true,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&hyper::body::to_bytes(res.into_body()).await.unwrap()).unwrap();
+    let id = body["id"].as_i64().unwrap();
+    assert_eq!(body["name"], "daily backup");
+    assert!(body["next_run_at"].is_string());
+
+    // invalid cron -> 400
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/scheduled-tasks")
+                .header(h.clone(), v.clone())
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({ "name": "bad", "command": "x", "schedule": "bad", "enabled": true })
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // list
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/scheduled-tasks")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&hyper::body::to_bytes(res.into_body()).await.unwrap()).unwrap();
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["data"][0]["name"], "daily backup");
+
+    // update
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/scheduled-tasks/{id}"))
+                .header(h.clone(), v.clone())
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "daily backup v2",
+                        "command": "echo backup",
+                        "schedule": "30 2 * * *",
+                        "enabled": true,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&hyper::body::to_bytes(res.into_body()).await.unwrap()).unwrap();
+    assert_eq!(body["name"], "daily backup v2");
+
+    // run now
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/scheduled-tasks/{id}/run"))
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&hyper::body::to_bytes(res.into_body()).await.unwrap()).unwrap();
+    assert_eq!(body["last_status"], "success");
+
+    // toggle off
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/scheduled-tasks/{id}/toggle"))
+                .header(h.clone(), v.clone())
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "enabled": false }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&hyper::body::to_bytes(res.into_body()).await.unwrap()).unwrap();
+    assert_eq!(body["enabled"], false);
+    assert!(body["next_run_at"].is_null());
+
+    // delete
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/scheduled-tasks/{id}"))
+                .header(h, v)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
 }

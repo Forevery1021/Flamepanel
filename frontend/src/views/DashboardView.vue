@@ -1,10 +1,10 @@
 <template>
   <div class="view-container">
     <el-row :gutter="16">
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="hover" class="stat-card">
           <div class="stat">
-            <div class="stat-icon icon-cpu">CPU</div>
+            <div class="stat-icon icon-cpu"><el-icon :size="26"><Cpu /></el-icon></div>
             <div class="stat-body">
               <div class="stat-label">{{ t('dashboard.cpu') }}</div>
               <div class="stat-value">{{ snap.cpu_usage.toFixed(1) }}%</div>
@@ -18,10 +18,10 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="hover" class="stat-card">
           <div class="stat">
-            <div class="stat-icon icon-mem">MEM</div>
+            <div class="stat-icon icon-mem"><el-icon :size="26"><Memo /></el-icon></div>
             <div class="stat-body">
               <div class="stat-label">{{ t('dashboard.memory') }}</div>
               <div class="stat-value">{{ snap.memory_usage_percent.toFixed(1) }}%</div>
@@ -38,10 +38,10 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="hover" class="stat-card">
           <div class="stat">
-            <div class="stat-icon icon-disk">DSK</div>
+            <div class="stat-icon icon-disk"><el-icon :size="26"><Coin /></el-icon></div>
             <div class="stat-body">
               <div class="stat-label">{{ t('dashboard.disk') }}</div>
               <div class="stat-value">{{ snap.disk_usage_percent.toFixed(1) }}%</div>
@@ -57,10 +57,10 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="hover" class="stat-card">
           <div class="stat">
-            <div class="stat-icon icon-load">LD</div>
+            <div class="stat-icon icon-load"><el-icon :size="26"><TrendCharts /></el-icon></div>
             <div class="stat-body">
               <div class="stat-label">{{ t('dashboard.load') }}</div>
               <div class="stat-value">{{ snap.load_one.toFixed(2) }}</div>
@@ -75,39 +75,37 @@
     </el-row>
 
     <el-row :gutter="16" class="chart-row">
-      <el-col :span="16">
+      <el-col :xs="24" :lg="16">
         <el-card shadow="hover">
           <template #header>
             <div class="card-header">
               <span>{{ t('dashboard.trend') }}</span>
-              <span class="header-tip">{{ t('common.loading') }}</span>
             </div>
           </template>
           <div ref="chartRef" class="chart-box" />
         </el-card>
       </el-col>
-      <el-col :span="8">
+      <el-col :xs="24" :lg="8">
         <el-card shadow="hover">
           <template #header>
             <div class="card-header">
-              <span>WebSocket</span>
-              <span class="header-tip">{{
-                wsConnected ? t('dashboard.wsConnected') : t('dashboard.wsDisconnected')
-              }}</span>
+              <span>{{ t('dashboard.connection') }}</span>
+              <el-tag
+                :type="wsConnected ? 'success' : 'danger'"
+                size="small"
+                effect="light"
+              >
+                {{ wsConnected ? t('dashboard.wsConnected') : t('dashboard.wsDisconnected') }}
+              </el-tag>
             </div>
           </template>
-          <div class="ws-status">
-            <span class="dot" :class="wsConnected ? 'green' : 'red'" />
-            {{ wsConnected ? t('dashboard.wsConnected') : t('dashboard.wsDisconnected') }}
-          </div>
-          <el-divider />
           <div class="info-row">
             <span>{{ t('dashboard.dataPoints') }}</span
             ><span>{{ history.length }}</span>
           </div>
           <div class="info-row">
             <span>{{ t('dashboard.lastUpdate') }}</span
-            ><span>{{ lastUpdate }}</span>
+            ><span>{{ lastUpdate || '—' }}</span>
           </div>
         </el-card>
       </el-col>
@@ -122,6 +120,7 @@ import { init, use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { Cpu, Memo, Coin, TrendCharts } from '@element-plus/icons-vue'
 import type { MetricsSnapshot } from '@/types'
 import type { ECharts } from 'echarts/core'
 
@@ -330,38 +329,13 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
 }
-.header-tip {
-  font-size: 12px;
-  color: var(--text-secondary);
-  background: var(--bg-hover);
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-}
 .chart-row {
   margin-top: var(--space-4);
-}
-.ws-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-}
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-}
-.dot.green {
-  background: var(--success);
-}
-.dot.red {
-  background: var(--danger);
 }
 .info-row {
   display: flex;
   justify-content: space-between;
-  padding: 4px 0;
+  padding: 6px 0;
   font-size: 13px;
   color: var(--text-secondary);
 }
