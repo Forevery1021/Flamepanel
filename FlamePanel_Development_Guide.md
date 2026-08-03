@@ -1,6 +1,6 @@
 # FlamePanel 开发部署流程指南
 
-> Rust 内核 + Vue 3 前端 · 版本 v1.13 · 更新 2026-08-02
+> Rust 内核 + Vue 3 前端 · 版本 v1.14 · 更新 2026-08-02
 
 ## 目录
 
@@ -12,8 +12,9 @@
 6. [配置参考](#6-配置参考)
 7. [开发工作流](#7-开发工作流)
 8. [服务管理](#8-服务管理)
-9. [卸载](#9-卸载)
-10. [常见问题](#10-常见问题)
+9. [多仓库同步](#9-多仓库同步)
+10. [卸载](#10-卸载)
+11. [常见问题](#11-常见问题)
 
 ---
 
@@ -580,7 +581,48 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 
 ---
 
-## 9. 卸载
+## 9. 多仓库同步
+
+GitHub 为**上游仓库**（唯一开发入口），Gitee 为只读镜像，禁止在 Gitee 直接开发提交。
+
+### 9.1 远程仓库配置
+
+```bash
+git remote -v
+# origin  https://github.com/Forevery1021/Flamepanel.git  (上游)
+# gitee   https://gitee.com/Forever1021yy/Flamepanel.git  (镜像)
+```
+
+新环境运行 `scripts/sync-gitee.sh` 会自动添加 `gitee` remote，无需手动配置。
+
+### 9.2 本地一键同步
+
+```bash
+just sync-gitee
+# 等价: ./scripts/sync-gitee.sh [remote名]
+```
+
+脚本行为：拉取 GitHub 最新引用 → 全部分支 + 标签推送到 Gitee（镜像覆盖）。
+
+### 9.3 CI 自动镜像
+
+`.github/workflows/sync-gitee.yml`：每次 push 到 `main`/`master` 自动同步 Gitee。首次启用需配置令牌：
+
+1. Gitee 创建个人访问令牌（`https://gitee.com/profile/personal_access_tokens`，勾选 `projects` 权限）
+2. GitHub → Settings → Secrets and variables → Actions → New repository secret
+3. 名称 `GITEE_TOKEN`，值粘贴令牌
+
+未配置令牌时 CI 跳过同步并打印指引，不影响其他流水线。
+
+### 9.4 同步工作流约定
+
+1. 仅向 GitHub（origin）提交与推送
+2. CI 已自动同步时无需手动操作；离线或需要立即同步时执行 `just sync-gitee`
+3. Gitee 若出现非镜像提交，用 `git push gitee --all --tags --force` 覆盖恢复镜像一致性
+
+---
+
+## 10. 卸载
 
 ### 9.1 使用卸载脚本（推荐）
 
@@ -629,7 +671,7 @@ docker volume rm flamepanel_data
 
 ---
 
-## 10. 常见问题
+## 11. 常见问题
 
 ### 后端无法启动
 
@@ -708,7 +750,7 @@ flowchart TD
 
 ---
 
-## 11. 更新日志
+## 12. 更新日志
 
 ### v0.3.0 (2026-08-02)
 

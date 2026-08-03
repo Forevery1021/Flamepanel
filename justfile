@@ -57,3 +57,7 @@ docker-down:
 # 查看日志
 docker-logs:
     docker compose logs -f
+
+# 同步到 Gitee 镜像（GitHub 为上游）
+sync-gitee:
+    ./scripts/sync-gitee.sh
