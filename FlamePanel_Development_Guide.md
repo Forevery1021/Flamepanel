@@ -12,9 +12,8 @@
 6. [配置参考](#6-配置参考)
 7. [开发工作流](#7-开发工作流)
 8. [服务管理](#8-服务管理)
-9. [多仓库同步](#9-多仓库同步)
-10. [卸载](#10-卸载)
-11. [常见问题](#11-常见问题)
+9. [卸载](#9-卸载)
+10. [常见问题](#10-常见问题)
 
 ---
 
@@ -129,7 +128,7 @@ Flamepanel/
 │       ├── locales/       # i18n: zh-CN/en-US/ja-JP
 │       └── views/         # 17 个视图页面
 ├── agent/                 # 轻量 Rust Agent
-├── scripts/               # 运维脚本（sync-gitee 同步 / package-release 打包）
+├── scripts/               # 运维脚本（package-release 打包）
 ├── install.sh             # Linux 一键安装脚本
 ├── uninstall.sh           # Linux 卸载脚本
 ├── Dockerfile             # 多阶段构建
@@ -582,76 +581,7 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 
 ---
 
-## 9. 多仓库同步
-
-GitHub 为**上游仓库**（唯一开发入口），Gitee 为只读镜像，禁止在 Gitee 直接开发提交。
-
-### 9.1 远程仓库配置
-
-```bash
-git remote -v
-# origin  https://github.com/Forevery1021/Flamepanel.git  (上游)
-# gitee   https://gitee.com/Forever1021yy/Flamepanel.git  (镜像)
-```
-
-新环境运行 `scripts/sync-gitee.sh` 会自动添加 `gitee` remote，无需手动配置。
-
-### 9.2 本地一键同步
-
-```bash
-just sync-gitee
-# 等价: ./scripts/sync-gitee.sh [remote名]
-```
-
-脚本行为：拉取 GitHub 最新引用 → 全部分支 + 标签推送到 Gitee（镜像覆盖）。
-
-### 9.3 CI 自动镜像
-
-`.github/workflows/sync-gitee.yml`：每次 push 到 `main`/`master` 自动同步 Gitee。首次启用需配置令牌：
-
-1. Gitee 创建个人访问令牌（`https://gitee.com/profile/personal_access_tokens`，勾选 `projects` 权限）
-2. GitHub → Settings → Secrets and variables → Actions → New repository secret
-3. 名称 `GITEE_TOKEN`，值粘贴令牌
-
-未配置令牌时 CI 跳过同步并打印指引，不影响其他流水线。
-
-### 9.4 同步工作流约定
-
-1. 仅向 GitHub（origin）提交与推送
-2. CI 已自动同步时无需手动操作；离线或需要立即同步时执行 `just sync-gitee`
-3. Gitee 若出现非镜像提交，用 `git push gitee --all --tags --force` 覆盖恢复镜像一致性
-
-### 9.5 GitHub 网络受限时的替代方案
-
-国内网络访问 GitHub 不稳定（时通时断、限速）时：
-
-**1. 克隆/下载走镜像站**（只读加速，仅限 clone 与 Releases 下载）：
-
-```bash
-git clone https://ghfast.top/https://github.com/Forevery1021/Flamepanel.git
-# 或 https://gh-proxy.com/https://github.com/Forevery1021/Flamepanel.git
-```
-
-`install.sh` 已内置镜像 fallback：直连 GitHub Releases 失败时自动依次尝试 `ghfast.top` → `gh-proxy.com`。
-
-**2. 推送 GitHub 失败时**：
-
-```bash
-# 直连重试（网络间歇恢复，通常 1-3 次内成功）
-git push origin main && ./scripts/sync-gitee.sh
-
-# 本地 git 已配置: HTTP/1.1 + 低速阈值放宽 + 大 postBuffer
-```
-
-镜像站不支持 push（只读代理），不要尝试把 push 指向镜像站。
-
-**3. Gitee 服务器端拉取兜底**（不占用本地网络）：
-
-Gitee 支持从 GitHub 服务器端同步：登录 Gitee → 仓库 `Flamepanel` → 管理 → 基本设置 → 「从 GitHub 导入/同步」（需先在 Gitee 账号设置中绑定 GitHub 账号）。该操作在 Gitee 服务器执行，绕开本地网络限制，适合在本地完全无法访问 GitHub 时兜底拉取上游最新代码。
-
----
-
-## 10. 卸载
+## 9. 卸载
 
 ### 9.1 使用卸载脚本（推荐）
 
@@ -700,7 +630,7 @@ docker volume rm flamepanel_data
 
 ---
 
-## 11. 常见问题
+## 10. 常见问题
 
 ### 后端无法启动
 
@@ -779,7 +709,7 @@ flowchart TD
 
 ---
 
-## 12. 更新日志
+## 11. 更新日志
 
 ### v0.4.0 (2026-08-03)
 

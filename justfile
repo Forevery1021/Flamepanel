@@ -58,10 +58,3 @@ docker-down:
 docker-logs:
     docker compose logs -f
 
-# 同步到 Gitee 镜像（GitHub 为上游）
-sync-gitee:
-    ./scripts/sync-gitee.sh
-
-# 打包发布资产 (release-assets/, install.sh 依赖)
-package:
-    ./scripts/package-release.sh
