@@ -50,6 +50,7 @@ const router = createRouter({
         },
         { path: 'terminal', name: 'Terminal', component: () => import('@/views/TerminalView.vue') },
         { path: 'health', name: 'Health', component: () => import('@/views/HealthView.vue') },
+        { path: 'backups', name: 'Backups', component: () => import('@/views/BackupView.vue') },
       ],
     },
   ],

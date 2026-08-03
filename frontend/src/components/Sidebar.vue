@@ -22,6 +22,10 @@
         <el-icon><InfoFilled /></el-icon>
         <span>{{ t('nav.health') }}</span>
       </el-menu-item>
+      <el-menu-item index="/backups">
+        <el-icon><Files /></el-icon>
+        <span>{{ t('nav.backups') }}</span>
+      </el-menu-item>
     </el-sub-menu>
 
     <el-sub-menu index="resource">
@@ -113,6 +117,7 @@ import {
   InfoFilled,
   Folder,
   Collection,
+  Files,
   Lock,
   Box,
 } from '@element-plus/icons-vue'

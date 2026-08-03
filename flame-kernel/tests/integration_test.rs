@@ -14,6 +14,7 @@ use flame_kernel::api::{
     types::{AppState, Services},
 };
 use flame_kernel::application::app_store_service::AppStoreService;
+use flame_kernel::application::backup_service::BackupService;
 use flame_kernel::application::service::*;
 use flame_kernel::config::AppConfig;
 use flame_kernel::core::error::AppError;
@@ -79,6 +80,9 @@ async fn setup_router() -> (axum::Router, AppState) {
         plugin_repo.clone(),
         AppStoreService::default_apps_dir(),
     ));
+    let backup_dir = backup_temp_dir("setup");
+    std::fs::create_dir_all(&backup_dir).unwrap();
+    std::fs::write(backup_dir.join("app.db"), b"backup-seed-db").unwrap();
     let services = Services {
         user_service: Arc::new(UserService::new(user_repo, EventBus::new(100))),
         node_service: Arc::new(NodeService::new(node_repo, EventBus::new(100))),
@@ -96,6 +100,10 @@ async fn setup_router() -> (axum::Router, AppState) {
         settings_service: Arc::new(SettingsService::new(settings_repo)),
         database_service,
         firewall_service: Arc::new(FirewallService::new(firewall_repo)),
+        backup_service: Arc::new(BackupService::new(
+            backup_dir.join("app.db"),
+            backup_dir.join("backups"),
+        )),
         event_bus: EventBus::new(100),
     };
     let state = AppState::new(
@@ -2525,4 +2533,157 @@ async fn test_forbidden_returns_json_403() {
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["code"], 403);
     assert_eq!(body["error"], "AUTH_FORBIDDEN");
+}
+
+// ── 14. Backup System ────────────────────────────────────
+
+fn backup_temp_dir(tag: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("fp_backup_test_{}_{}", std::process::id(), tag))
+}
+
+#[tokio::test]
+async fn test_backup_service_crud() {
+    let tmp = backup_temp_dir("crud");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let db = tmp.join("app.db");
+    std::fs::write(&db, b"db-content-v1").unwrap();
+    let svc = BackupService::new(&db, tmp.join("backups"));
+
+    // create
+    let entry = svc.create_backup().await.unwrap();
+    assert!(entry.filename.starts_with("flamepanel-"));
+    assert_eq!(entry.size, 13);
+
+    // list
+    let list = svc.list_backups().await.unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].filename, entry.filename);
+
+    // locate (download path)
+    let p = svc.get_backup_path(&entry.filename).await.unwrap();
+    assert_eq!(std::fs::read(&p).unwrap(), b"db-content-v1");
+
+    // path traversal rejected
+    assert!(svc.get_backup_path("../app.db").await.is_err());
+    assert!(svc.get_backup_path("backups/../app.db").await.is_err());
+    assert!(svc.get_backup_path("nonexistent.db").await.is_err());
+
+    // restore: modify db, restore from backup, content returns
+    std::fs::write(&db, b"db-content-mutated").unwrap();
+    svc.restore_backup(&entry.filename).await.unwrap();
+    assert_eq!(std::fs::read(&db).unwrap(), b"db-content-v1");
+
+    // delete
+    svc.delete_backup(&entry.filename).await.unwrap();
+    assert!(svc.list_backups().await.unwrap().is_empty());
+    assert!(svc.get_backup_path(&entry.filename).await.is_err());
+
+    std::fs::remove_dir_all(&tmp).unwrap();
+}
+
+#[tokio::test]
+async fn test_backup_api_flow() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // create backup
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/backups")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&hyper::body::to_bytes(res.into_body()).await.unwrap()).unwrap();
+    let filename = body["filename"].as_str().unwrap().to_string();
+    assert!(filename.starts_with("flamepanel-"));
+
+    // list backups
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/backups")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&hyper::body::to_bytes(res.into_body()).await.unwrap()).unwrap();
+    assert_eq!(body.as_array().unwrap().len(), 1);
+    assert_eq!(body[0]["filename"], filename);
+
+    // download backup
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/backups/{filename}"))
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    assert_eq!(&bytes[..], b"backup-seed-db");
+
+    // restore backup
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/backups/{filename}/restore"))
+                .header(h.clone(), v.clone())
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({ "filename": filename }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // delete backup
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/backups/{filename}"))
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // list is empty again
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/backups")
+                .header(h, v)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body: serde_json::Value =
+        serde_json::from_slice(&hyper::body::to_bytes(res.into_body()).await.unwrap()).unwrap();
+    assert_eq!(body.as_array().unwrap().len(), 0);
 }

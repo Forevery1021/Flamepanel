@@ -1,5 +1,6 @@
 pub mod app_store;
 pub mod auth;
+pub mod backup;
 pub mod database;
 pub mod docker;
 pub mod file;

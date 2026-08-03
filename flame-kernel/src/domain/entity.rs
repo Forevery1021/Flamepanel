@@ -457,6 +457,9 @@ pub fn default_permissions() -> Vec<Permission> {
         ("app_store", "create", "安装应用"),
         ("app_store", "update", "升级应用"),
         ("app_store", "delete", "卸载应用"),
+        ("backup", "read", "查看备份"),
+        ("backup", "create", "创建/恢复备份"),
+        ("backup", "delete", "删除备份"),
     ];
     perms
         .into_iter()

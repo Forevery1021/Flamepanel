@@ -1,6 +1,6 @@
 # FlamePanel 开发部署流程指南
 
-> Rust 内核 + Vue 3 前端 · 版本 v1.16 · 更新 2026-08-02
+> Rust 内核 + Vue 3 前端 · 版本 v1.17 · 更新 2026-08-03
 
 ## 目录
 
@@ -412,6 +412,7 @@ flowchart LR
 
 **Step 3: Application 层**
 - `flame-kernel/src/application/service.rs` — Service 结构体和方法
+- `flame-kernel/src/application/backup_service.rs` — 备份服务（创建/列表/下载/删除/恢复）
 
 **Step 4: API 层**
 - `flame-kernel/src/api/handler/xxx/mod.rs` — Handler 函数 + 模块路由表 `pub fn routes()`
@@ -705,11 +706,21 @@ flowchart TD
 **模块端点统计**：
 - 健康检查: 1 | 认证: 2 | 用户: 3 | 节点: 3 | 网站: 6
 - Docker: 13 | 插件: 13 | 应用商店: 11 | Web 服务器: 16 | 数据库: 15
-- 文件: 10 | 防火墙: 11 | 设置: 3 | 日志: 2 | WebSocket: 3
+- 文件: 10 | 防火墙: 11 | 设置: 3 | 日志: 2 | 备份: 5 | WebSocket: 3
 
 ---
 
 ## 11. 更新日志
+
+### v0.4.1 (2026-08-03)
+
+#### 备份系统（新增）
+- **`BackupService`** — `flame-kernel/src/application/backup_service.rs`：`create_backup`（时间戳命名 `flamepanel-YYYYMMDD-HHMMSS.db` 复制数据库）、`list_backups`（按时间倒序）、`get_backup_path` / `delete_backup` / `restore_backup`（恢复时强校验备份名，防路径穿越）；`db_path_from_url` 从 `sqlite://` 连接串提取库文件路径
+- **API** — 5 个端点：`POST/GET /api/backups`、`GET/DELETE /api/backups/:filename`、`POST /api/backups/:filename/restore`；下载返回 `application/octet-stream` + `Content-Disposition`；新增 `backup:read/create/delete` 权限（admin/operator/viewer 角色自动派生）
+- **前端** — 数据备份视图（BackupView）：创建/下载/恢复/删除 + 确认弹窗、文件大小人性化显示；侧边栏「系统管理」新增入口；zh/en/ja 三语言
+
+#### 测试
+- 144 个测试全部通过（89 集成 + 55 单元），新增备份服务 CRUD（含路径穿越拒绝）与 API 全流程测试
 
 ### v0.4.0 (2026-08-03)
 

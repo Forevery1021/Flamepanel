@@ -1,4 +1,5 @@
 use crate::application::app_store_service::AppStoreService;
+use crate::application::backup_service::BackupServiceRef;
 use crate::application::service::*;
 use crate::domain::entity::{LogEntry, MetricsSnapshot};
 use crate::domain::repository::PluginRepository;
@@ -21,6 +22,7 @@ pub struct AppState {
     pub permission_service: Arc<PermissionService>,
     pub operation_log_service: Arc<OperationLogService>,
     pub log_service: Arc<LogService>,
+    pub backup_service: BackupServiceRef,
     pub metrics_history: Arc<Mutex<MetricsHistory>>,
     pub metrics_tx: broadcast::Sender<MetricsSnapshot>,
     pub log_tx: broadcast::Sender<LogEntry>,
@@ -123,6 +125,7 @@ pub struct Services {
     pub settings_service: Arc<SettingsService>,
     pub database_service: Arc<DatabaseService>,
     pub firewall_service: Arc<FirewallService>,
+    pub backup_service: BackupServiceRef,
     pub event_bus: EventBus,
 }
 
@@ -156,6 +159,7 @@ impl AppState {
             settings_service: services.settings_service,
             database_service: services.database_service,
             firewall_service: services.firewall_service,
+            backup_service: services.backup_service,
             terminal_manager: Arc::new(terminal_manager),
         }
     }
@@ -410,6 +414,11 @@ pub fn route_permission(
         ("DELETE", p) if p.starts_with("/api/operation-logs/") => Some(("operation_log", "delete")),
         ("GET", "/api/logs") => Some(("log", "read")),
         ("DELETE", p) if p.starts_with("/api/logs/") => Some(("log", "delete")),
+        ("GET", "/api/backups") => Some(("backup", "read")),
+        ("POST", "/api/backups") => Some(("backup", "create")),
+        ("GET", p) if p.starts_with("/api/backups/") => Some(("backup", "read")),
+        ("DELETE", p) if p.starts_with("/api/backups/") => Some(("backup", "delete")),
+        ("POST", p) if p.starts_with("/api/backups/") => Some(("backup", "create")),
         _ => None,
     }
 }

@@ -21,6 +21,7 @@ use tokio::sync::Mutex;
 
 use api::types::{AppState, Services};
 use application::app_store_service::AppStoreService;
+use application::backup_service::{db_path_from_url, BackupService};
 use application::service::*;
 use config::AppConfig;
 use domain::entity::LogEntry;
@@ -99,12 +100,16 @@ impl FlameKernel {
             settings_service: Arc::new(SettingsService::new(settings_repo)),
             database_service,
             firewall_service: Arc::new(FirewallService::new(firewall_repo)),
+            backup_service: Arc::new(BackupService::new("data/app.db", "data/backups")),
             event_bus,
         }
     }
 
     pub fn new_with_backend(config: AppConfig, factory: RepoFactory) -> Self {
-        let services = Self::build_services(&factory);
+        let mut services = Self::build_services(&factory);
+        // 用真实数据库路径覆盖备份服务（build_services 使用默认路径）
+        let db_path = db_path_from_url(&config.database.url);
+        services.backup_service = Arc::new(BackupService::new(db_path, "data/backups"));
 
         // 内置应用种子 + WASM 插件恢复（后台异步，不阻塞启动）
         let app_store_service_for_restore = services.app_store_service.clone();
