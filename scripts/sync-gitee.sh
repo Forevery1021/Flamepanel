@@ -11,8 +11,8 @@ if ! git remote | grep -qx "$REMOTE"; then
   echo "已添加 remote: $REMOTE -> $GITEE_URL"
 fi
 
-echo "==> 拉取 GitHub 上游最新引用..."
-git fetch origin --prune
+echo "==> 拉取 GitHub 上游最新引用 (失败时继续，使用本地已有引用)..."
+git fetch origin --prune --no-tags || echo "警告: fetch 失败（网络/限速），将按本地引用推送"
 
 echo "==> 推送全部分支 + 标签到 Gitee (镜像覆盖)..."
 git push "$REMOTE" --all --force
