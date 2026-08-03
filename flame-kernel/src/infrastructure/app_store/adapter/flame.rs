@@ -1,9 +1,11 @@
-use std::path::Path;
+use super::{field_type_from_str, form_field, is_version_dir, AppPackageAdapter};
+use crate::core::error::AppError;
+use crate::domain::entity::{
+    AppFormat, AppManifest, AppMetadata, AppVersionInfo, FieldType, FormField, InstallMode,
+};
 use base64::Engine;
 use serde::Deserialize;
-use crate::core::error::AppError;
-use crate::domain::entity::{AppFormat, AppManifest, AppMetadata, AppVersionInfo, FieldType, FormField, InstallMode};
-use super::{AppPackageAdapter, field_type_from_str, form_field, is_version_dir};
+use std::path::Path;
 
 /// 内置 Flame 格式：
 /// - 内置应用目录：直接使用 `builtin_apps()` 的 compose 模板
@@ -57,7 +59,10 @@ impl FlameAdapter {
     fn read_app_json(root: &Path) -> Result<FlameAppJson, AppError> {
         let path = root.join("app.json");
         if !path.exists() {
-            return Err(AppError::BadRequest(format!("缺少 app.json: {}", root.display())));
+            return Err(AppError::BadRequest(format!(
+                "缺少 app.json: {}",
+                root.display()
+            )));
         }
         let content = std::fs::read_to_string(&path)
             .map_err(|e| AppError::BadRequest(format!("读取 app.json 失败: {}", e)))?;
@@ -146,12 +151,21 @@ impl AppPackageAdapter for FlameAdapter {
             return true;
         }
         // 内置应用：以 key 作为根路径标记（目录名即 key）
-        Self::find_builtin(&root.to_string_lossy().split('/').last().unwrap_or_default()).is_some()
+        Self::find_builtin(
+            root.to_string_lossy()
+                .split('/')
+                .next_back()
+                .unwrap_or_default(),
+        )
+        .is_some()
     }
 
     fn parse_metadata(&self, root: &Path) -> Result<AppMetadata, AppError> {
         // 内置应用
-        let key = root.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        let key = root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
         if let Some(manifest) = Self::find_builtin(key) {
             return Ok(Self::builtin_metadata(&manifest));
         }
@@ -160,17 +174,14 @@ impl AppPackageAdapter for FlameAdapter {
         let versions = json
             .versions
             .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| {
-                self.list_versions(root).unwrap_or_default()
-            });
+            .unwrap_or_else(|| self.list_versions(root).unwrap_or_default());
         let default_version = versions
             .iter()
-            .filter(|v| *v != "latest")
-            .next()
+            .find(|v| *v != "latest")
             .or_else(|| versions.first())
             .cloned()
             .unwrap_or_else(|| "latest".into());
-        let mode = InstallMode::from_str(json.mode.as_deref().unwrap_or("container"))
+        let mode = InstallMode::from_name(json.mode.as_deref().unwrap_or("container"))
             .unwrap_or(InstallMode::Container);
 
         Ok(AppMetadata {
@@ -192,7 +203,11 @@ impl AppPackageAdapter for FlameAdapter {
     }
 
     fn list_versions(&self, root: &Path) -> Result<Vec<String>, AppError> {
-        if let Some(manifest) = Self::find_builtin(root.file_name().and_then(|n| n.to_str()).unwrap_or_default()) {
+        if let Some(manifest) = Self::find_builtin(
+            root.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default(),
+        ) {
             return Ok(vec![manifest.version]);
         }
         let mut versions = Vec::new();
@@ -215,7 +230,10 @@ impl AppPackageAdapter for FlameAdapter {
 
     fn parse_version(&self, root: &Path, version: &str) -> Result<AppVersionInfo, AppError> {
         // 内置应用
-        let key = root.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        let key = root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
         if let Some(manifest) = Self::find_builtin(key) {
             if version != manifest.version {
                 return Err(AppError::NotFound(format!("版本不存在: {}", version)));
@@ -229,7 +247,7 @@ impl AppPackageAdapter for FlameAdapter {
             return Err(AppError::NotFound(format!("版本目录不存在: {}", version)));
         }
 
-        let mode = InstallMode::from_str(json.mode.as_deref().unwrap_or("container"))
+        let mode = InstallMode::from_name(json.mode.as_deref().unwrap_or("container"))
             .unwrap_or(InstallMode::Container);
 
         let mut form_fields: Vec<FormField> = json
@@ -238,7 +256,9 @@ impl AppPackageAdapter for FlameAdapter {
             .into_iter()
             .map(|f| FormField {
                 env_key: f.env_key.clone().unwrap_or_default(),
-                label_zh: f.label_zh.unwrap_or_else(|| f.env_key.clone().unwrap_or_default()),
+                label_zh: f
+                    .label_zh
+                    .unwrap_or_else(|| f.env_key.clone().unwrap_or_default()),
                 label_en: f.label_en,
                 field_type: field_type_from_str(f.field_type.as_deref().unwrap_or("text")),
                 default: f.default,
@@ -252,7 +272,10 @@ impl AppPackageAdapter for FlameAdapter {
                     .options
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|o| crate::domain::entity::SelectOption { label: o.label, value: o.value })
+                    .map(|o| crate::domain::entity::SelectOption {
+                        label: o.label,
+                        value: o.value,
+                    })
                     .collect(),
                 description: f.description,
                 group: None,
@@ -270,7 +293,12 @@ impl AppPackageAdapter for FlameAdapter {
             .flatten();
         let native_scripts = if version_dir.join("install.sh").is_file() {
             std::fs::read_to_string(version_dir.join("install.sh"))
-                .map(|s| s.lines().filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#')).map(|l| l.to_string()).collect())
+                .map(|s| {
+                    s.lines()
+                        .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
+                        .map(|l| l.to_string())
+                        .collect()
+                })
                 .unwrap_or_default()
         } else {
             vec![]
@@ -304,10 +332,10 @@ impl AppPackageAdapter for FlameAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("flame_app_test_{}_{}", name, std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("flame_app_test_{}_{}", name, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -353,7 +381,11 @@ mod tests {
         std::fs::write(dir.join("app.json"), json).unwrap();
         let vdir = dir.join("1.21.0");
         std::fs::create_dir_all(&vdir).unwrap();
-        std::fs::write(vdir.join("docker-compose.yml"), "services:\n  gitea:\n    image: gitea/gitea\n").unwrap();
+        std::fs::write(
+            vdir.join("docker-compose.yml"),
+            "services:\n  gitea:\n    image: gitea/gitea\n",
+        )
+        .unwrap();
 
         let adapter = FlameAdapter;
         let version = adapter.parse_version(&dir, "1.21.0").unwrap();
@@ -366,11 +398,16 @@ mod tests {
     #[test]
     fn parses_native_and_wasm_versions() {
         let dir = temp_dir("native");
-        let json = r#"{"key": "php-fpm", "name": "PHP-FPM", "mode": "native", "versions": ["8.3"]}"#;
+        let json =
+            r#"{"key": "php-fpm", "name": "PHP-FPM", "mode": "native", "versions": ["8.3"]}"#;
         std::fs::write(dir.join("app.json"), json).unwrap();
         let vdir = dir.join("8.3");
         std::fs::create_dir_all(&vdir).unwrap();
-        std::fs::write(vdir.join("install.sh"), "apt-get install -y php-fpm\nsystemctl enable php-fpm").unwrap();
+        std::fs::write(
+            vdir.join("install.sh"),
+            "apt-get install -y php-fpm\nsystemctl enable php-fpm",
+        )
+        .unwrap();
 
         let adapter = FlameAdapter;
         let version = adapter.parse_version(&dir, "8.3").unwrap();
@@ -385,7 +422,11 @@ mod tests {
         let meta = FlameAdapter::builtin_metadata(&manifest);
         assert_eq!(meta.key, "wordpress");
         let version = FlameAdapter::builtin_version(&manifest);
-        assert!(version.compose_template.as_ref().unwrap().contains("wordpress:"));
+        assert!(version
+            .compose_template
+            .as_ref()
+            .unwrap()
+            .contains("wordpress:"));
         assert_eq!(version.form_fields[0].env_key, "PORT");
         assert_eq!(version.default_port, Some(8081));
     }

@@ -1,36 +1,36 @@
+pub mod api;
+pub mod application;
 pub mod config;
 pub mod core;
-pub mod domain;
-pub mod application;
-pub mod infrastructure;
-pub mod api;
-pub mod event;
-pub mod plugin;
-pub mod utils;
-pub mod notification;
-pub mod resilience;
-pub mod webserver;
 pub mod database;
+pub mod domain;
+pub mod event;
 pub mod file;
+pub mod infrastructure;
+pub mod notification;
+pub mod plugin;
+pub mod resilience;
 pub mod terminal;
+pub mod utils;
+pub mod webserver;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use config::AppConfig;
+use api::types::{AppState, Services};
 use application::app_store_service::AppStoreService;
 use application::service::*;
-use api::types::{AppState, Services};
-use event::{EventBus, handler::EventHandler};
+use config::AppConfig;
+use domain::entity::LogEntry;
+use domain::entity::MetricsSnapshot;
+use event::{handler::EventHandler, EventBus};
+use infrastructure::factory::RepoFactory;
+use infrastructure::metrics::{spawn_metrics_collector, MetricsHistory};
 use notification::{EmailNotifier, SmtpConfig};
 use plugin::{PluginRegistry, PluginSandbox};
 use terminal::TerminalManager;
-use infrastructure::factory::RepoFactory;
-use infrastructure::metrics::{MetricsHistory, spawn_metrics_collector};
-use domain::entity::MetricsSnapshot;
-use domain::entity::LogEntry;
 
 pub struct FlameKernel {
     pub config: AppConfig,
@@ -46,6 +46,7 @@ impl FlameKernel {
 
     /// 从仓库工厂组装全部业务服务（应用层组合根）
     fn build_services(factory: &RepoFactory) -> Services {
+        let event_bus = EventBus::new(100);
         let user_repo = factory.create_user_repo();
         let node_repo = factory.create_node_repo();
         let website_repo = factory.create_website_repo();
@@ -80,13 +81,15 @@ impl FlameKernel {
         ));
 
         Services {
-            user_service: Arc::new(UserService::new(user_repo)),
-            node_service: Arc::new(NodeService::new(node_repo)),
-            website_service: Arc::new(WebsiteService::new(website_repo)),
+            user_service: Arc::new(UserService::new(user_repo, event_bus.clone())),
+            node_service: Arc::new(NodeService::new(node_repo, event_bus.clone())),
+            website_service: Arc::new(WebsiteService::new(website_repo, event_bus.clone())),
             docker_service,
             role_service: Arc::new(RoleService::new(role_repo, perm_repo.clone())),
             permission_service: Arc::new(PermissionService::new(perm_repo)),
-            operation_log_service: Arc::new(OperationLogService::new(factory.create_operation_log_repo())),
+            operation_log_service: Arc::new(OperationLogService::new(
+                factory.create_operation_log_repo(),
+            )),
             log_service: Arc::new(LogService::new(factory.create_log_repo())),
             plugin_sandbox,
             plugin_registry,
@@ -96,11 +99,11 @@ impl FlameKernel {
             settings_service: Arc::new(SettingsService::new(settings_repo)),
             database_service,
             firewall_service: Arc::new(FirewallService::new(firewall_repo)),
+            event_bus,
         }
     }
 
     pub fn new_with_backend(config: AppConfig, factory: RepoFactory) -> Self {
-        let event_bus = EventBus::new(100);
         let services = Self::build_services(&factory);
 
         // 内置应用种子 + WASM 插件恢复（后台异步，不阻塞启动）
@@ -117,6 +120,9 @@ impl FlameKernel {
 
         let terminal_manager = TerminalManager::new();
 
+        // Wire up event handler with notification (subscribe before services is moved into AppState)
+        let rx = services.event_bus.subscribe();
+        let event_bus = services.event_bus.clone();
         let plugin_registry = services.plugin_registry.clone();
         let app_state = AppState::new(
             config.jwt_secret.clone(),
@@ -127,8 +133,6 @@ impl FlameKernel {
             terminal_manager,
         );
 
-        // Wire up event handler with notification
-        let rx = event_bus.subscribe();
         let smtp_config = SmtpConfig {
             host: config.notifications.smtp_host.clone(),
             port: config.notifications.smtp_port,
@@ -138,9 +142,7 @@ impl FlameKernel {
             use_tls: config.notifications.smtp_tls,
         };
         let notifier = Arc::new(EmailNotifier::new(smtp_config));
-        EventHandler::new()
-            .with_email(notifier)
-            .spawn(rx);
+        EventHandler::new().with_email(notifier).spawn(rx);
 
         Self {
             config,
@@ -158,7 +160,10 @@ impl FlameKernel {
         if users.is_empty() {
             let admin_password = &self.config.admin_password;
             let hash = crate::utils::password::PasswordUtils::hash(admin_password)?;
-            self.app_state.user_service.create_user("admin", &hash, "admin").await?;
+            self.app_state
+                .user_service
+                .create_user("admin", &hash, "admin")
+                .await?;
             tracing::info!("Seeded admin user (password from config)");
         }
 

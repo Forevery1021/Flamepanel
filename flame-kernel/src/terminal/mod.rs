@@ -1,9 +1,9 @@
+use crate::core::error::AppError;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::{Command, ChildStdin};
-use tokio::sync::{Mutex, mpsc};
-use crate::core::error::AppError;
+use tokio::process::{ChildStdin, Command};
+use tokio::sync::{mpsc, Mutex};
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -78,7 +78,9 @@ impl TerminalSession {
     pub async fn write_input(&self, data: &str) -> Result<(), AppError> {
         if let Some(ref stdin) = self.stdin {
             let mut stdin = stdin.lock().await;
-            stdin.write_all(data.as_bytes()).await
+            stdin
+                .write_all(data.as_bytes())
+                .await
                 .map_err(|e| AppError::internal(format!("Terminal write error: {}", e)))?;
         }
         Ok(())
@@ -128,5 +130,10 @@ impl TerminalManager {
 
     pub async fn close(&self, id: u64) {
         self.sessions.lock().await.remove(&id);
+    }
+}
+impl Default for TerminalManager {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -1,7 +1,7 @@
-use async_trait::async_trait;
 use crate::core::error::AppError;
 use crate::database::NativeDbManager;
-use crate::infrastructure::os::{ServiceManager, PackageManager};
+use crate::infrastructure::os::{PackageManager, ServiceManager};
+use async_trait::async_trait;
 
 pub struct RedisManager {
     service_name: String,
@@ -19,8 +19,16 @@ impl RedisManager {
 
 #[async_trait]
 impl NativeDbManager for RedisManager {
-    async fn install(&self, _version: Option<&str>, port: i32, password: &str) -> Result<(), AppError> {
-        if PackageManager::is_installed("redis-server").await.unwrap_or(false) {
+    async fn install(
+        &self,
+        _version: Option<&str>,
+        port: i32,
+        password: &str,
+    ) -> Result<(), AppError> {
+        if PackageManager::is_installed("redis-server")
+            .await
+            .unwrap_or(false)
+        {
             return Err(AppError::BadRequest("Redis is already installed".into()));
         }
 
@@ -29,17 +37,25 @@ impl NativeDbManager for RedisManager {
         // Configure port
         if port != 6379 {
             tokio::process::Command::new("sh")
-                .args(["-c", &format!("sed -i 's/^port .*/port {}/' {}", port, self.config_file)])
+                .args([
+                    "-c",
+                    &format!("sed -i 's/^port .*/port {}/' {}", port, self.config_file),
+                ])
                 .output()
-                .await.ok();
+                .await
+                .ok();
         }
 
         // Configure password
         if !password.is_empty() {
             tokio::process::Command::new("sh")
-                .args(["-c", &format!("echo 'requirepass {}' >> {}", password, self.config_file)])
+                .args([
+                    "-c",
+                    &format!("echo 'requirepass {}' >> {}", password, self.config_file),
+                ])
                 .output()
-                .await.ok();
+                .await
+                .ok();
         }
 
         ServiceManager::enable("redis-server").await.ok();
@@ -140,6 +156,12 @@ impl RedisManager {
     }
 
     pub async fn set_max_memory(&self, max_mb: usize) -> Result<(), AppError> {
-        self.set_config("maxmemory", &format!("{}", max_mb * 1024 * 1024)).await
+        self.set_config("maxmemory", &format!("{}", max_mb * 1024 * 1024))
+            .await
+    }
+}
+impl Default for RedisManager {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -360,7 +360,7 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 - **Phase 5** ✅ 应用商店：1Panel/宝塔/Flame 三格式适配器 + 容器/原生/WASM 三模式安装编排（变量映射、安全扫描、失败回滚）、WASM 内置工具持久化、完整 API + 前端商店视图（动态表单安装向导）
 - **Phase 5** ✅ Web 引擎统一：性能预设（资源感知推荐）+ 引擎一键切换（Web 服务器 & 网站）+ 预设应用，前端预设/切换 UI
 - **Phase 6** ✅ 内核优化：统一错误体系（8 稳定错误码 + JSON 化中间件/404/ApiJson）、认证+RBAC 合并中间件、Services 聚合 + 路由分模块、release profile 优化（18MB stripped）、前端错误码 i18n
-- **测试** ✅ 141 测试全部通过（86 集成 + 55 单元）
+- **测试** ✅ 142 测试全部通过（87 集成 + 55 单元）
 
 ## License
 

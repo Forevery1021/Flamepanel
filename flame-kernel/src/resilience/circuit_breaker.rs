@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use std::time::{Duration, Instant};
 use crate::core::error::AppError;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CircuitState {
@@ -64,7 +64,7 @@ impl CircuitBreaker {
         E: std::fmt::Display,
     {
         let mut inner = self.inner.lock().await;
-        
+
         match inner.state {
             CircuitState::Open => {
                 if let Some(last_failure) = inner.last_failure_time {
@@ -87,11 +87,11 @@ impl CircuitBreaker {
             }
             CircuitState::Closed => {}
         }
-        
+
         drop(inner);
-        
+
         let result = f().await;
-        
+
         let mut inner = self.inner.lock().await;
         match result {
             Ok(_) => {
@@ -114,11 +114,11 @@ impl CircuitBreaker {
             Err(e) => {
                 inner.failure_count += 1;
                 inner.last_failure_time = Some(Instant::now());
-                
+
                 if inner.failure_count >= inner.config.failure_threshold {
                     inner.state = CircuitState::Open;
                 }
-                
+
                 Err(AppError::internal(e.to_string()))
             }
         }
@@ -142,12 +142,11 @@ impl CircuitBreaker {
 mod tests {
     use super::*;
 
-
     #[tokio::test]
     async fn test_circuit_breaker_closed_state() {
         let cb = CircuitBreaker::new(CircuitBreakerConfig::default());
         assert_eq!(cb.state().await, CircuitState::Closed);
-        
+
         let result = cb.call(|| async { Ok::<i32, String>(42) }).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 42);
@@ -160,13 +159,15 @@ mod tests {
             ..Default::default()
         };
         let cb = CircuitBreaker::new(config);
-        
+
         for _ in 0..3 {
-            let _ = cb.call(|| async { Err::<i32, String>("error".into()) }).await;
+            let _ = cb
+                .call(|| async { Err::<i32, String>("error".into()) })
+                .await;
         }
-        
+
         assert_eq!(cb.state().await, CircuitState::Open);
-        
+
         let result = cb.call(|| async { Ok::<i32, String>(42) }).await;
         assert!(result.is_err());
     }
@@ -180,14 +181,16 @@ mod tests {
             half_open_max_calls: 3,
         };
         let cb = CircuitBreaker::new(config);
-        
+
         for _ in 0..2 {
-            let _ = cb.call(|| async { Err::<i32, String>("error".into()) }).await;
+            let _ = cb
+                .call(|| async { Err::<i32, String>("error".into()) })
+                .await;
         }
         assert_eq!(cb.state().await, CircuitState::Open);
-        
+
         tokio::time::sleep(Duration::from_millis(100)).await;
-        
+
         for _ in 0..2 {
             let _ = cb.call(|| async { Ok::<i32, String>(42) }).await;
         }
@@ -197,12 +200,14 @@ mod tests {
     #[tokio::test]
     async fn test_circuit_breaker_reset() {
         let cb = CircuitBreaker::new(CircuitBreakerConfig::default());
-        
+
         for _ in 0..5 {
-            let _ = cb.call(|| async { Err::<i32, String>("error".into()) }).await;
+            let _ = cb
+                .call(|| async { Err::<i32, String>("error".into()) })
+                .await;
         }
         assert_eq!(cb.state().await, CircuitState::Open);
-        
+
         cb.reset().await;
         assert_eq!(cb.state().await, CircuitState::Closed);
     }

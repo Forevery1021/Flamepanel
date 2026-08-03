@@ -2,9 +2,9 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use chrono::Utc;
+use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 use tokio::time::{interval, Duration};
-use tokio::sync::broadcast;
 
 use crate::domain::entity::MetricsSnapshot;
 
@@ -34,11 +34,19 @@ impl MetricsHistory {
 }
 
 fn clamp_f32(v: f32) -> f32 {
-    if v.is_finite() { v } else { 0.0 }
+    if v.is_finite() {
+        v
+    } else {
+        0.0
+    }
 }
 
 fn clamp_f64(v: f64) -> f64 {
-    if v.is_finite() { v } else { 0.0 }
+    if v.is_finite() {
+        v
+    } else {
+        0.0
+    }
 }
 
 pub fn spawn_metrics_collector(
@@ -67,15 +75,13 @@ pub fn spawn_metrics_collector(
             };
 
             let disks = sysinfo::Disks::new_with_refreshed_list();
-            let (disk_total, disk_used): (u64, u64) = disks.iter().fold(
-                (0, 0),
-                |(total, used), disk| {
+            let (disk_total, disk_used): (u64, u64) =
+                disks.iter().fold((0, 0), |(total, used), disk| {
                     (
                         total + disk.total_space(),
                         used + disk.total_space() - disk.available_space(),
                     )
-                },
-            );
+                });
             let disk_total_gb = disk_total as f64 / 1024.0 / 1024.0 / 1024.0;
             let disk_used_gb = disk_used as f64 / 1024.0 / 1024.0 / 1024.0;
             let disk_usage_percent = if disk_total_gb > 0.0 {

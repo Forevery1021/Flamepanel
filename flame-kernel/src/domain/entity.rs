@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::collections::HashSet;
 
@@ -140,7 +140,7 @@ impl AppFormat {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<AppFormat> {
+    pub fn from_name(s: &str) -> Option<AppFormat> {
         match s.to_lowercase().as_str() {
             "onepanel" | "1panel" => Some(AppFormat::OnePanel),
             "baota" | "bt" => Some(AppFormat::Baota),
@@ -167,7 +167,7 @@ impl InstallMode {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<InstallMode> {
+    pub fn from_name(s: &str) -> Option<InstallMode> {
         match s.to_lowercase().as_str() {
             "container" | "docker" | "compose" => Some(InstallMode::Container),
             "native" | "host" => Some(InstallMode::Native),
@@ -202,7 +202,7 @@ impl FieldType {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<FieldType> {
+    pub fn from_name(s: &str) -> Option<FieldType> {
         match s.to_lowercase().as_str() {
             "text" | "string" | "env" => Some(FieldType::Text),
             "number" | "int" | "integer" => Some(FieldType::Number),
@@ -335,14 +335,54 @@ pub struct PanelSetting {
 
 pub fn default_settings() -> Vec<PanelSetting> {
     vec![
-        PanelSetting { key: "panel_name".into(), value: "FlamePanel".into(), description: "面板名称".into(), updated_at: Utc::now() },
-        PanelSetting { key: "theme".into(), value: "light".into(), description: "主题 (light/dark)".into(), updated_at: Utc::now() },
-        PanelSetting { key: "language".into(), value: "zh-CN".into(), description: "界面语言".into(), updated_at: Utc::now() },
-        PanelSetting { key: "panel_port".into(), value: "8080".into(), description: "面板端口".into(), updated_at: Utc::now() },
-        PanelSetting { key: "session_timeout_minutes".into(), value: "1440".into(), description: "会话超时时间(分钟)".into(), updated_at: Utc::now() },
-        PanelSetting { key: "log_level".into(), value: "info".into(), description: "日志级别 (trace/debug/info/warn/error)".into(), updated_at: Utc::now() },
-        PanelSetting { key: "log_retention_days".into(), value: "30".into(), description: "日志保留天数".into(), updated_at: Utc::now() },
-        PanelSetting { key: "two_factor_enabled".into(), value: "false".into(), description: "是否启用两步验证".into(), updated_at: Utc::now() },
+        PanelSetting {
+            key: "panel_name".into(),
+            value: "FlamePanel".into(),
+            description: "面板名称".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "theme".into(),
+            value: "light".into(),
+            description: "主题 (light/dark)".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "language".into(),
+            value: "zh-CN".into(),
+            description: "界面语言".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "panel_port".into(),
+            value: "8080".into(),
+            description: "面板端口".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "session_timeout_minutes".into(),
+            value: "1440".into(),
+            description: "会话超时时间(分钟)".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "log_level".into(),
+            value: "info".into(),
+            description: "日志级别 (trace/debug/info/warn/error)".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "log_retention_days".into(),
+            value: "30".into(),
+            description: "日志保留天数".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "two_factor_enabled".into(),
+            value: "false".into(),
+            description: "是否启用两步验证".into(),
+            updated_at: Utc::now(),
+        },
     ]
 }
 
@@ -418,19 +458,35 @@ pub fn default_permissions() -> Vec<Permission> {
         ("app_store", "update", "升级应用"),
         ("app_store", "delete", "卸载应用"),
     ];
-    perms.into_iter().enumerate().map(|(i, (r, a, d))| Permission {
-        id: (i + 1) as i64,
-        resource: r.to_string(),
-        action: a.to_string(),
-        description: d.to_string(),
-    }).collect()
+    perms
+        .into_iter()
+        .enumerate()
+        .map(|(i, (r, a, d))| Permission {
+            id: (i + 1) as i64,
+            resource: r.to_string(),
+            action: a.to_string(),
+            description: d.to_string(),
+        })
+        .collect()
 }
 
 pub fn default_roles() -> Vec<Role> {
     vec![
-        Role { id: 1, name: "admin".into(), description: "超级管理员，拥有所有权限".into() },
-        Role { id: 2, name: "operator".into(), description: "运维操作员，读写大部分资源".into() },
-        Role { id: 3, name: "viewer".into(), description: "只读用户，仅可查看".into() },
+        Role {
+            id: 1,
+            name: "admin".into(),
+            description: "超级管理员，拥有所有权限".into(),
+        },
+        Role {
+            id: 2,
+            name: "operator".into(),
+            description: "运维操作员，读写大部分资源".into(),
+        },
+        Role {
+            id: 3,
+            name: "viewer".into(),
+            description: "只读用户，仅可查看".into(),
+        },
     ]
 }
 
@@ -439,11 +495,13 @@ pub fn role_permissions(role_name: &str) -> HashSet<i64> {
     let all_ids: HashSet<i64> = all_perms.iter().map(|p| p.id).collect();
     match role_name {
         "admin" => all_ids,
-        "operator" => all_perms.iter()
+        "operator" => all_perms
+            .iter()
             .filter(|p| p.action != "delete")
             .map(|p| p.id)
             .collect(),
-        "viewer" => all_perms.iter()
+        "viewer" => all_perms
+            .iter()
             .filter(|p| p.action == "read")
             .map(|p| p.id)
             .collect(),
@@ -467,7 +525,7 @@ impl DatabaseType {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn from_name(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "mysql" => Some(DatabaseType::Mysql),
             "mariadb" => Some(DatabaseType::MariaDB),
@@ -653,7 +711,8 @@ services:
       MYSQL_PASSWORD: wp_{name}_pass
       MYSQL_ROOT_PASSWORD: root_{name}_pass
     restart: unless-stopped
-"#.into(),
+"#
+            .into(),
         },
         AppManifest {
             key: "portainer".into(),
@@ -673,7 +732,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - {data_dir}:/data
     restart: unless-stopped
-"#.into(),
+"#
+            .into(),
         },
         AppManifest {
             key: "nginx".into(),
@@ -692,7 +752,8 @@ services:
     volumes:
       - {data_dir}/html:/usr/share/nginx/html:ro
     restart: unless-stopped
-"#.into(),
+"#
+            .into(),
         },
         AppManifest {
             key: "redis".into(),
@@ -712,7 +773,8 @@ services:
       - {data_dir}:/data
     command: redis-server --appendonly yes --requirepass app_{name}_pass
     restart: unless-stopped
-"#.into(),
+"#
+            .into(),
         },
         AppManifest {
             key: "uptime-kuma".into(),
@@ -731,7 +793,8 @@ services:
     volumes:
       - {data_dir}:/app/data
     restart: unless-stopped
-"#.into(),
+"#
+            .into(),
         },
     ]
 }

@@ -61,6 +61,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { setLanguage } from '@/locales'
+import { applyTheme, isDark as isDarkClass } from '@/utils/theme'
 import {
   UserFilled,
   Tools,
@@ -82,9 +83,7 @@ const routeName = computed(() => (route.name as string) || '')
 const isDark = computed(() => document.documentElement.classList.contains('dark'))
 
 function toggleTheme() {
-  const html = document.documentElement
-  html.classList.toggle('dark')
-  localStorage.setItem('flame-theme', html.classList.contains('dark') ? 'dark' : 'light')
+  applyTheme(isDarkClass() ? 'light' : 'dark')
 }
 
 function handleLangChange(lang: string) {

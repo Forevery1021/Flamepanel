@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use regex::Regex;
+use std::collections::HashMap;
 
 /// 变量映射引擎：支持 `${VAR}`、`$VAR` 与遗留 `{var}` 三种占位符。
 /// 用户表单值优先级最高，未识别变量保留原样并收集警告。
@@ -37,7 +37,9 @@ impl VariableMapper {
                 Some(v) => v.clone(),
                 None => {
                     warnings.push(format!("未识别的变量: ${{{}}}", name));
-                    caps.get(0).map(|m| m.as_str().to_string()).unwrap_or_default()
+                    caps.get(0)
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_default()
                 }
             }
         });
@@ -61,13 +63,9 @@ mod tests {
     #[test]
     fn replaces_braced_vars() {
         let m = mapper();
-        let (out, warns) = m.replace(
-            "container_name: ${CONTAINER_NAME}\n  - \"${PANEL_APP_PORT_HTTP}:80\"",
-        );
-        assert_eq!(
-            out,
-            "container_name: wordpress-a1b2c3d4\n  - \"8089:80\""
-        );
+        let (out, warns) =
+            m.replace("container_name: ${CONTAINER_NAME}\n  - \"${PANEL_APP_PORT_HTTP}:80\"");
+        assert_eq!(out, "container_name: wordpress-a1b2c3d4\n  - \"8089:80\"");
         assert!(warns.is_empty());
     }
 

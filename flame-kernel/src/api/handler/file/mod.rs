@@ -1,10 +1,14 @@
-use axum::{Json, extract::{Query, State}, body::Bytes};
-use axum::Router;
-use serde::Deserialize;
 use crate::api::extract::ApiJson;
 use crate::api::types::AppState;
 use crate::core::error::AppError;
-use crate::file::{FileService, FileInfo};
+use crate::file::{FileInfo, FileService};
+use axum::Router;
+use axum::{
+    body::Bytes,
+    extract::{Query, State},
+    Json,
+};
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct ListParams {
@@ -53,7 +57,11 @@ pub struct UploadQuery {
 
 async fn log_file_op(state: &AppState, action: &str, target: &str) {
     // Extract username from user context if available (fallback to "system")
-    state.operation_log_service.log("system", action, Some(target), None).await.ok();
+    state
+        .operation_log_service
+        .log("system", action, Some(target), None)
+        .await
+        .ok();
 }
 
 pub async fn list(
@@ -116,7 +124,12 @@ pub async fn rename(
     ApiJson(req): ApiJson<RenameRequest>,
 ) -> Result<Json<&'static str>, AppError> {
     FileService::rename(&req.old_path, &req.new_path).await?;
-    log_file_op(&state, "file_rename", &format!("{} -> {}", req.old_path, req.new_path)).await;
+    log_file_op(
+        &state,
+        "file_rename",
+        &format!("{} -> {}", req.old_path, req.new_path),
+    )
+    .await;
     Ok(Json("renamed"))
 }
 
@@ -135,7 +148,12 @@ pub async fn upload(
     body: Bytes,
 ) -> Result<Json<&'static str>, AppError> {
     FileService::upload(&params.path, &params.name, &body).await?;
-    log_file_op(&state, "file_upload", &format!("{}/{}", params.path, params.name)).await;
+    log_file_op(
+        &state,
+        "file_upload",
+        &format!("{}/{}", params.path, params.name),
+    )
+    .await;
     Ok(Json("uploaded"))
 }
 
@@ -149,14 +167,15 @@ pub async fn download(
         axum::http::StatusCode::OK,
         [
             ("Content-Type".into(), mime),
-            ("Content-Disposition".into(), format!("attachment; filename=\"{}\"", name)),
+            (
+                "Content-Disposition".into(),
+                format!("attachment; filename=\"{}\"", name),
+            ),
             ("Content-Length".into(), content.len().to_string()),
         ],
         content,
     ))
 }
-
-
 
 /// 路由表（集中注册于 routes.rs 组合根）
 pub fn routes() -> Router<AppState> {

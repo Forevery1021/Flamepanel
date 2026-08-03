@@ -1,9 +1,9 @@
-use async_trait::async_trait;
+use crate::core::error::AppError;
 use crate::domain::entity::*;
 use crate::domain::repository::*;
-use crate::core::error::AppError;
-use std::sync::Mutex;
+use async_trait::async_trait;
 use chrono::Utc;
+use std::sync::Mutex;
 
 pub struct InMemoryUserRepository {
     users: Mutex<Vec<User>>,
@@ -31,7 +31,12 @@ impl UserRepository for InMemoryUserRepository {
         Ok(users.iter().find(|u| u.username == username).cloned())
     }
 
-    async fn create(&self, username: &str, password_hash: &str, role: &str) -> Result<User, AppError> {
+    async fn create(
+        &self,
+        username: &str,
+        password_hash: &str,
+        role: &str,
+    ) -> Result<User, AppError> {
         let mut users = self.users.lock().unwrap();
         let mut next_id = self.next_id.lock().unwrap();
         let user = User {
@@ -280,7 +285,11 @@ impl DockerRepository for InMemoryDockerRepository {
         Ok(())
     }
 
-    async fn compose_deploy(&self, project_name: &str, compose_yaml: &str) -> Result<serde_json::Value, AppError> {
+    async fn compose_deploy(
+        &self,
+        project_name: &str,
+        compose_yaml: &str,
+    ) -> Result<serde_json::Value, AppError> {
         Ok(serde_json::json!({
             "mode": "memory",
             "project_name": project_name,
@@ -320,12 +329,27 @@ impl PermissionRepository for InMemoryPermissionRepository {
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<Permission>, AppError> {
-        Ok(self.permissions.lock().unwrap().iter().find(|p| p.id == id).cloned())
+        Ok(self
+            .permissions
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|p| p.id == id)
+            .cloned())
     }
 
-    async fn find_by_resource_action(&self, resource: &str, action: &str) -> Result<Option<Permission>, AppError> {
-        Ok(self.permissions.lock().unwrap().iter()
-            .find(|p| p.resource == resource && p.action == action).cloned())
+    async fn find_by_resource_action(
+        &self,
+        resource: &str,
+        action: &str,
+    ) -> Result<Option<Permission>, AppError> {
+        Ok(self
+            .permissions
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|p| p.resource == resource && p.action == action)
+            .cloned())
     }
 
     async fn create(&self, permission: &Permission) -> Result<i64, AppError> {
@@ -356,7 +380,9 @@ impl InMemoryRoleRepository {
         let seed = crate::domain::entity::default_roles();
         let mut rp = std::collections::HashMap::new();
         for role in &seed {
-            let pids: Vec<i64> = crate::domain::entity::role_permissions(&role.name).into_iter().collect();
+            let pids: Vec<i64> = crate::domain::entity::role_permissions(&role.name)
+                .into_iter()
+                .collect();
             rp.insert(role.id, pids);
         }
         Self {
@@ -374,11 +400,23 @@ impl RoleRepository for InMemoryRoleRepository {
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<Role>, AppError> {
-        Ok(self.roles.lock().unwrap().iter().find(|r| r.id == id).cloned())
+        Ok(self
+            .roles
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.id == id)
+            .cloned())
     }
 
     async fn find_by_name(&self, name: &str) -> Result<Option<Role>, AppError> {
-        Ok(self.roles.lock().unwrap().iter().find(|r| r.name == name).cloned())
+        Ok(self
+            .roles
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.name == name)
+            .cloned())
     }
 
     async fn create(&self, role: &Role) -> Result<i64, AppError> {
@@ -407,11 +445,24 @@ impl RoleRepository for InMemoryRoleRepository {
     }
 
     async fn get_role_permissions(&self, role_id: i64) -> Result<Vec<i64>, AppError> {
-        Ok(self.role_perms.lock().unwrap().get(&role_id).cloned().unwrap_or_default())
+        Ok(self
+            .role_perms
+            .lock()
+            .unwrap()
+            .get(&role_id)
+            .cloned()
+            .unwrap_or_default())
     }
 
-    async fn set_role_permissions(&self, role_id: i64, permission_ids: &[i64]) -> Result<(), AppError> {
-        self.role_perms.lock().unwrap().insert(role_id, permission_ids.to_vec());
+    async fn set_role_permissions(
+        &self,
+        role_id: i64,
+        permission_ids: &[i64],
+    ) -> Result<(), AppError> {
+        self.role_perms
+            .lock()
+            .unwrap()
+            .insert(role_id, permission_ids.to_vec());
         Ok(())
     }
 }
@@ -423,13 +474,22 @@ pub struct InMemoryOperationLogRepository {
 
 impl InMemoryOperationLogRepository {
     pub fn new() -> Self {
-        Self { logs: Mutex::new(Vec::new()), next_id: Mutex::new(1) }
+        Self {
+            logs: Mutex::new(Vec::new()),
+            next_id: Mutex::new(1),
+        }
     }
 }
 
 #[async_trait]
 impl OperationLogRepository for InMemoryOperationLogRepository {
-    async fn create(&self, username: &str, action: &str, target: Option<&str>, ip: Option<&str>) -> Result<OperationLog, AppError> {
+    async fn create(
+        &self,
+        username: &str,
+        action: &str,
+        target: Option<&str>,
+        ip: Option<&str>,
+    ) -> Result<OperationLog, AppError> {
         let mut logs = self.logs.lock().unwrap();
         let mut next_id = self.next_id.lock().unwrap();
         let id = *next_id;
@@ -451,11 +511,24 @@ impl OperationLogRepository for InMemoryOperationLogRepository {
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<OperationLog>, AppError> {
-        Ok(self.logs.lock().unwrap().iter().find(|l| l.id == id).cloned())
+        Ok(self
+            .logs
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|l| l.id == id)
+            .cloned())
     }
 
     async fn list_by_username(&self, username: &str) -> Result<Vec<OperationLog>, AppError> {
-        Ok(self.logs.lock().unwrap().iter().filter(|l| l.username == username).cloned().collect())
+        Ok(self
+            .logs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|l| l.username == username)
+            .cloned()
+            .collect())
     }
 
     async fn delete(&self, id: i64) -> Result<(), AppError> {
@@ -488,7 +561,11 @@ impl WebServerRepository for InMemoryWebServerRepository {
 
     async fn find_by_engine(&self, engine: &str) -> Result<Vec<WebServerInstance>, AppError> {
         let instances = self.instances.lock().unwrap();
-        Ok(instances.iter().filter(|i| i.engine == engine).cloned().collect())
+        Ok(instances
+            .iter()
+            .filter(|i| i.engine == engine)
+            .cloned()
+            .collect())
     }
 
     async fn create(&self, instance: &WebServerInstance) -> Result<i64, AppError> {
@@ -539,13 +616,22 @@ pub struct InMemoryLogRepository {
 
 impl InMemoryLogRepository {
     pub fn new() -> Self {
-        Self { logs: Mutex::new(Vec::new()), next_id: Mutex::new(1) }
+        Self {
+            logs: Mutex::new(Vec::new()),
+            next_id: Mutex::new(1),
+        }
     }
 }
 
 #[async_trait]
 impl LogRepository for InMemoryLogRepository {
-    async fn create(&self, source: &str, level: &str, message: &str, metadata: Option<&str>) -> Result<LogEntry, AppError> {
+    async fn create(
+        &self,
+        source: &str,
+        level: &str,
+        message: &str,
+        metadata: Option<&str>,
+    ) -> Result<LogEntry, AppError> {
         let mut logs = self.logs.lock().unwrap();
         let mut next_id = self.next_id.lock().unwrap();
         let id = *next_id;
@@ -567,15 +653,35 @@ impl LogRepository for InMemoryLogRepository {
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<LogEntry>, AppError> {
-        Ok(self.logs.lock().unwrap().iter().find(|l| l.id == id).cloned())
+        Ok(self
+            .logs
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|l| l.id == id)
+            .cloned())
     }
 
     async fn list_by_source(&self, source: &str) -> Result<Vec<LogEntry>, AppError> {
-        Ok(self.logs.lock().unwrap().iter().filter(|l| l.source == source).cloned().collect())
+        Ok(self
+            .logs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|l| l.source == source)
+            .cloned()
+            .collect())
     }
 
     async fn list_by_level(&self, level: &str) -> Result<Vec<LogEntry>, AppError> {
-        Ok(self.logs.lock().unwrap().iter().filter(|l| l.level == level).cloned().collect())
+        Ok(self
+            .logs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|l| l.level == level)
+            .cloned()
+            .collect())
     }
 
     async fn delete(&self, id: i64) -> Result<(), AppError> {
@@ -606,15 +712,34 @@ impl DatabaseRepository for InMemoryDatabaseRepository {
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<DatabaseInstance>, AppError> {
-        Ok(self.instances.lock().unwrap().iter().find(|i| i.id == id).cloned())
+        Ok(self
+            .instances
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|i| i.id == id)
+            .cloned())
     }
 
     async fn find_by_name(&self, name: &str) -> Result<Option<DatabaseInstance>, AppError> {
-        Ok(self.instances.lock().unwrap().iter().find(|i| i.name == name).cloned())
+        Ok(self
+            .instances
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|i| i.name == name)
+            .cloned())
     }
 
     async fn find_by_type(&self, db_type: &str) -> Result<Vec<DatabaseInstance>, AppError> {
-        Ok(self.instances.lock().unwrap().iter().filter(|i| i.db_type == db_type).cloned().collect())
+        Ok(self
+            .instances
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|i| i.db_type == db_type)
+            .cloned()
+            .collect())
     }
 
     async fn create(&self, instance: &DatabaseInstance) -> Result<i64, AppError> {
@@ -686,7 +811,10 @@ impl InMemorySettingsRepository {
 impl SettingsRepository for InMemorySettingsRepository {
     async fn get(&self, key: &str) -> Result<Option<String>, AppError> {
         let settings = self.settings.lock().unwrap();
-        Ok(settings.iter().find(|s| s.key == key).map(|s| s.value.clone()))
+        Ok(settings
+            .iter()
+            .find(|s| s.key == key)
+            .map(|s| s.value.clone()))
     }
 
     async fn set(&self, key: &str, value: &str) -> Result<(), AppError> {
@@ -711,7 +839,10 @@ impl SettingsRepository for InMemorySettingsRepository {
 
     async fn get_all_map(&self) -> Result<std::collections::HashMap<String, String>, AppError> {
         let settings = self.settings.lock().unwrap();
-        Ok(settings.iter().map(|s| (s.key.clone(), s.value.clone())).collect())
+        Ok(settings
+            .iter()
+            .map(|s| (s.key.clone(), s.value.clone()))
+            .collect())
     }
 }
 
@@ -736,7 +867,13 @@ impl FirewallRepository for InMemoryFirewallRepository {
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<FirewallRule>, AppError> {
-        Ok(self.rules.lock().unwrap().iter().find(|r| r.id == id).cloned())
+        Ok(self
+            .rules
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.id == id)
+            .cloned())
     }
 
     async fn create(&self, rule: &FirewallRule) -> Result<i64, AppError> {
@@ -814,7 +951,8 @@ impl AppPackageRepository for InMemoryAppPackageRepository {
     async fn find_by_key(&self, key: &str) -> Result<Option<AppPackage>, AppError> {
         Ok(self
             .packages
-            .lock().unwrap()
+            .lock()
+            .unwrap()
             .iter()
             .find(|p| p.key == key)
             .cloned())
@@ -833,9 +971,7 @@ impl AppPackageRepository for InMemoryAppPackageRepository {
     }
 
     async fn delete(&self, id: i64) -> Result<(), AppError> {
-        self.packages
-            .lock().unwrap()
-            .retain(|p| p.id != id);
+        self.packages.lock().unwrap().retain(|p| p.id != id);
         Ok(())
     }
 }
@@ -861,7 +997,8 @@ impl InstalledAppRepository for InMemoryInstalledAppRepository {
     async fn find_by_id(&self, id: i64) -> Result<Option<InstalledApp>, AppError> {
         Ok(self
             .apps
-            .lock().unwrap()
+            .lock()
+            .unwrap()
             .iter()
             .find(|a| a.id == id)
             .cloned())
@@ -921,7 +1058,8 @@ impl PluginRepository for InMemoryPluginRepository {
     async fn find_by_id(&self, id: &str) -> Result<Option<Plugin>, AppError> {
         Ok(self
             .plugins
-            .lock().unwrap()
+            .lock()
+            .unwrap()
             .iter()
             .find(|p| p.id == id)
             .cloned())
@@ -930,5 +1068,82 @@ impl PluginRepository for InMemoryPluginRepository {
     async fn delete(&self, id: &str) -> Result<(), AppError> {
         self.plugins.lock().unwrap().retain(|p| p.id != id);
         Ok(())
+    }
+}
+
+// ── Default implementations (delegating to new()) ─────────
+impl Default for InMemoryUserRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryNodeRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryWebsiteRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryDockerRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryPermissionRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryRoleRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryOperationLogRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryLogRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryWebServerRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemorySettingsRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryDatabaseRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryFirewallRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryAppPackageRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryInstalledAppRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Default for InMemoryPluginRepository {
+    fn default() -> Self {
+        Self::new()
     }
 }

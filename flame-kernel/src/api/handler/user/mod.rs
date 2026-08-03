@@ -1,9 +1,14 @@
-use axum::{Json, extract::{State, Path, Query}};
-use axum::Router;
 use crate::api::extract::ApiJson;
-use crate::domain::entity::User;
-use crate::api::types::{AppState, CreateUserRequest, UpdateUserRequest, PaginationParams, PaginatedResponse};
+use crate::api::types::{
+    AppState, CreateUserRequest, PaginatedResponse, PaginationParams, UpdateUserRequest,
+};
 use crate::core::error::AppError;
+use crate::domain::entity::User;
+use axum::Router;
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
 
 pub async fn list(
     State(state): State<AppState>,
@@ -17,7 +22,8 @@ pub async fn create(
     State(state): State<AppState>,
     ApiJson(payload): ApiJson<CreateUserRequest>,
 ) -> Result<Json<User>, AppError> {
-    let user = state.user_service
+    let user = state
+        .user_service
         .create_user(&payload.username, &payload.password_hash, &payload.role)
         .await?;
     Ok(Json(user))
@@ -45,7 +51,6 @@ pub async fn delete(
     state.user_service.delete_user(id).await?;
     Ok(Json("deleted"))
 }
-
 
 /// 路由表（集中注册于 routes.rs 组合根）
 pub fn routes() -> Router<AppState> {

@@ -1,7 +1,7 @@
+use crate::core::error::AppError;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use crate::core::error::AppError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -67,13 +67,13 @@ impl AppConfig {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, AppError> {
         let content = fs::read_to_string(&path)
             .map_err(|e| AppError::internal(format!("Failed to read config file: {}", e)))?;
-        
+
         let config: Self = toml::from_str(&content)
             .map_err(|e| AppError::internal(format!("Failed to parse config: {}", e)))?;
-        
+
         Ok(config)
     }
-    
+
     fn apply_env_overrides(&mut self) {
         if let Ok(val) = std::env::var("OP_PORT") {
             if let Ok(port) = val.parse::<u16>() {
@@ -115,14 +115,10 @@ impl AppConfig {
             }
         }
     }
-    
+
     pub fn load() -> Result<Self, AppError> {
         let config_path = "./config/app.toml";
-        let mut config = if let Ok(cfg) = Self::load_from_file(config_path) {
-            cfg
-        } else {
-            Self::default()
-        };
+        let mut config = Self::load_from_file(config_path).unwrap_or_default();
 
         config.apply_env_overrides();
         Ok(config)

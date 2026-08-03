@@ -1,11 +1,6 @@
-use axum::{
-    Json,
-    extract::FromRequest,
-    extract::rejection::JsonRejection,
-    http::Request,
-};
-use serde::de::DeserializeOwned;
 use crate::core::error::AppError;
+use axum::{extract::rejection::JsonRejection, extract::FromRequest, http::Request, Json};
+use serde::de::DeserializeOwned;
 
 /// 统一 JSON 请求体提取器：
 /// 反序列化失败时返回统一 JSON 错误格式（而非 axum 默认纯文本 422）

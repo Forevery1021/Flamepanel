@@ -1,6 +1,6 @@
-use thiserror::Error;
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use serde::Serialize;
+use thiserror::Error;
 use tracing::error;
 
 /// 稳定错误码（客户端可据此做国际化提示或分支处理）。

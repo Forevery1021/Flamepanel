@@ -178,6 +178,7 @@ import { useAuthStore } from '@/stores/auth'
 import { setLanguage } from '@/locales'
 import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/utils/error'
+import { applyTheme } from '@/utils/theme'
 import type { FormInstance, FormRules, FormItemRule } from 'element-plus'
 
 const { t } = useI18n()
@@ -279,6 +280,7 @@ async function handleSaveSettings() {
       'two_factor_enabled',
       settingsForm.two_factor_enabled_bool ? 'true' : 'false',
     )
+    applyTheme(settingsForm.theme === 'dark' ? 'dark' : 'light')
     ElMessage.success(t('common.success'))
     await fetchSettings()
   } catch {

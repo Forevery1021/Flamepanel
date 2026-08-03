@@ -1,18 +1,20 @@
-use std::collections::HashMap;
 use base64::Engine;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::application::service::{DockerService, WebServerService, DatabaseService};
+use crate::application::service::{DatabaseService, DockerService, WebServerService};
 use crate::core::error::AppError;
 use crate::database::{MySqlManager, RedisManager};
 use crate::domain::entity::*;
 use crate::domain::repository::*;
 use crate::infrastructure::app_store::adapter::flame::FlameAdapter;
-use crate::infrastructure::app_store::{select_adapter, VariableMapper, scan_compose, ensure_restart_policy};
+use crate::infrastructure::app_store::{
+    ensure_restart_policy, scan_compose, select_adapter, VariableMapper,
+};
 use crate::infrastructure::os::{PackageManager, ServiceManager};
 use crate::plugin::{PluginConfig, PluginRegistry, PluginSandbox};
 use crate::webserver::WebServerEngine;
@@ -51,6 +53,7 @@ pub struct InstallRequest {
 }
 
 impl AppStoreService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         package_repo: Arc<dyn AppPackageRepository>,
         installed_repo: Arc<dyn InstalledAppRepository>,
@@ -88,7 +91,12 @@ impl AppStoreService {
     pub async fn seed_builtin_apps(&self) -> Result<usize, AppError> {
         let mut count = 0;
         for manifest in crate::domain::entity::builtin_apps() {
-            if self.package_repo.find_by_key(&manifest.key).await?.is_some() {
+            if self
+                .package_repo
+                .find_by_key(&manifest.key)
+                .await?
+                .is_some()
+            {
                 continue;
             }
             let metadata = FlameAdapter::builtin_metadata(&manifest);
@@ -112,7 +120,10 @@ impl AppStoreService {
         Ok(count)
     }
 
-    pub async fn list_packages(&self, category: Option<&str>) -> Result<Vec<AppMetadata>, AppError> {
+    pub async fn list_packages(
+        &self,
+        category: Option<&str>,
+    ) -> Result<Vec<AppMetadata>, AppError> {
         let packages = self.package_repo.list_all().await?;
         let mut metas: Vec<AppMetadata> = packages
             .into_iter()
@@ -155,8 +166,16 @@ impl AppStoreService {
             .map_err(|e| AppError::internal(format!("创建商店目录失败: {}", e)))?;
         copy_recursive(root, &dest)?;
 
-        if self.package_repo.find_by_key(&metadata.key).await?.is_some() {
-            return Err(AppError::BadRequest(format!("应用包已存在: {}", metadata.key)));
+        if self
+            .package_repo
+            .find_by_key(&metadata.key)
+            .await?
+            .is_some()
+        {
+            return Err(AppError::BadRequest(format!(
+                "应用包已存在: {}",
+                metadata.key
+            )));
         }
 
         let pkg = AppPackage {
@@ -220,7 +239,8 @@ impl AppStoreService {
             .unwrap_or_else(|| metadata.default_version.clone());
 
         let mode = match req.mode.as_deref() {
-            Some(m) => InstallMode::from_str(m).ok_or_else(|| AppError::BadRequest("无效的安装模式".into()))?,
+            Some(m) => InstallMode::from_name(m)
+                .ok_or_else(|| AppError::BadRequest("无效的安装模式".into()))?,
             None => metadata
                 .modes
                 .first()
@@ -236,7 +256,11 @@ impl AppStoreService {
         Ok(app)
     }
 
-    async fn install_container(&self, req: &InstallRequest, version: &str) -> Result<InstalledApp, AppError> {
+    async fn install_container(
+        &self,
+        req: &InstallRequest,
+        version: &str,
+    ) -> Result<InstalledApp, AppError> {
         let version_info = self.get_version(&req.package_key, version).await?;
         let compose = version_info
             .compose_template
@@ -305,7 +329,11 @@ impl AppStoreService {
             version: version.to_string(),
             mode: InstallMode::Container.as_str().into(),
             status: "running".into(),
-            access_url: if port > 0 { Some(format!("http://localhost:{}", port)) } else { None },
+            access_url: if port > 0 {
+                Some(format!("http://localhost:{}", port))
+            } else {
+                None
+            },
             install_path: install_path.to_string_lossy().into_owned(),
             container_name: Some(container_name),
             port: if port > 0 { Some(port) } else { None },
@@ -317,7 +345,11 @@ impl AppStoreService {
         Ok(self.installed_repo.find_by_id(id).await?.unwrap_or(app))
     }
 
-    async fn install_native(&self, req: &InstallRequest, version: &str) -> Result<InstalledApp, AppError> {
+    async fn install_native(
+        &self,
+        req: &InstallRequest,
+        version: &str,
+    ) -> Result<InstalledApp, AppError> {
         let key = req.package_key.as_str();
         let version_info = self.get_version(&req.package_key, version).await?;
 
@@ -326,13 +358,24 @@ impl AppStoreService {
                 let db_type = if key == "mariadb" { "mariadb" } else { "mysql" };
                 let _ = self
                     .database_service
-                    .install_mysql(Some(version), req.port.unwrap_or(3306), req.values.get("root_password").map(|s| s.as_str()).unwrap_or("flamepanel_root"), &format!("{}_{}", db_type, short_uuid()))
+                    .install_mysql(
+                        Some(version),
+                        req.port.unwrap_or(3306),
+                        req.values
+                            .get("root_password")
+                            .map(|s| s.as_str())
+                            .unwrap_or("flamepanel_root"),
+                        &format!("{}_{}", db_type, short_uuid()),
+                    )
                     .await?;
                 let _now = Utc::now();
                 let app = InstalledApp {
                     id: 0,
                     package_key: key.into(),
-                    name: req.name.clone().unwrap_or_else(|| format!("{} 数据库", key)),
+                    name: req
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| format!("{} 数据库", key)),
                     version: version.into(),
                     mode: InstallMode::Native.as_str().into(),
                     status: "running".into(),
@@ -345,12 +388,21 @@ impl AppStoreService {
                     updated_at: Utc::now(),
                 };
                 let id = self.installed_repo.create(&app).await?;
-                return self.installed_repo.find_by_id(id).await?.ok_or_else(|| AppError::internal("create installed app"));
+                return self
+                    .installed_repo
+                    .find_by_id(id)
+                    .await?
+                    .ok_or_else(|| AppError::internal("create installed app"));
             }
             "redis" => {
                 let _ = self
                     .database_service
-                    .install_redis(Some(version), req.port.unwrap_or(6379), req.values.get("password").map(|s| s.as_str()), &format!("redis_{}", short_uuid()))
+                    .install_redis(
+                        Some(version),
+                        req.port.unwrap_or(6379),
+                        req.values.get("password").map(|s| s.as_str()),
+                        &format!("redis_{}", short_uuid()),
+                    )
                     .await?;
                 let app = InstalledApp {
                     id: 0,
@@ -368,10 +420,14 @@ impl AppStoreService {
                     updated_at: Utc::now(),
                 };
                 let id = self.installed_repo.create(&app).await?;
-                return self.installed_repo.find_by_id(id).await?.ok_or_else(|| AppError::internal("create installed app"));
+                return self
+                    .installed_repo
+                    .find_by_id(id)
+                    .await?
+                    .ok_or_else(|| AppError::internal("create installed app"));
             }
             "nginx" | "apache" | "openlitespeed" | "openresty" | "caddy" => {
-                let engine = WebServerEngine::from_str(key)
+                let engine = WebServerEngine::from_name(key)
                     .ok_or_else(|| AppError::BadRequest(format!("未知 Web 引擎: {}", key)))?;
                 let pkg = engine.package_name();
                 PackageManager::install(pkg).await?;
@@ -393,7 +449,10 @@ impl AppStoreService {
                     version: version.into(),
                     mode: InstallMode::Native.as_str().into(),
                     status: "running".into(),
-                    access_url: Some(format!("http://localhost:{}", req.port.unwrap_or(engine.default_port() as i32))),
+                    access_url: Some(format!(
+                        "http://localhost:{}",
+                        req.port.unwrap_or(engine.default_port() as i32)
+                    )),
                     install_path: engine.default_config_path().into(),
                     container_name: None,
                     port: Some(req.port.unwrap_or(engine.default_port() as i32)),
@@ -402,7 +461,11 @@ impl AppStoreService {
                     updated_at: Utc::now(),
                 };
                 let id = self.installed_repo.create(&app).await?;
-                return self.installed_repo.find_by_id(id).await?.ok_or_else(|| AppError::internal("create installed app"));
+                return self
+                    .installed_repo
+                    .find_by_id(id)
+                    .await?
+                    .ok_or_else(|| AppError::internal("create installed app"));
             }
             _ => {
                 // 通用原生脚本安装（Flame 格式 install.sh）
@@ -422,7 +485,10 @@ impl AppStoreService {
                         }
                     }
                 } else {
-                    return Err(AppError::BadRequest(format!("应用 {} 没有可用的原生安装方式", key)));
+                    return Err(AppError::BadRequest(format!(
+                        "应用 {} 没有可用的原生安装方式",
+                        key
+                    )));
                 }
                 let app = InstalledApp {
                     id: 0,
@@ -440,12 +506,20 @@ impl AppStoreService {
                     updated_at: Utc::now(),
                 };
                 let id = self.installed_repo.create(&app).await?;
-                return self.installed_repo.find_by_id(id).await?.ok_or_else(|| AppError::internal("create installed app"));
+                return self
+                    .installed_repo
+                    .find_by_id(id)
+                    .await?
+                    .ok_or_else(|| AppError::internal("create installed app"));
             }
         }
     }
 
-    async fn install_wasm(&self, req: &InstallRequest, version: &str) -> Result<InstalledApp, AppError> {
+    async fn install_wasm(
+        &self,
+        req: &InstallRequest,
+        version: &str,
+    ) -> Result<InstalledApp, AppError> {
         let version_info = self.get_version(&req.package_key, version).await?;
         let wasm_base64 = version_info
             .wasm_base64
@@ -479,7 +553,10 @@ impl AppStoreService {
                 .unwrap_or(30_000),
             ..PluginConfig::default()
         };
-        let sandbox_plugin = self.plugin_sandbox.load_plugin(&plugin_id, wasm_bytes, Some(config)).await?;
+        let sandbox_plugin = self
+            .plugin_sandbox
+            .load_plugin(&plugin_id, wasm_bytes, Some(config))
+            .await?;
 
         let now = Utc::now();
         let plugin = Plugin {
@@ -537,26 +614,27 @@ impl AppStoreService {
 
     pub async fn uninstall(&self, id: i64) -> Result<(), AppError> {
         let app = self.get_installed(id).await?;
-        match InstallMode::from_str(&app.mode) {
+        match InstallMode::from_name(&app.mode) {
             Some(InstallMode::Container) => {
                 if let Some(name) = &app.container_name {
                     let _ = self.docker_service.compose_down(name).await;
-                    let _ = self.docker_service.compose_deploy(name, "services: {}").await;
+                    let _ = self
+                        .docker_service
+                        .compose_deploy(name, "services: {}")
+                        .await;
                 }
             }
-            Some(InstallMode::Native) => {
-                match app.package_key.as_str() {
-                    "mysql" | "mariadb" => {
-                        let _ = PackageManager::uninstall("mysql-server").await;
-                    }
-                    "redis" => {
-                        let _ = PackageManager::uninstall("redis-server").await;
-                    }
-                    _ => {
-                        let _ = PackageManager::uninstall(&app.package_key).await;
-                    }
+            Some(InstallMode::Native) => match app.package_key.as_str() {
+                "mysql" | "mariadb" => {
+                    let _ = PackageManager::uninstall("mysql-server").await;
                 }
-            }
+                "redis" => {
+                    let _ = PackageManager::uninstall("redis-server").await;
+                }
+                _ => {
+                    let _ = PackageManager::uninstall(&app.package_key).await;
+                }
+            },
             Some(InstallMode::Wasm) => {
                 let _ = self.plugin_sandbox.unload_plugin(&app.name).await;
                 let _ = self.plugin_registry.unregister(&app.name);
@@ -577,7 +655,7 @@ impl AppStoreService {
             return Ok(app);
         }
         let version_info = self.get_version(&app.package_key, target_version).await?;
-        match InstallMode::from_str(&app.mode) {
+        match InstallMode::from_name(&app.mode) {
             Some(InstallMode::Container) => {
                 let compose = version_info
                     .compose_template
@@ -587,16 +665,25 @@ impl AppStoreService {
                     serde_json::from_str(&app.params_json).unwrap_or_default();
                 values.insert("PORT".into(), app.port.unwrap_or_default().to_string());
                 let mut mapper = VariableMapper::new(values);
-                mapper.insert("CONTAINER_NAME", app.container_name.as_deref().unwrap_or(&app.package_key));
+                mapper.insert(
+                    "CONTAINER_NAME",
+                    app.container_name.as_deref().unwrap_or(&app.package_key),
+                );
                 let (rendered, _) = mapper.replace(&compose);
                 let rendered = ensure_restart_policy(&rendered);
                 let install_path = Path::new(&app.install_path);
                 let compose_path = install_path.join("docker-compose.yml");
                 std::fs::write(&compose_path, &rendered)
                     .map_err(|e| AppError::internal(format!("写入 compose 失败: {}", e)))?;
-                let _ = self.docker_service.compose_down(app.container_name.as_deref().unwrap_or(&app.package_key)).await;
+                let _ = self
+                    .docker_service
+                    .compose_down(app.container_name.as_deref().unwrap_or(&app.package_key))
+                    .await;
                 self.docker_service
-                    .compose_deploy(app.container_name.as_deref().unwrap_or(&app.package_key), &rendered)
+                    .compose_deploy(
+                        app.container_name.as_deref().unwrap_or(&app.package_key),
+                        &rendered,
+                    )
                     .await?;
                 let mut updated = app;
                 updated.version = target_version.into();
@@ -629,7 +716,10 @@ impl AppStoreService {
                 let bytes = base64::engine::general_purpose::STANDARD
                     .decode(&wasm_base64)
                     .map_err(|e| AppError::BadRequest(format!("base64 解码失败: {}", e)))?;
-                let _ = self.plugin_sandbox.reload_plugin(&app.name, bytes, None).await?;
+                let _ = self
+                    .plugin_sandbox
+                    .reload_plugin(&app.name, bytes, None)
+                    .await?;
                 let mut updated = app;
                 updated.version = target_version.into();
                 updated.updated_at = Utc::now();
@@ -642,7 +732,7 @@ impl AppStoreService {
 
     pub async fn get_logs(&self, id: i64, tail: usize) -> Result<String, AppError> {
         let app = self.get_installed(id).await?;
-        match InstallMode::from_str(&app.mode) {
+        match InstallMode::from_name(&app.mode) {
             Some(InstallMode::Container) => {
                 if let Some(name) = &app.container_name {
                     self.docker_service.get_container_logs(name, tail).await
@@ -683,24 +773,22 @@ impl AppStoreService {
                 version: "1.0.0".into(),
                 mode: InstallMode::Wasm,
                 default_port: None,
-                form_fields: vec![
-                    FormField {
-                        env_key: "name".into(),
-                        label_zh: "插件名称".into(),
-                        label_en: Some("Plugin name".into()),
-                        field_type: crate::domain::entity::FieldType::Text,
-                        default: Some("wasm-hello".into()),
-                        required: true,
-                        pattern: Some(r"^[a-zA-Z0-9_-]+$".into()),
-                        min: None,
-                        max: None,
-                        min_length: Some(2),
-                        max_length: Some(64),
-                        options: vec![],
-                        description: None,
-                        group: Some("基础".into()),
-                    },
-                ],
+                form_fields: vec![FormField {
+                    env_key: "name".into(),
+                    label_zh: "插件名称".into(),
+                    label_en: Some("Plugin name".into()),
+                    field_type: crate::domain::entity::FieldType::Text,
+                    default: Some("wasm-hello".into()),
+                    required: true,
+                    pattern: Some(r"^[a-zA-Z0-9_-]+$".into()),
+                    min: None,
+                    max: None,
+                    min_length: Some(2),
+                    max_length: Some(64),
+                    options: vec![],
+                    description: None,
+                    group: Some("基础".into()),
+                }],
                 compose_template: None,
                 native_scripts: vec![],
                 wasm_base64: Some(WASM_HELLO_B64.into()),
@@ -723,7 +811,11 @@ impl AppStoreService {
             }
             match base64::engine::general_purpose::STANDARD.decode(&plugin.wasm_base64) {
                 Ok(bytes) => {
-                    if let Err(e) = self.plugin_sandbox.load_plugin(&plugin.id, bytes, None).await {
+                    if let Err(e) = self
+                        .plugin_sandbox
+                        .load_plugin(&plugin.id, bytes, None)
+                        .await
+                    {
                         tracing::warn!("恢复 WASM 插件 {} 失败: {}", plugin.id, e);
                         continue;
                     }
@@ -742,11 +834,17 @@ impl AppStoreService {
 }
 
 /// 校验表单字段：required + pattern + 长度
-pub fn validate_fields(fields: &[FormField], values: &HashMap<String, String>) -> Result<(), AppError> {
+pub fn validate_fields(
+    fields: &[FormField],
+    values: &HashMap<String, String>,
+) -> Result<(), AppError> {
     for field in fields {
         let value = values.get(&field.env_key).map(|s| s.as_str()).unwrap_or("");
         if field.required && value.is_empty() {
-            return Err(AppError::BadRequest(format!("字段 [{}] 为必填项", field.label_zh)));
+            return Err(AppError::BadRequest(format!(
+                "字段 [{}] 为必填项",
+                field.label_zh
+            )));
         }
         if value.is_empty() {
             continue;
@@ -755,31 +853,46 @@ pub fn validate_fields(fields: &[FormField], values: &HashMap<String, String>) -
             let re = regex::Regex::new(pattern)
                 .map_err(|e| AppError::internal(format!("校验规则无效: {}", e)))?;
             if !re.is_match(value) {
-                return Err(AppError::BadRequest(format!("字段 [{}] 格式不正确", field.label_zh)));
+                return Err(AppError::BadRequest(format!(
+                    "字段 [{}] 格式不正确",
+                    field.label_zh
+                )));
             }
         }
         if let Some(min) = field.min {
             if let Ok(num) = value.parse::<i64>() {
                 if num < min {
-                    return Err(AppError::BadRequest(format!("字段 [{}] 不能小于 {}", field.label_zh, min)));
+                    return Err(AppError::BadRequest(format!(
+                        "字段 [{}] 不能小于 {}",
+                        field.label_zh, min
+                    )));
                 }
             }
         }
         if let Some(max) = field.max {
             if let Ok(num) = value.parse::<i64>() {
                 if num > max {
-                    return Err(AppError::BadRequest(format!("字段 [{}] 不能大于 {}", field.label_zh, max)));
+                    return Err(AppError::BadRequest(format!(
+                        "字段 [{}] 不能大于 {}",
+                        field.label_zh, max
+                    )));
                 }
             }
         }
         if let Some(min_len) = field.min_length {
             if value.len() < min_len {
-                return Err(AppError::BadRequest(format!("字段 [{}] 长度不能少于 {}", field.label_zh, min_len)));
+                return Err(AppError::BadRequest(format!(
+                    "字段 [{}] 长度不能少于 {}",
+                    field.label_zh, min_len
+                )));
             }
         }
         if let Some(max_len) = field.max_length {
             if value.len() > max_len {
-                return Err(AppError::BadRequest(format!("字段 [{}] 长度不能超过 {}", field.label_zh, max_len)));
+                return Err(AppError::BadRequest(format!(
+                    "字段 [{}] 长度不能超过 {}",
+                    field.label_zh, max_len
+                )));
             }
         }
     }
@@ -794,7 +907,9 @@ fn copy_recursive(src: &Path, dst: &Path) -> Result<(), AppError> {
     if src.is_dir() {
         std::fs::create_dir_all(dst)
             .map_err(|e| AppError::internal(format!("创建目录失败: {}", e)))?;
-        for entry in std::fs::read_dir(src).map_err(|e| AppError::internal(format!("读取目录失败: {}", e)))? {
+        for entry in std::fs::read_dir(src)
+            .map_err(|e| AppError::internal(format!("读取目录失败: {}", e)))?
+        {
             let entry = entry.map_err(|e| AppError::internal(format!("读取目录失败: {}", e)))?;
             let file_type = entry
                 .file_type()
@@ -838,10 +953,17 @@ mod tests {
 
     fn test_service() -> AppStoreService {
         let pkg_repo: Arc<dyn AppPackageRepository> = Arc::new(InMemoryAppPackageRepository::new());
-        let installed_repo: Arc<dyn InstalledAppRepository> = Arc::new(InMemoryInstalledAppRepository::new());
-        let docker_service = Arc::new(DockerService::new(Arc::new(InMemoryDockerRepository::new())));
-        let ws_service = Arc::new(WebServerService::new(Arc::new(InMemoryWebServerRepository::new())));
-        let db_service = Arc::new(DatabaseService::new(Arc::new(InMemoryDatabaseRepository::new())));
+        let installed_repo: Arc<dyn InstalledAppRepository> =
+            Arc::new(InMemoryInstalledAppRepository::new());
+        let docker_service = Arc::new(DockerService::new(
+            Arc::new(InMemoryDockerRepository::new()),
+        ));
+        let ws_service = Arc::new(WebServerService::new(Arc::new(
+            InMemoryWebServerRepository::new(),
+        )));
+        let db_service = Arc::new(DatabaseService::new(Arc::new(
+            InMemoryDatabaseRepository::new(),
+        )));
         let sandbox = Arc::new(PluginSandbox::new());
         let registry = Arc::new(PluginRegistry::new());
         let plugin_repo: Arc<dyn PluginRepository> = Arc::new(InMemoryPluginRepository::new());
@@ -946,12 +1068,22 @@ mod tests {
         assert_eq!(result.output_as_i32(), Some(42));
 
         // 持久化
-        let saved = svc.plugin_repo.find_by_id("hello-demo").await.unwrap().unwrap();
+        let saved = svc
+            .plugin_repo
+            .find_by_id("hello-demo")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(saved.name, "hello-demo");
 
         // 卸载
         svc.uninstall(app.id).await.unwrap();
-        assert!(svc.plugin_repo.find_by_id("hello-demo").await.unwrap().is_none());
+        assert!(svc
+            .plugin_repo
+            .find_by_id("hello-demo")
+            .await
+            .unwrap()
+            .is_none());
         assert!(svc.plugin_sandbox.get_plugin("hello-demo").await.is_err());
     }
 

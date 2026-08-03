@@ -1,12 +1,18 @@
-use axum::{Json, extract::{State, Path, Query}};
-use axum::Router;
-use serde::Serialize;
 use crate::api::extract::ApiJson;
-use crate::api::types::{AppState, WebServerResponse, CreateWebServerInstanceRequest, PaginationParams, PaginatedResponse};
+use crate::api::types::{
+    AppState, CreateWebServerInstanceRequest, PaginatedResponse, PaginationParams,
+    WebServerResponse,
+};
 use crate::core::error::AppError;
 use crate::domain::entity::WebServerInstance;
 use crate::webserver::engine::WebServerEngine;
+use axum::Router;
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
 use chrono::Utc;
+use serde::Serialize;
 
 #[derive(Serialize)]
 pub struct EngineInfo {
@@ -28,23 +34,31 @@ pub async fn list_engines() -> Json<Vec<EngineInfo>> {
         WebServerEngine::OpenResty,
         WebServerEngine::Caddy,
     ];
-    Json(engines.into_iter().map(|e| EngineInfo {
-        name: e.as_str().to_string(),
-        description: e.description().to_string(),
-        default_port: e.default_port(),
-        default_ssl_port: e.default_ssl_port(),
-        supports_ssl: e.supports_ssl(),
-        supports_rewrite: e.supports_rewrite(),
-        supports_reverse_proxy: e.supports_reverse_proxy(),
-        supports_load_balancing: e.supports_load_balancing(),
-    }).collect())
+    Json(
+        engines
+            .into_iter()
+            .map(|e| EngineInfo {
+                name: e.as_str().to_string(),
+                description: e.description().to_string(),
+                default_port: e.default_port(),
+                default_ssl_port: e.default_ssl_port(),
+                supports_ssl: e.supports_ssl(),
+                supports_rewrite: e.supports_rewrite(),
+                supports_reverse_proxy: e.supports_reverse_proxy(),
+                supports_load_balancing: e.supports_load_balancing(),
+            })
+            .collect(),
+    )
 }
 
 pub async fn list(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<WebServerResponse>>, AppError> {
-    let result = state.web_server_service.list_servers_paginated(&params).await?;
+    let result = state
+        .web_server_service
+        .list_servers_paginated(&params)
+        .await?;
     let data = result.data.into_iter().map(to_response).collect();
     Ok(Json(PaginatedResponse::new(data, result.total, &params)))
 }
@@ -61,7 +75,7 @@ pub async fn create(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<CreateWebServerInstanceRequest>,
 ) -> Result<Json<WebServerResponse>, AppError> {
-    let engine = WebServerEngine::from_str(&req.engine)
+    let engine = WebServerEngine::from_name(&req.engine)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown engine: {}", req.engine)))?;
 
     let instance = WebServerInstance {
@@ -69,7 +83,9 @@ pub async fn create(
         engine: engine.as_str().to_string(),
         version: req.version.clone(),
         status: "stopped".to_string(),
-        config_path: req.config_path.unwrap_or_else(|| engine.default_config_path().to_string()),
+        config_path: req
+            .config_path
+            .unwrap_or_else(|| engine.default_config_path().to_string()),
         binary_path: req.binary_path.clone(),
         port: req.port.unwrap_or(engine.default_port() as i32),
         created_at: Utc::now(),
@@ -158,7 +174,8 @@ pub async fn get_config(
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let server = state.web_server_service.get_server(id).await?;
-    let content = tokio::fs::read_to_string(&server.config_path).await
+    let content = tokio::fs::read_to_string(&server.config_path)
+        .await
         .unwrap_or_else(|_| "Config file not found".to_string());
     Ok(Json(serde_json::json!({
         "id": id,
@@ -173,12 +190,16 @@ pub async fn update_config(
     ApiJson(req): ApiJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let server = state.web_server_service.get_server(id).await?;
-    let content = req.get("content").and_then(|v| v.as_str())
+    let content = req
+        .get("content")
+        .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::BadRequest("Missing 'content' field".into()))?;
     tokio::fs::write(&server.config_path, content)
         .await
         .map_err(|e| AppError::internal(format!("Failed to write config: {}", e)))?;
-    Ok(Json(serde_json::json!({"message": "Config updated", "id": id})))
+    Ok(Json(
+        serde_json::json!({"message": "Config updated", "id": id}),
+    ))
 }
 
 fn to_response(instance: WebServerInstance) -> WebServerResponse {
@@ -209,7 +230,7 @@ pub async fn switch_engine(
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<SwitchEngineRequest>,
 ) -> Result<Json<WebServerInstance>, AppError> {
-    let engine = WebServerEngine::from_str(&req.engine)
+    let engine = WebServerEngine::from_name(&req.engine)
         .ok_or_else(|| AppError::BadRequest(format!("未知引擎: {}", req.engine)))?;
     let instance = state.web_server_service.switch_engine(id, &engine).await?;
     Ok(Json(instance))
@@ -220,7 +241,7 @@ pub async fn apply_preset(
     Path(id): Path<i64>,
     ApiJson(req): ApiJson<ApplyPresetRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let preset = crate::webserver::preset::PerformancePreset::from_str(&req.preset)
+    let preset = crate::webserver::preset::PerformancePreset::from_name(&req.preset)
         .ok_or_else(|| AppError::BadRequest(format!("未知预设: {}", req.preset)))?;
     let instance = state.web_server_service.apply_preset(id, &preset).await?;
     Ok(Json(serde_json::json!({
@@ -241,15 +262,20 @@ pub async fn list_presets() -> Json<Vec<serde_json::Value>> {
         crate::webserver::preset::PerformancePreset::High,
         crate::webserver::preset::PerformancePreset::Ultra,
     ];
-    Json(presets.into_iter().map(|p| serde_json::json!({
-        "name": p.as_str(),
-        "description": p.description_zh(),
-        "recommended": p == recommended,
-        "worker_processes": p.worker_processes("nginx"),
-    })).collect())
+    Json(
+        presets
+            .into_iter()
+            .map(|p| {
+                serde_json::json!({
+                    "name": p.as_str(),
+                    "description": p.description_zh(),
+                    "recommended": p == recommended,
+                    "worker_processes": p.worker_processes("nginx"),
+                })
+            })
+            .collect(),
+    )
 }
-
-
 
 /// 路由表（集中注册于 routes.rs 组合根）
 pub fn routes() -> Router<AppState> {
@@ -264,10 +290,25 @@ pub fn routes() -> Router<AppState> {
         .route("/api/web-servers/:id/stop", axum::routing::post(stop))
         .route("/api/web-servers/:id/restart", axum::routing::post(restart))
         .route("/api/web-servers/:id/reload", axum::routing::post(reload))
-        .route("/api/web-servers/:id/configtest", axum::routing::post(config_test))
-        .route("/api/web-servers/:id/config", axum::routing::get(get_config))
-        .route("/api/web-servers/:id/config", axum::routing::post(update_config))
-        .route("/api/web-servers/:id/switch-engine", axum::routing::post(switch_engine))
-        .route("/api/web-servers/:id/preset", axum::routing::post(apply_preset))
+        .route(
+            "/api/web-servers/:id/configtest",
+            axum::routing::post(config_test),
+        )
+        .route(
+            "/api/web-servers/:id/config",
+            axum::routing::get(get_config),
+        )
+        .route(
+            "/api/web-servers/:id/config",
+            axum::routing::post(update_config),
+        )
+        .route(
+            "/api/web-servers/:id/switch-engine",
+            axum::routing::post(switch_engine),
+        )
+        .route(
+            "/api/web-servers/:id/preset",
+            axum::routing::post(apply_preset),
+        )
         .route("/api/web-servers/presets", axum::routing::get(list_presets))
 }

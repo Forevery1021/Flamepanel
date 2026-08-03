@@ -1,11 +1,11 @@
+pub mod baota;
 pub mod flame;
 pub mod onepanel;
-pub mod baota;
 
-use std::path::Path;
-use std::sync::Arc;
 use crate::core::error::AppError;
 use crate::domain::entity::{AppMetadata, AppVersionInfo, FormField};
+use std::path::Path;
+use std::sync::Arc;
 
 /// 应用包适配器：统一 1Panel / 宝塔 / 内置 Flame 三种格式
 pub trait AppPackageAdapter: Send + Sync {
@@ -28,9 +28,26 @@ pub fn is_version_dir(name: &str) -> bool {
     }
     let lower = name.to_lowercase();
     let excluded = [
-        "logo", "logo.png", "readme", "readme.md", "readme_en", "readme_en.md", "data",
-        "scripts", "app.yml", "app.yaml", "data.yml", "data.yaml", "app.json", "icon",
-        "icon.png", "latest", "docs", "assets", ".git", ".github",
+        "logo",
+        "logo.png",
+        "readme",
+        "readme.md",
+        "readme_en",
+        "readme_en.md",
+        "data",
+        "scripts",
+        "app.yml",
+        "app.yaml",
+        "data.yml",
+        "data.yaml",
+        "app.json",
+        "icon",
+        "icon.png",
+        "latest",
+        "docs",
+        "assets",
+        ".git",
+        ".github",
     ];
     if excluded.contains(&lower.as_str()) {
         return false;
@@ -49,11 +66,13 @@ pub fn select_adapter(root: &Path) -> Result<Arc<dyn AppPackageAdapter>, AppErro
     adapters
         .into_iter()
         .find(|a| a.detect(root))
-        .ok_or_else(|| AppError::BadRequest("无法识别的应用包格式（需包含 app.json 或 data.yml）".into()))
+        .ok_or_else(|| {
+            AppError::BadRequest("无法识别的应用包格式（需包含 app.json 或 data.yml）".into())
+        })
 }
 
 pub(crate) fn field_type_from_str(s: &str) -> crate::domain::entity::FieldType {
-    crate::domain::entity::FieldType::from_str(s).unwrap_or(crate::domain::entity::FieldType::Text)
+    crate::domain::entity::FieldType::from_name(s).unwrap_or(crate::domain::entity::FieldType::Text)
 }
 
 pub(crate) fn clean_label(s: &str) -> String {

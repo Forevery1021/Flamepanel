@@ -1,8 +1,10 @@
-use std::path::Path;
-use serde::Deserialize;
+use super::{field_type_from_str, is_version_dir, AppPackageAdapter};
 use crate::core::error::AppError;
-use crate::domain::entity::{AppFormat, AppMetadata, AppVersionInfo, FormField, InstallMode, SelectOption};
-use super::{AppPackageAdapter, field_type_from_str, is_version_dir};
+use crate::domain::entity::{
+    AppFormat, AppMetadata, AppVersionInfo, FormField, InstallMode, SelectOption,
+};
+use serde::Deserialize;
+use std::path::Path;
 
 /// 1Panel 应用商店格式解析器
 ///
@@ -80,7 +82,10 @@ impl OnePanelAdapter {
     fn read_meta(root: &Path) -> Result<OnePanelMetaYaml, AppError> {
         let path = Self::meta_path(root);
         if !path.exists() {
-            return Err(AppError::BadRequest(format!("缺少 data.yml: {}", root.display())));
+            return Err(AppError::BadRequest(format!(
+                "缺少 data.yml: {}",
+                root.display()
+            )));
         }
         let content = std::fs::read_to_string(&path)
             .map_err(|e| AppError::BadRequest(format!("读取 data.yml 失败: {}", e)))?;
@@ -105,8 +110,7 @@ impl AppPackageAdapter for OnePanelAdapter {
         });
         let default_version = versions
             .iter()
-            .filter(|v| *v != "latest")
-            .next()
+            .find(|v| *v != "latest")
             .or_else(|| versions.first())
             .cloned()
             .unwrap_or_else(|| "latest".into());
@@ -238,7 +242,8 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("onepanel_test_{}_{}", name, std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("onepanel_test_{}_{}", name, std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -315,10 +320,16 @@ additionalProperties:
         let version = adapter.parse_version(&dir, "6.7").unwrap();
         assert_eq!(version.form_fields.len(), 3);
         assert_eq!(version.form_fields[0].env_key, "PANEL_APP_PORT_HTTP");
-        assert_eq!(version.form_fields[0].required, true);
-        assert_eq!(version.form_fields[1].field_type, crate::domain::entity::FieldType::Password);
+        assert!(version.form_fields[0].required);
+        assert_eq!(
+            version.form_fields[1].field_type,
+            crate::domain::entity::FieldType::Password
+        );
         assert_eq!(version.form_fields[2].options.len(), 2);
-        assert_eq!(version.form_fields[2].field_type, crate::domain::entity::FieldType::Select);
+        assert_eq!(
+            version.form_fields[2].field_type,
+            crate::domain::entity::FieldType::Select
+        );
         let compose = version.compose_template.unwrap();
         assert!(compose.contains("flamepanel-network"));
         assert!(!compose.contains("1panel-network"));

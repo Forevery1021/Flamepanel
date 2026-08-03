@@ -1,5 +1,5 @@
-use crate::core::error::AppError;
 use super::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
+use crate::core::error::AppError;
 
 #[derive(Clone)]
 pub struct ResilientWrapper<T: Clone> {
@@ -60,10 +60,7 @@ impl ResilientRepoFactory {
     }
 
     pub fn wrap<T: Clone>(&self, inner: T) -> ResilientWrapper<T> {
-        ResilientWrapper::new(
-            inner,
-            self.circuit_breaker_config.clone(),
-        )
+        ResilientWrapper::new(inner, self.circuit_breaker_config.clone())
     }
 }
 
@@ -74,7 +71,7 @@ mod tests {
     #[tokio::test]
     async fn test_resilient_wrapper_success() {
         let wrapper = ResilientWrapper::with_defaults(());
-        
+
         let result = wrapper.call(|_| async { Ok::<i32, AppError>(42) }).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 42);
@@ -86,17 +83,17 @@ mod tests {
             failure_threshold: 2,
             ..Default::default()
         };
-        
+
         let wrapper = ResilientWrapper::new((), config);
-        
+
         for _ in 0..2 {
-            let _: Result<i32, AppError> = wrapper.call(|_| async {
-                Err(AppError::internal("Permanent failure"))
-            }).await;
+            let _: Result<i32, AppError> = wrapper
+                .call(|_| async { Err(AppError::internal("Permanent failure")) })
+                .await;
         }
-        
+
         assert_eq!(wrapper.circuit_state().await, CircuitState::Open);
-        
+
         let result = wrapper.call(|_| async { Ok::<i32, AppError>(42) }).await;
         assert!(result.is_err());
     }
@@ -105,7 +102,7 @@ mod tests {
     async fn test_resilient_repo_factory() {
         let factory = ResilientRepoFactory::with_defaults();
         let wrapper = factory.wrap(());
-        
+
         let result = wrapper.call(|_| async { Ok::<i32, AppError>(42) }).await;
         assert!(result.is_ok());
     }

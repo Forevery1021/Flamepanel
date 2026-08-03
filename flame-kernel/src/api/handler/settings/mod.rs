@@ -1,10 +1,12 @@
-use axum::{Json, extract::{State, Query}};
-use axum::Router;
-use serde::{Deserialize, Serialize};
 use crate::api::extract::ApiJson;
-use crate::api::types::{AppState, PaginationParams, PaginatedResponse};
+use crate::api::types::{AppState, PaginatedResponse, PaginationParams};
 use crate::core::error::AppError;
-
+use axum::Router;
+use axum::{
+    extract::{Query, State},
+    Json,
+};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
 pub struct SettingEntry {
@@ -24,11 +26,15 @@ pub async fn list_settings(
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<SettingEntry>>, AppError> {
     let result = state.settings_service.list_all_paginated(&params).await?;
-    let data = result.data.into_iter().map(|s| SettingEntry {
-        key: s.key,
-        value: s.value,
-        description: s.description,
-    }).collect();
+    let data = result
+        .data
+        .into_iter()
+        .map(|s| SettingEntry {
+            key: s.key,
+            value: s.value,
+            description: s.description,
+        })
+        .collect();
     Ok(Json(PaginatedResponse::new(data, result.total, &params)))
 }
 
@@ -37,7 +43,9 @@ pub async fn get_setting(
     axum::extract::Path(key): axum::extract::Path<String>,
 ) -> Result<Json<SettingEntry>, AppError> {
     let all = state.settings_service.list_all().await?;
-    let setting = all.into_iter().find(|s| s.key == key)
+    let setting = all
+        .into_iter()
+        .find(|s| s.key == key)
         .ok_or_else(|| AppError::NotFound(format!("Setting '{}' not found", key)))?;
     Ok(Json(SettingEntry {
         key: setting.key,
@@ -53,8 +61,6 @@ pub async fn update_setting(
     state.settings_service.set(&req.key, &req.value).await?;
     Ok(Json(()))
 }
-
-
 
 /// 路由表（集中注册于 routes.rs 组合根）
 pub fn routes() -> Router<AppState> {

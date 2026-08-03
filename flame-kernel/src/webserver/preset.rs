@@ -26,7 +26,7 @@ impl PerformancePreset {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn from_name(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "low" => Some(Self::Low),
             "medium" => Some(Self::Medium),
@@ -118,27 +118,43 @@ mod tests {
     use super::*;
 
     fn res(cpu: u32, mem: u64) -> SystemResources {
-        SystemResources { cpu_cores: cpu, memory_mb: mem, is_ssd: true }
+        SystemResources {
+            cpu_cores: cpu,
+            memory_mb: mem,
+            is_ssd: true,
+        }
     }
 
     #[test]
     fn recommend_low() {
-        assert_eq!(PerformancePreset::recommend(&res(1, 1024)), PerformancePreset::Low);
+        assert_eq!(
+            PerformancePreset::recommend(&res(1, 1024)),
+            PerformancePreset::Low
+        );
     }
 
     #[test]
     fn recommend_medium() {
-        assert_eq!(PerformancePreset::recommend(&res(2, 4096)), PerformancePreset::Medium);
+        assert_eq!(
+            PerformancePreset::recommend(&res(2, 4096)),
+            PerformancePreset::Medium
+        );
     }
 
     #[test]
     fn recommend_high() {
-        assert_eq!(PerformancePreset::recommend(&res(4, 8192)), PerformancePreset::High);
+        assert_eq!(
+            PerformancePreset::recommend(&res(4, 8192)),
+            PerformancePreset::High
+        );
     }
 
     #[test]
     fn recommend_ultra() {
-        assert_eq!(PerformancePreset::recommend(&res(16, 32768)), PerformancePreset::Ultra);
+        assert_eq!(
+            PerformancePreset::recommend(&res(16, 32768)),
+            PerformancePreset::Ultra
+        );
     }
 
     #[test]
@@ -149,20 +165,30 @@ mod tests {
 
     #[test]
     fn ols_single_worker() {
-        assert_eq!(PerformancePreset::Ultra.worker_processes("openlitespeed"), 1);
+        assert_eq!(
+            PerformancePreset::Ultra.worker_processes("openlitespeed"),
+            1
+        );
     }
 
     #[test]
     fn roundtrip_str() {
-        for p in [PerformancePreset::Low, PerformancePreset::Medium, PerformancePreset::High, PerformancePreset::Ultra] {
-            assert_eq!(PerformancePreset::from_str(p.as_str()), Some(p));
+        for p in [
+            PerformancePreset::Low,
+            PerformancePreset::Medium,
+            PerformancePreset::High,
+            PerformancePreset::Ultra,
+        ] {
+            assert_eq!(PerformancePreset::from_name(p.as_str()), Some(p));
         }
     }
 
     #[test]
     fn snippets_not_empty() {
         for e in ["nginx", "apache", "caddy", "openlitespeed", "openresty"] {
-            assert!(!PerformancePreset::High.global_config_snippet(e, 8080).is_empty());
+            assert!(!PerformancePreset::High
+                .global_config_snippet(e, 8080)
+                .is_empty());
         }
     }
 }

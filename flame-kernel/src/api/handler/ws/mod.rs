@@ -18,10 +18,7 @@ pub fn routes() -> Router<AppState> {
         .route("/ws/terminal", get(terminal_handler))
 }
 
-async fn metrics_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn metrics_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_metrics(socket, state))
 }
 
@@ -35,7 +32,7 @@ async fn handle_metrics(mut socket: WebSocket, state: AppState) {
             "type": "init",
             "data": snapshots,
         })) {
-            let _ = socket.send(Message::Text(payload.into())).await;
+            let _ = socket.send(Message::Text(payload)).await;
         }
     }
 
@@ -48,7 +45,7 @@ async fn handle_metrics(mut socket: WebSocket, state: AppState) {
                 "type": "tick",
                 "data": snapshot,
             })) {
-                if ws_sender.send(Message::Text(payload.into())).await.is_err() {
+                if ws_sender.send(Message::Text(payload)).await.is_err() {
                     break;
                 }
             }
@@ -87,7 +84,7 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
                 "type": "output",
                 "data": output,
             })) {
-                if ws_sender.send(Message::Text(payload.into())).await.is_err() {
+                if ws_sender.send(Message::Text(payload)).await.is_err() {
                     break;
                 }
             }
@@ -129,10 +126,7 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
     }
 }
 
-async fn logs_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn logs_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_logs(socket, state))
 }
 
@@ -143,7 +137,7 @@ async fn handle_logs(mut socket: WebSocket, state: AppState) {
             "type": "init",
             "data": recent_logs,
         })) {
-            let _ = socket.send(Message::Text(payload.into())).await;
+            let _ = socket.send(Message::Text(payload)).await;
         }
     }
 
@@ -156,7 +150,7 @@ async fn handle_logs(mut socket: WebSocket, state: AppState) {
                 "type": "tick",
                 "data": log,
             })) {
-                if ws_sender.send(Message::Text(payload.into())).await.is_err() {
+                if ws_sender.send(Message::Text(payload)).await.is_err() {
                     break;
                 }
             }

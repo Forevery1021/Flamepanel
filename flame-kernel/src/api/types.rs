@@ -1,13 +1,14 @@
-use std::sync::Arc;
-use tokio::sync::{Mutex, broadcast};
-use serde::{Deserialize, Serialize};
 use crate::application::app_store_service::AppStoreService;
 use crate::application::service::*;
-use crate::domain::entity::{MetricsSnapshot, LogEntry};
+use crate::domain::entity::{LogEntry, MetricsSnapshot};
 use crate::domain::repository::PluginRepository;
+use crate::event::EventBus;
 use crate::infrastructure::metrics::MetricsHistory;
-use crate::plugin::{PluginSandbox, PluginRegistry};
+use crate::plugin::{PluginRegistry, PluginSandbox};
 use crate::terminal::TerminalManager;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::{broadcast, Mutex};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -122,6 +123,7 @@ pub struct Services {
     pub settings_service: Arc<SettingsService>,
     pub database_service: Arc<DatabaseService>,
     pub firewall_service: Arc<FirewallService>,
+    pub event_bus: EventBus,
 }
 
 impl AppState {
@@ -162,7 +164,10 @@ impl AppState {
 #[derive(Clone)]
 pub struct UserId(pub i64);
 
-pub fn route_permission(method: &axum::http::Method, path: &str) -> Option<(&'static str, &'static str)> {
+pub fn route_permission(
+    method: &axum::http::Method,
+    path: &str,
+) -> Option<(&'static str, &'static str)> {
     let path = path.trim_end_matches('/');
     match (method.as_str(), path) {
         ("GET", "/api/users") => Some(("user", "read")),
@@ -179,57 +184,174 @@ pub fn route_permission(method: &axum::http::Method, path: &str) -> Option<(&'st
         ("PUT", p) if p.starts_with("/api/websites/") => Some(("website", "update")),
         ("DELETE", p) if p.starts_with("/api/websites/") => Some(("website", "delete")),
         ("GET", "/api/docker/containers") => Some(("docker", "read")),
-        ("GET", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/logs") => Some(("docker", "read")),
-        ("GET", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/stats") => Some(("docker", "read")),
-        ("POST", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/start") => Some(("docker", "start")),
-        ("POST", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/stop") => Some(("docker", "stop")),
-        ("POST", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/restart") => Some(("docker", "start")),
-        ("POST", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/remove") => Some(("docker", "delete")),
+        ("GET", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/logs") => {
+            Some(("docker", "read"))
+        }
+        ("GET", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/stats") => {
+            Some(("docker", "read"))
+        }
+        ("POST", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/start") => {
+            Some(("docker", "start"))
+        }
+        ("POST", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/stop") => {
+            Some(("docker", "stop"))
+        }
+        ("POST", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/restart") => {
+            Some(("docker", "start"))
+        }
+        ("POST", p) if p.starts_with("/api/docker/containers/") && p.ends_with("/remove") => {
+            Some(("docker", "delete"))
+        }
         ("GET", "/api/docker/images") => Some(("docker", "read")),
-        ("POST", p) if p.starts_with("/api/docker/images/") && p.ends_with("/remove") => Some(("docker", "delete")),
+        ("POST", p) if p.starts_with("/api/docker/images/") && p.ends_with("/remove") => {
+            Some(("docker", "delete"))
+        }
         ("POST", "/api/docker/compose/deploy") => Some(("docker", "start")),
-        ("POST", p) if p.starts_with("/api/docker/compose/") && p.ends_with("/up") => Some(("docker", "start")),
-        ("POST", p) if p.starts_with("/api/docker/compose/") && p.ends_with("/down") => Some(("docker", "stop")),
+        ("POST", p) if p.starts_with("/api/docker/compose/") && p.ends_with("/up") => {
+            Some(("docker", "start"))
+        }
+        ("POST", p) if p.starts_with("/api/docker/compose/") && p.ends_with("/down") => {
+            Some(("docker", "stop"))
+        }
         ("GET", "/api/plugins") => Some(("plugin", "read")),
         ("POST", "/api/plugins") => Some(("plugin", "create")),
-        ("GET", p) if p == "/api/plugins" || (p.starts_with("/api/plugins/") && !p.contains("/execute/") && !p.contains("/enable") && !p.contains("/disable") && !p.contains("/settings") && !p.contains("/metrics") && !p.contains("/reload")) => Some(("plugin", "read")),
-        ("POST", p) if p.starts_with("/api/plugins/") && p.ends_with("/enable") => Some(("plugin", "create")),
-        ("POST", p) if p.starts_with("/api/plugins/") && p.ends_with("/disable") => Some(("plugin", "create")),
-        ("POST", p) if p.starts_with("/api/plugins/") && p.contains("/execute/") => Some(("plugin", "execute")),
-        ("POST", p) if p.starts_with("/api/plugins/") && !p.ends_with("/enable") && !p.ends_with("/disable") && !p.contains("/execute/") && !p.contains("/reload") && !p.contains("/settings") => Some(("plugin", "delete")),
-        ("POST", p) if p.starts_with("/api/plugins/") && p.contains("/reload") => Some(("plugin", "create")),
-        ("GET", p) if p.starts_with("/api/plugins/") && p.contains("/settings") => Some(("plugin", "config")),
-        ("POST", p) if p.starts_with("/api/plugins/") && p.contains("/settings") => Some(("plugin", "config")),
-        ("GET", p) if p.starts_with("/api/plugins/") && p.contains("/metrics") => Some(("plugin", "read")),
-        ("DELETE", p) if p.starts_with("/api/plugins/") && p.contains("/metrics") => Some(("plugin", "config")),
+        ("GET", p)
+            if p == "/api/plugins"
+                || (p.starts_with("/api/plugins/")
+                    && !p.contains("/execute/")
+                    && !p.contains("/enable")
+                    && !p.contains("/disable")
+                    && !p.contains("/settings")
+                    && !p.contains("/metrics")
+                    && !p.contains("/reload")) =>
+        {
+            Some(("plugin", "read"))
+        }
+        ("POST", p) if p.starts_with("/api/plugins/") && p.ends_with("/enable") => {
+            Some(("plugin", "create"))
+        }
+        ("POST", p) if p.starts_with("/api/plugins/") && p.ends_with("/disable") => {
+            Some(("plugin", "create"))
+        }
+        ("POST", p) if p.starts_with("/api/plugins/") && p.contains("/execute/") => {
+            Some(("plugin", "execute"))
+        }
+        ("POST", p)
+            if p.starts_with("/api/plugins/")
+                && !p.ends_with("/enable")
+                && !p.ends_with("/disable")
+                && !p.contains("/execute/")
+                && !p.contains("/reload")
+                && !p.contains("/settings") =>
+        {
+            Some(("plugin", "delete"))
+        }
+        ("POST", p) if p.starts_with("/api/plugins/") && p.contains("/reload") => {
+            Some(("plugin", "create"))
+        }
+        ("GET", p) if p.starts_with("/api/plugins/") && p.contains("/settings") => {
+            Some(("plugin", "config"))
+        }
+        ("POST", p) if p.starts_with("/api/plugins/") && p.contains("/settings") => {
+            Some(("plugin", "config"))
+        }
+        ("GET", p) if p.starts_with("/api/plugins/") && p.contains("/metrics") => {
+            Some(("plugin", "read"))
+        }
+        ("DELETE", p) if p.starts_with("/api/plugins/") && p.contains("/metrics") => {
+            Some(("plugin", "config"))
+        }
         ("GET", "/api/web-servers/engines") => Some(("web_server", "read")),
         ("GET", "/api/web-servers") => Some(("web_server", "read")),
         ("POST", "/api/web-servers") => Some(("web_server", "create")),
-        ("GET", p) if p.starts_with("/api/web-servers/") && !p.contains("/start") && !p.contains("/stop") && !p.contains("/restart") && !p.contains("/reload") && !p.contains("/configtest") && !p.contains("/config") => Some(("web_server", "read")),
-        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/start") => Some(("web_server", "start")),
-        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/stop") => Some(("web_server", "stop")),
-        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/restart") => Some(("web_server", "start")),
-        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/reload") => Some(("web_server", "reload")),
-        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/configtest") => Some(("web_server", "configtest")),
-        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/switch-engine") => Some(("web_server", "update")),
-        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/preset") => Some(("web_server", "update")),
+        ("GET", p)
+            if p.starts_with("/api/web-servers/")
+                && !p.contains("/start")
+                && !p.contains("/stop")
+                && !p.contains("/restart")
+                && !p.contains("/reload")
+                && !p.contains("/configtest")
+                && !p.contains("/config") =>
+        {
+            Some(("web_server", "read"))
+        }
+        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/start") => {
+            Some(("web_server", "start"))
+        }
+        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/stop") => {
+            Some(("web_server", "stop"))
+        }
+        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/restart") => {
+            Some(("web_server", "start"))
+        }
+        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/reload") => {
+            Some(("web_server", "reload"))
+        }
+        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/configtest") => {
+            Some(("web_server", "configtest"))
+        }
+        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/switch-engine") => {
+            Some(("web_server", "update"))
+        }
+        ("POST", p) if p.starts_with("/api/web-servers/") && p.ends_with("/preset") => {
+            Some(("web_server", "update"))
+        }
         ("GET", "/api/web-servers/presets") => Some(("web_server", "read")),
-        ("POST", p) if p.starts_with("/api/websites/") && p.ends_with("/switch-engine") => Some(("website", "update")),
-        ("GET", p) if p.starts_with("/api/web-servers/") && p.contains("/config") => Some(("web_server", "read")),
-        ("PUT", p) if p.starts_with("/api/web-servers/") && !p.contains("/start") && !p.contains("/stop") && !p.contains("/restart") && !p.contains("/reload") && !p.contains("/configtest") && !p.contains("/config") => Some(("web_server", "update")),
-        ("DELETE", p) if p.starts_with("/api/web-servers/") && !p.contains("/start") && !p.contains("/stop") && !p.contains("/restart") && !p.contains("/reload") && !p.contains("/configtest") && !p.contains("/config") => Some(("web_server", "delete")),
+        ("POST", p) if p.starts_with("/api/websites/") && p.ends_with("/switch-engine") => {
+            Some(("website", "update"))
+        }
+        ("GET", p) if p.starts_with("/api/web-servers/") && p.contains("/config") => {
+            Some(("web_server", "read"))
+        }
+        ("PUT", p)
+            if p.starts_with("/api/web-servers/")
+                && !p.contains("/start")
+                && !p.contains("/stop")
+                && !p.contains("/restart")
+                && !p.contains("/reload")
+                && !p.contains("/configtest")
+                && !p.contains("/config") =>
+        {
+            Some(("web_server", "update"))
+        }
+        ("DELETE", p)
+            if p.starts_with("/api/web-servers/")
+                && !p.contains("/start")
+                && !p.contains("/stop")
+                && !p.contains("/restart")
+                && !p.contains("/reload")
+                && !p.contains("/configtest")
+                && !p.contains("/config") =>
+        {
+            Some(("web_server", "delete"))
+        }
         ("GET", "/api/settings") => Some(("settings", "read")),
         ("GET", p) if p.starts_with("/api/settings/") => Some(("settings", "read")),
         ("PUT", "/api/settings") => Some(("settings", "update")),
         ("GET", "/api/databases") => Some(("database", "read")),
-        ("GET", p) if p.starts_with("/api/databases/") && !p.contains("/start") && !p.contains("/stop") && !p.contains("/restart") && !p.contains("/status") && !p.contains("/uninstall") && !p.contains("/databases/") && !p.contains("/users") => Some(("database", "read")),
-        ("DELETE", p) if p.starts_with("/api/databases/") && !p.contains("/uninstall") => Some(("database", "delete")),
+        ("GET", p)
+            if p.starts_with("/api/databases/")
+                && !p.contains("/start")
+                && !p.contains("/stop")
+                && !p.contains("/restart")
+                && !p.contains("/status")
+                && !p.contains("/uninstall")
+                && !p.contains("/databases/")
+                && !p.contains("/users") =>
+        {
+            Some(("database", "read"))
+        }
+        ("DELETE", p) if p.starts_with("/api/databases/") && !p.contains("/uninstall") => {
+            Some(("database", "delete"))
+        }
         ("POST", p) if p.ends_with("/install") => Some(("database", "create")),
         ("POST", p) if p.ends_with("/start") => Some(("database", "start")),
         ("POST", p) if p.ends_with("/stop") => Some(("database", "stop")),
         ("POST", p) if p.ends_with("/restart") => Some(("database", "start")),
         ("GET", p) if p.contains("/status") => Some(("database", "read")),
-        ("POST", p) if p.contains("/databases") && !p.contains("/delete") => Some(("database", "create")),
+        ("POST", p) if p.contains("/databases") && !p.contains("/delete") => {
+            Some(("database", "create"))
+        }
         ("DELETE", p) if p.contains("/databases/") => Some(("database", "delete")),
         ("POST", p) if p.contains("/users") => Some(("database", "update")),
         ("DELETE", p) if p.contains("/users/") => Some(("database", "update")),
@@ -238,13 +360,30 @@ pub fn route_permission(method: &axum::http::Method, path: &str) -> Option<(&'st
         ("GET", "/api/app-store/packages") => Some(("app_store", "read")),
         ("GET", "/api/app-store/wasm-builtins") => Some(("app_store", "read")),
         ("GET", p) if p.starts_with("/api/app-store/packages/") => Some(("app_store", "read")),
-        ("POST", p) if p.starts_with("/api/app-store/packages/") && p.ends_with("/install") => Some(("app_store", "create")),
-        ("POST", p) if p.starts_with("/api/app-store/packages/") && p.ends_with("/import") => Some(("app_store", "create")),
+        ("POST", p) if p.starts_with("/api/app-store/packages/") && p.ends_with("/install") => {
+            Some(("app_store", "create"))
+        }
+        ("POST", p) if p.starts_with("/api/app-store/packages/") && p.ends_with("/import") => {
+            Some(("app_store", "create"))
+        }
         ("GET", "/api/app-store/installed") => Some(("app_store", "read")),
-        ("GET", p) if p.starts_with("/api/app-store/installed/") && !p.ends_with("/upgrade") && !p.ends_with("/uninstall") && !p.ends_with("/logs") => Some(("app_store", "read")),
-        ("GET", p) if p.starts_with("/api/app-store/installed/") && p.ends_with("/logs") => Some(("app_store", "read")),
-        ("POST", p) if p.starts_with("/api/app-store/installed/") && p.ends_with("/upgrade") => Some(("app_store", "update")),
-        ("POST", p) if p.starts_with("/api/app-store/installed/") && p.ends_with("/uninstall") => Some(("app_store", "delete")),
+        ("GET", p)
+            if p.starts_with("/api/app-store/installed/")
+                && !p.ends_with("/upgrade")
+                && !p.ends_with("/uninstall")
+                && !p.ends_with("/logs") =>
+        {
+            Some(("app_store", "read"))
+        }
+        ("GET", p) if p.starts_with("/api/app-store/installed/") && p.ends_with("/logs") => {
+            Some(("app_store", "read"))
+        }
+        ("POST", p) if p.starts_with("/api/app-store/installed/") && p.ends_with("/upgrade") => {
+            Some(("app_store", "update"))
+        }
+        ("POST", p) if p.starts_with("/api/app-store/installed/") && p.ends_with("/uninstall") => {
+            Some(("app_store", "delete"))
+        }
         ("GET", "/api/files/read") => Some(("file", "read")),
         ("GET", "/api/files/download") => Some(("file", "upload")),
         ("POST", "/api/files/write") => Some(("file", "write")),
@@ -255,7 +394,9 @@ pub fn route_permission(method: &axum::http::Method, path: &str) -> Option<(&'st
         ("POST", "/api/files/chmod") => Some(("file", "write")),
         ("POST", "/api/files/upload") => Some(("file", "upload")),
         ("GET", "/api/firewall/rules") => Some(("firewall", "read")),
-        ("GET", p) if p.starts_with("/api/firewall/rules/") && !p.ends_with("/toggle") => Some(("firewall", "read")),
+        ("GET", p) if p.starts_with("/api/firewall/rules/") && !p.ends_with("/toggle") => {
+            Some(("firewall", "read"))
+        }
         ("POST", "/api/firewall/rules") => Some(("firewall", "create")),
         ("PUT", p) if p.starts_with("/api/firewall/rules/") => Some(("firewall", "update")),
         ("DELETE", p) if p.starts_with("/api/firewall/rules/") => Some(("firewall", "delete")),
@@ -311,7 +452,13 @@ impl<T: Serialize> PaginatedResponse<T> {
         } else {
             1
         };
-        Self { data: items, page, page_size, total, total_pages }
+        Self {
+            data: items,
+            page,
+            page_size,
+            total,
+            total_pages,
+        }
     }
 }
 

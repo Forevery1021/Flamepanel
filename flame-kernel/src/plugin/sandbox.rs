@@ -1,9 +1,9 @@
-use std::sync::Arc;
-use std::collections::HashMap;
-use tokio::sync::Mutex;
-use chrono::{DateTime, Utc};
-use sha2::{Sha256, Digest};
 use crate::core::error::AppError;
+use chrono::{DateTime, Utc};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
 pub struct PluginConfig {
@@ -94,12 +94,14 @@ impl WasmSandbox {
         let module = wasmtime::Module::new(&self.engine, wasm_bytes)
             .map_err(|e| AppError::internal(format!("Failed to compile WASM module: {}", e)))?;
         let mut store = wasmtime::Store::new(&self.engine, ());
-        store.set_fuel(fuel_limit)
+        store
+            .set_fuel(fuel_limit)
             .map_err(|e| AppError::internal(format!("Failed to set fuel: {}", e)))?;
         let instance = wasmtime::Instance::new(&mut store, &module, &[])
             .map_err(|e| AppError::internal(format!("Failed to instantiate WASM module: {}", e)))?;
         if let Ok(func) = instance.get_typed_func::<(), i32>(&mut store, function) {
-            let result = func.call(&mut store, ())
+            let result = func
+                .call(&mut store, ())
                 .map_err(|e| AppError::internal(format!("WASM execution failed: {}", e)))?;
             return Ok(result.to_le_bytes().to_vec());
         }
@@ -109,12 +111,14 @@ impl WasmSandbox {
             return Ok(vec![]);
         }
         if let Ok(func) = instance.get_typed_func::<(i32, i32), i32>(&mut store, function) {
-            let result = func.call(&mut store, (0, 0))
+            let result = func
+                .call(&mut store, (0, 0))
                 .map_err(|e| AppError::internal(format!("WASM execution failed: {}", e)))?;
             return Ok(result.to_le_bytes().to_vec());
         }
         Err(AppError::internal(format!(
-            "Function '{}' not found or unsupported signature", function
+            "Function '{}' not found or unsupported signature",
+            function
         )))
     }
 
@@ -151,7 +155,8 @@ impl PluginSandbox {
         if sandbox.has_function(&wasm_owned, &hook_owned) {
             let _ = tokio::task::spawn_blocking(move || {
                 sandbox.execute(&wasm_owned, &hook_owned, 100_000)
-            }).await;
+            })
+            .await;
         }
     }
 
@@ -202,7 +207,9 @@ impl PluginSandbox {
             .map_err(|e| AppError::BadRequest(format!("Invalid WASM module: {}", e)))?;
 
         let mut plugins = self.plugins.lock().await;
-        let plugin = plugins.iter_mut().find(|p| p.id == id)
+        let plugin = plugins
+            .iter_mut()
+            .find(|p| p.id == id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
 
         let old_bytes = plugin.wasm_bytes.clone();
@@ -216,7 +223,10 @@ impl PluginSandbox {
             plugin.wasm_bytes = old_bytes;
             plugin.config = old_config;
             plugin.status = PluginStatus::Error(format!("Reload hook failed: {}", e));
-            return Err(AppError::internal(format!("Plugin reload hook 'on_reload' failed: {}", e)));
+            return Err(AppError::internal(format!(
+                "Plugin reload hook 'on_reload' failed: {}",
+                e
+            )));
         }
 
         Ok(plugin.clone())
@@ -229,7 +239,9 @@ impl PluginSandbox {
         _args: Option<Vec<i32>>,
     ) -> Result<ExecutionResult, AppError> {
         let mut plugins = self.plugins.lock().await;
-        let plugin = plugins.iter_mut().find(|p| p.id == id)
+        let plugin = plugins
+            .iter_mut()
+            .find(|p| p.id == id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
         if plugin.status == PluginStatus::Disabled {
             return Err(AppError::BadRequest(format!("Plugin {} is disabled", id)));
@@ -266,12 +278,14 @@ impl PluginSandbox {
             if elapsed_ms < plugin.metrics.min_execution_ms {
                 plugin.metrics.min_execution_ms = elapsed_ms;
             }
-            plugin.metrics.avg_execution_ms = if plugin.metrics.successful_executions + plugin.metrics.failed_executions > 0 {
-                (plugin.metrics.avg_execution_ms * (plugin.metrics.total_executions - 1) as f64 + elapsed_ms as f64)
-                    / plugin.metrics.total_executions as f64
-            } else {
-                elapsed_ms as f64
-            };
+            plugin.metrics.avg_execution_ms =
+                if plugin.metrics.successful_executions + plugin.metrics.failed_executions > 0 {
+                    (plugin.metrics.avg_execution_ms * (plugin.metrics.total_executions - 1) as f64
+                        + elapsed_ms as f64)
+                        / plugin.metrics.total_executions as f64
+                } else {
+                    elapsed_ms as f64
+                };
             match &result {
                 Ok(_) => {
                     plugin.metrics.successful_executions += 1;
@@ -296,41 +310,69 @@ impl PluginSandbox {
 
     pub async fn get_plugin_metrics(&self, id: &str) -> Result<PluginMetrics, AppError> {
         let plugins = self.plugins.lock().await;
-        let plugin = plugins.iter().find(|p| p.id == id)
+        let plugin = plugins
+            .iter()
+            .find(|p| p.id == id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
         Ok(plugin.metrics.clone())
     }
 
     pub async fn list_plugins_metrics(&self) -> Vec<(String, PluginMetrics)> {
         let plugins = self.plugins.lock().await;
-        plugins.iter().map(|p| (p.id.clone(), p.metrics.clone())).collect()
+        plugins
+            .iter()
+            .map(|p| (p.id.clone(), p.metrics.clone()))
+            .collect()
     }
 
-    pub async fn set_plugin_setting(&self, id: &str, key: &str, value: &str) -> Result<(), AppError> {
+    pub async fn set_plugin_setting(
+        &self,
+        id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<(), AppError> {
         let mut plugins = self.plugins.lock().await;
-        let plugin = plugins.iter_mut().find(|p| p.id == id)
+        let plugin = plugins
+            .iter_mut()
+            .find(|p| p.id == id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
-        plugin.config.settings.insert(key.to_string(), value.to_string());
+        plugin
+            .config
+            .settings
+            .insert(key.to_string(), value.to_string());
         Ok(())
     }
 
-    pub async fn get_plugin_setting(&self, id: &str, key: &str) -> Result<Option<String>, AppError> {
+    pub async fn get_plugin_setting(
+        &self,
+        id: &str,
+        key: &str,
+    ) -> Result<Option<String>, AppError> {
         let plugins = self.plugins.lock().await;
-        let plugin = plugins.iter().find(|p| p.id == id)
+        let plugin = plugins
+            .iter()
+            .find(|p| p.id == id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
         Ok(plugin.config.settings.get(key).cloned())
     }
 
-    pub async fn list_plugin_settings(&self, id: &str) -> Result<HashMap<String, String>, AppError> {
+    pub async fn list_plugin_settings(
+        &self,
+        id: &str,
+    ) -> Result<HashMap<String, String>, AppError> {
         let plugins = self.plugins.lock().await;
-        let plugin = plugins.iter().find(|p| p.id == id)
+        let plugin = plugins
+            .iter()
+            .find(|p| p.id == id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
         Ok(plugin.config.settings.clone())
     }
 
     pub async fn reset_plugin_metrics(&self, id: &str) -> Result<(), AppError> {
         let mut plugins = self.plugins.lock().await;
-        let plugin = plugins.iter_mut().find(|p| p.id == id)
+        let plugin = plugins
+            .iter_mut()
+            .find(|p| p.id == id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
         plugin.metrics = PluginMetrics::default();
         Ok(())
@@ -341,16 +383,21 @@ impl PluginSandbox {
         let config;
         {
             let plugins = self.plugins.lock().await;
-            let plugin = plugins.iter().find(|p| p.id == id)
+            let plugin = plugins
+                .iter()
+                .find(|p| p.id == id)
                 .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
             wasm_bytes = plugin.wasm_bytes.clone();
             config = plugin.config.clone();
         }
 
-        self.call_lifecycle_hook(&wasm_bytes, &config, "on_unload").await;
+        self.call_lifecycle_hook(&wasm_bytes, &config, "on_unload")
+            .await;
 
         let mut plugins = self.plugins.lock().await;
-        let pos = plugins.iter().position(|p| p.id == id)
+        let pos = plugins
+            .iter()
+            .position(|p| p.id == id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
         let mut plugin = plugins.remove(pos);
         plugin.status = PluginStatus::Unloaded;
@@ -359,7 +406,9 @@ impl PluginSandbox {
 
     pub async fn enable_plugin(&self, id: &str) -> Result<SandboxedPlugin, AppError> {
         let mut plugins = self.plugins.lock().await;
-        let plugin = plugins.iter_mut().find(|p| p.id == id)
+        let plugin = plugins
+            .iter_mut()
+            .find(|p| p.id == id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
         let was_bytes = plugin.wasm_bytes.clone();
         let config = plugin.config.clone();
@@ -367,7 +416,8 @@ impl PluginSandbox {
             plugin.status = PluginStatus::Loaded;
         }
         drop(plugins);
-        self.call_lifecycle_hook(&was_bytes, &config, "on_enable").await;
+        self.call_lifecycle_hook(&was_bytes, &config, "on_enable")
+            .await;
         let plugins = self.plugins.lock().await;
         Ok(plugins.iter().find(|p| p.id == id).cloned().unwrap())
     }
@@ -377,16 +427,21 @@ impl PluginSandbox {
         let config;
         {
             let plugins = self.plugins.lock().await;
-            let plugin = plugins.iter().find(|p| p.id == id)
+            let plugin = plugins
+                .iter()
+                .find(|p| p.id == id)
                 .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
             wasm_bytes = plugin.wasm_bytes.clone();
             config = plugin.config.clone();
         }
 
-        self.call_lifecycle_hook(&wasm_bytes, &config, "on_disable").await;
+        self.call_lifecycle_hook(&wasm_bytes, &config, "on_disable")
+            .await;
 
         let mut plugins = self.plugins.lock().await;
-        let plugin = plugins.iter_mut().find(|p| p.id == id)
+        let plugin = plugins
+            .iter_mut()
+            .find(|p| p.id == id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
         plugin.status = PluginStatus::Disabled;
         Ok(plugin.clone())
@@ -394,7 +449,9 @@ impl PluginSandbox {
 
     pub async fn get_plugin(&self, id: &str) -> Result<SandboxedPlugin, AppError> {
         let plugins = self.plugins.lock().await;
-        plugins.iter().find(|p| p.id == id)
+        plugins
+            .iter()
+            .find(|p| p.id == id)
             .cloned()
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))
     }
@@ -418,9 +475,19 @@ impl ExecutionResult {
     }
     pub fn output_as_i32(&self) -> Option<i32> {
         if self.output.len() >= 4 {
-            Some(i32::from_le_bytes([self.output[0], self.output[1], self.output[2], self.output[3]]))
+            Some(i32::from_le_bytes([
+                self.output[0],
+                self.output[1],
+                self.output[2],
+                self.output[3],
+            ]))
         } else {
             None
         }
+    }
+}
+impl Default for PluginSandbox {
+    fn default() -> Self {
+        Self::new()
     }
 }

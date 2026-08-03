@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use sqlx::SqlitePool;
-use bollard::Docker;
+use crate::core::error::AppError;
 use crate::domain::repository::*;
 use crate::infrastructure::db::*;
-use crate::infrastructure::sqlite::*;
 use crate::infrastructure::docker::BollardDockerRepository;
-use crate::core::error::AppError;
+use crate::infrastructure::sqlite::*;
+use bollard::Docker;
+use sqlx::SqlitePool;
+use std::sync::Arc;
 
 pub enum BackendKind {
     InMemory,
@@ -19,7 +19,10 @@ pub struct RepoFactory {
 
 impl RepoFactory {
     pub fn new_in_memory() -> Self {
-        Self { kind: BackendKind::InMemory, docker: None }
+        Self {
+            kind: BackendKind::InMemory,
+            docker: None,
+        }
     }
 
     pub async fn new_sqlite(database_url: &str) -> Result<Self, AppError> {
@@ -27,7 +30,10 @@ impl RepoFactory {
             .await
             .map_err(|e| AppError::internal(format!("Failed to connect to database: {}", e)))?;
         run_migrations(&pool).await?;
-        Ok(Self { kind: BackendKind::Sqlite(pool), docker: None })
+        Ok(Self {
+            kind: BackendKind::Sqlite(pool),
+            docker: None,
+        })
     }
 
     pub fn with_docker_connection(mut self, docker: Docker) -> Self {

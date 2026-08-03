@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
-use std::sync::OnceLock;
 use axum::{
     http::{Request, StatusCode},
     middleware::Next,
-    response::{Response, IntoResponse},
+    response::{IntoResponse, Response},
 };
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 struct RateEntry {
     count: u64,
@@ -55,7 +55,8 @@ pub async fn rate_limit_middleware<B>(
     next: Next<B>,
 ) -> Result<Response, StatusCode> {
     let limiter = GLOBAL_LIMITER.get_or_init(|| RateLimiter::new(120, 60));
-    let ip = req.headers()
+    let ip = req
+        .headers()
         .get("X-Forwarded-For")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");

@@ -1,10 +1,15 @@
-use crate::domain::entity::Website;
 use super::engine::WebServerEngine;
+use crate::domain::entity::Website;
 
 pub trait WebServerConfigGenerator: Send + Sync {
     fn engine(&self) -> WebServerEngine;
     fn generate_global_config(&self, port: u16, worker_processes: u32) -> String;
-    fn generate_site_config(&self, site: &Website, ssl_cert: Option<&str>, ssl_key: Option<&str>) -> String;
+    fn generate_site_config(
+        &self,
+        site: &Website,
+        ssl_cert: Option<&str>,
+        ssl_key: Option<&str>,
+    ) -> String;
     fn generate_reverse_proxy_config(&self, domain: &str, proxy_pass: &str, port: u16) -> String;
 }
 
@@ -15,10 +20,13 @@ pub struct OpenRestyConfig;
 pub struct CaddyConfig;
 
 impl WebServerConfigGenerator for NginxConfig {
-    fn engine(&self) -> WebServerEngine { WebServerEngine::Nginx }
+    fn engine(&self) -> WebServerEngine {
+        WebServerEngine::Nginx
+    }
 
     fn generate_global_config(&self, port: u16, worker_processes: u32) -> String {
-        format!(r#"user www-data;
+        format!(
+            r#"user www-data;
 worker_processes {wp};
 pid /run/nginx.pid;
 
@@ -47,14 +55,23 @@ http {{
     include /etc/nginx/conf.d/*.conf;
     include /etc/nginx/sites-enabled/*;
 }}
-"#, wp = worker_processes, port = port)
+"#,
+            wp = worker_processes,
+            port = port
+        )
     }
 
-    fn generate_site_config(&self, site: &Website, ssl_cert: Option<&str>, ssl_key: Option<&str>) -> String {
+    fn generate_site_config(
+        &self,
+        site: &Website,
+        ssl_cert: Option<&str>,
+        ssl_key: Option<&str>,
+    ) -> String {
         let mut config = String::new();
         if let Some(cert) = ssl_cert {
             if let Some(key) = ssl_key {
-                config.push_str(&format!(r#"server {{
+                config.push_str(&format!(
+                    r#"server {{
     listen {sp} ssl http2;
     server_name {domain};
     root {root};
@@ -69,10 +86,17 @@ http {{
         try_files $uri $uri/ =404;
     }}
 }}
-"#, sp = 443, domain = site.domain, root = site.root_path, cert = cert, key = key));
+"#,
+                    sp = 443,
+                    domain = site.domain,
+                    root = site.root_path,
+                    cert = cert,
+                    key = key
+                ));
             }
         }
-        config.push_str(&format!(r#"server {{
+        config.push_str(&format!(
+            r#"server {{
     listen {port};
     server_name {domain};
     root {root};
@@ -82,12 +106,17 @@ http {{
         try_files $uri $uri/ =404;
     }}
 }}
-"#, port = 80, domain = site.domain, root = site.root_path));
+"#,
+            port = 80,
+            domain = site.domain,
+            root = site.root_path
+        ));
         config
     }
 
     fn generate_reverse_proxy_config(&self, domain: &str, proxy_pass: &str, port: u16) -> String {
-        format!(r#"server {{
+        format!(
+            r#"server {{
     listen {port};
     server_name {domain};
 
@@ -100,15 +129,22 @@ http {{
         proxy_buffering off;
     }}
 }}
-"#, port = port, domain = domain, proxy = proxy_pass)
+"#,
+            port = port,
+            domain = domain,
+            proxy = proxy_pass
+        )
     }
 }
 
 impl WebServerConfigGenerator for ApacheConfig {
-    fn engine(&self) -> WebServerEngine { WebServerEngine::Apache }
+    fn engine(&self) -> WebServerEngine {
+        WebServerEngine::Apache
+    }
 
     fn generate_global_config(&self, port: u16, worker_processes: u32) -> String {
-        format!(r#"ServerRoot "/etc/httpd"
+        format!(
+            r#"ServerRoot "/etc/httpd"
 Listen {port}
 User apache
 Group apache
@@ -124,14 +160,23 @@ Include conf.d/*.conf
     MaxRequestWorkers 256
     MaxConnectionsPerChild 10000
 </IfModule>
-"#, port = port, wp = worker_processes)
+"#,
+            port = port,
+            wp = worker_processes
+        )
     }
 
-    fn generate_site_config(&self, site: &Website, ssl_cert: Option<&str>, ssl_key: Option<&str>) -> String {
+    fn generate_site_config(
+        &self,
+        site: &Website,
+        ssl_cert: Option<&str>,
+        ssl_key: Option<&str>,
+    ) -> String {
         let mut config = String::new();
         if let Some(cert) = ssl_cert {
             if let Some(key) = ssl_key {
-                config.push_str(&format!(r#"<VirtualHost *:{sp}>
+                config.push_str(&format!(
+                    r#"<VirtualHost *:{sp}>
     ServerName {domain}
     DocumentRoot {root}
     SSLEngine on
@@ -146,10 +191,17 @@ Include conf.d/*.conf
         Require all granted
     </Directory>
 </VirtualHost>
-"#, sp = 443, domain = site.domain, root = site.root_path, cert = cert, key = key));
+"#,
+                    sp = 443,
+                    domain = site.domain,
+                    root = site.root_path,
+                    cert = cert,
+                    key = key
+                ));
             }
         }
-        config.push_str(&format!(r#"<VirtualHost *:{port}>
+        config.push_str(&format!(
+            r#"<VirtualHost *:{port}>
     ServerName {domain}
     DocumentRoot {root}
 
@@ -159,27 +211,39 @@ Include conf.d/*.conf
         Require all granted
     </Directory>
 </VirtualHost>
-"#, port = 80, domain = site.domain, root = site.root_path));
+"#,
+            port = 80,
+            domain = site.domain,
+            root = site.root_path
+        ));
         config
     }
 
     fn generate_reverse_proxy_config(&self, domain: &str, proxy_pass: &str, port: u16) -> String {
-        format!(r#"<VirtualHost *:{port}>
+        format!(
+            r#"<VirtualHost *:{port}>
     ServerName {domain}
 
     ProxyPreserveHost On
     ProxyPass / {proxy}/
     ProxyPassReverse / {proxy}/
 </VirtualHost>
-"#, port = port, domain = domain, proxy = proxy_pass)
+"#,
+            port = port,
+            domain = domain,
+            proxy = proxy_pass
+        )
     }
 }
 
 impl WebServerConfigGenerator for OpenLiteSpeedConfig {
-    fn engine(&self) -> WebServerEngine { WebServerEngine::OpenLiteSpeed }
+    fn engine(&self) -> WebServerEngine {
+        WebServerEngine::OpenLiteSpeed
+    }
 
     fn generate_global_config(&self, port: u16, _worker_processes: u32) -> String {
-        format!(r#"listener "HTTP" {{
+        format!(
+            r#"listener "HTTP" {{
     address *:{port}
     secure 0
 }}
@@ -192,11 +256,19 @@ listener "HTTPS" {{
 vhosts {{
     auto_restrict 0
 }}
-"#, port = port)
+"#,
+            port = port
+        )
     }
 
-    fn generate_site_config(&self, site: &Website, _ssl_cert: Option<&str>, _ssl_key: Option<&str>) -> String {
-        format!(r#"virtualHost {domain} {{
+    fn generate_site_config(
+        &self,
+        site: &Website,
+        _ssl_cert: Option<&str>,
+        _ssl_key: Option<&str>,
+    ) -> String {
+        format!(
+            r#"virtualHost {domain} {{
     vhRoot {root}
     configFile $SERVER_ROOT/conf/vhosts/{domain}/vhconf.conf
     allowSymbolLink 1
@@ -206,11 +278,15 @@ vhosts {{
     pcookieExpire 0
     adminEmails admin@localhost
 }}
-"#, domain = site.domain, root = site.root_path)
+"#,
+            domain = site.domain,
+            root = site.root_path
+        )
     }
 
     fn generate_reverse_proxy_config(&self, domain: &str, proxy_pass: &str, _port: u16) -> String {
-        format!(r#"virtualHost {domain} {{
+        format!(
+            r#"virtualHost {domain} {{
     vhRoot /usr/local/lsws/{domain}
     enableScript 1
     restrained 0
@@ -230,15 +306,21 @@ X-Real-IP $remote_addr
 END_extraHeaders
     }}
 }}
-"#, domain = domain, proxy = proxy_pass)
+"#,
+            domain = domain,
+            proxy = proxy_pass
+        )
     }
 }
 
 impl WebServerConfigGenerator for OpenRestyConfig {
-    fn engine(&self) -> WebServerEngine { WebServerEngine::OpenResty }
+    fn engine(&self) -> WebServerEngine {
+        WebServerEngine::OpenResty
+    }
 
     fn generate_global_config(&self, port: u16, worker_processes: u32) -> String {
-        format!(r#"user www-data;
+        format!(
+            r#"user www-data;
 worker_processes {wp};
 pid /run/openresty.pid;
 
@@ -267,14 +349,23 @@ http {{
 
     include sites-enabled/*;
 }}
-"#, wp = worker_processes, port = port)
+"#,
+            wp = worker_processes,
+            port = port
+        )
     }
 
-    fn generate_site_config(&self, site: &Website, ssl_cert: Option<&str>, ssl_key: Option<&str>) -> String {
+    fn generate_site_config(
+        &self,
+        site: &Website,
+        ssl_cert: Option<&str>,
+        ssl_key: Option<&str>,
+    ) -> String {
         let mut config = String::new();
         if let Some(cert) = ssl_cert {
             if let Some(key) = ssl_key {
-                config.push_str(&format!(r#"server {{
+                config.push_str(&format!(
+                    r#"server {{
     listen 443 ssl http2;
     server_name {domain};
     root {root};
@@ -291,10 +382,16 @@ http {{
         }}
     }}
 }}
-"#, domain = site.domain, root = site.root_path, cert = cert, key = key));
+"#,
+                    domain = site.domain,
+                    root = site.root_path,
+                    cert = cert,
+                    key = key
+                ));
             }
         }
-        config.push_str(&format!(r#"server {{
+        config.push_str(&format!(
+            r#"server {{
     listen 80;
     server_name {domain};
     root {root};
@@ -303,12 +400,16 @@ http {{
         try_files $uri $uri/ /index.html;
     }}
 }}
-"#, domain = site.domain, root = site.root_path));
+"#,
+            domain = site.domain,
+            root = site.root_path
+        ));
         config
     }
 
     fn generate_reverse_proxy_config(&self, domain: &str, proxy_pass: &str, port: u16) -> String {
-        format!(r#"server {{
+        format!(
+            r#"server {{
     listen {port};
     server_name {domain};
 
@@ -325,12 +426,18 @@ http {{
         }}
     }}
 }}
-"#, port = port, domain = domain, proxy = proxy_pass)
+"#,
+            port = port,
+            domain = domain,
+            proxy = proxy_pass
+        )
     }
 }
 
 impl WebServerConfigGenerator for CaddyConfig {
-    fn engine(&self) -> WebServerEngine { WebServerEngine::Caddy }
+    fn engine(&self) -> WebServerEngine {
+        WebServerEngine::Caddy
+    }
 
     fn generate_global_config(&self, _port: u16, _worker_processes: u32) -> String {
         r#"{
@@ -341,11 +448,18 @@ impl WebServerConfigGenerator for CaddyConfig {
 *.localhost, localhost {
     respond "Caddy is running"
 }
-"#.to_string()
+"#
+        .to_string()
     }
 
-    fn generate_site_config(&self, site: &Website, _ssl_cert: Option<&str>, _ssl_key: Option<&str>) -> String {
-        format!(r#"{domain} {{
+    fn generate_site_config(
+        &self,
+        site: &Website,
+        _ssl_cert: Option<&str>,
+        _ssl_key: Option<&str>,
+    ) -> String {
+        format!(
+            r#"{domain} {{
     root * {root}
     encode gzip
     file_server browse
@@ -360,14 +474,21 @@ impl WebServerConfigGenerator for CaddyConfig {
 http://{domain} {{
     redir https://{{host}}{{uri}} 301
 }}
-"#, domain = site.domain, root = site.root_path)
+"#,
+            domain = site.domain,
+            root = site.root_path
+        )
     }
 
     fn generate_reverse_proxy_config(&self, domain: &str, proxy_pass: &str, _port: u16) -> String {
-        format!(r#"{domain} {{
+        format!(
+            r#"{domain} {{
     reverse_proxy {proxy}
 }}
-"#, domain = domain, proxy = proxy_pass)
+"#,
+            domain = domain,
+            proxy = proxy_pass
+        )
     }
 }
 

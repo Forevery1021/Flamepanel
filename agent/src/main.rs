@@ -5,8 +5,8 @@ use std::time::Duration;
 use axum::{
     extract::Query,
     http::HeaderMap,
-    Json, Router,
     routing::{get, post},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sysinfo::System;
@@ -27,16 +27,13 @@ impl AgentConfig {
         Self {
             panel_url: std::env::var("PANEL_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:8080".into()),
-            node_name: std::env::var("NODE_NAME")
-                .unwrap_or_else(|_| hostname()),
-            node_host: std::env::var("NODE_HOST")
-                .unwrap_or_else(|_| local_ip()),
+            node_name: std::env::var("NODE_NAME").unwrap_or_else(|_| hostname()),
+            node_host: std::env::var("NODE_HOST").unwrap_or_else(|_| local_ip()),
             agent_port: std::env::var("AGENT_PORT")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(9527),
-            auth_token: std::env::var("AUTH_TOKEN")
-                .unwrap_or_else(|_| uuid_v4()),
+            auth_token: std::env::var("AUTH_TOKEN").unwrap_or_else(|_| uuid_v4()),
         }
     }
 }
@@ -90,7 +87,10 @@ fn collect_metrics(sys: &mut System) -> HeartbeatPayload {
 
     let disks = sysinfo::Disks::new_with_refreshed_list();
     let (disk_total, disk_used) = disks.iter().fold((0u64, 0u64), |(t, u), d| {
-        (t + d.total_space(), u + d.total_space() - d.available_space())
+        (
+            t + d.total_space(),
+            u + d.total_space() - d.available_space(),
+        )
     });
     let disk_pct = if disk_total > 0 {
         ((disk_used as f64 / disk_total as f64) * 100.0) as f32
@@ -138,7 +138,9 @@ async fn register(config: &AgentConfig) -> Option<i64> {
             let status = resp.status();
             if status.is_success() {
                 #[derive(Deserialize)]
-                struct R { id: i64 }
+                struct R {
+                    id: i64,
+                }
                 if let Ok(r) = resp.json::<R>().await {
                     eprintln!("[agent] 注册成功，节点 ID: {}", r.id);
                     return Some(r.id);
@@ -153,11 +155,7 @@ async fn register(config: &AgentConfig) -> Option<i64> {
 
 // ─── Heartbeat ─────────────────────────────────────────────────────────────────
 
-async fn send_heartbeat(
-    panel_url: &str,
-    node_id: i64,
-    metrics: &HeartbeatPayload,
-) {
+async fn send_heartbeat(panel_url: &str, node_id: i64, metrics: &HeartbeatPayload) {
     let client = reqwest::Client::new();
     match client
         .post(format!("{panel_url}/api/nodes/heartbeat/{node_id}"))
@@ -336,14 +334,12 @@ async fn download_file_endpoint(
         ));
     }
 
-    tokio::fs::read(&path)
-        .await
-        .map_err(|e| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Read error: {e}")})),
-            )
-        })
+    tokio::fs::read(&path).await.map_err(|e| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Read error: {e}")})),
+        )
+    })
 }
 
 async fn upload_file_endpoint(
@@ -364,16 +360,16 @@ async fn upload_file_endpoint(
         let _ = std::fs::create_dir_all(parent);
     }
 
-    tokio::fs::write(&target, &body)
-        .await
-        .map_err(|e| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Write error: {e}")})),
-            )
-        })?;
+    tokio::fs::write(&target, &body).await.map_err(|e| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Write error: {e}")})),
+        )
+    })?;
 
-    Ok(Json(serde_json::json!({"message": "ok", "size": body.len()})))
+    Ok(Json(
+        serde_json::json!({"message": "ok", "size": body.len()}),
+    ))
 }
 
 fn agent_routes() -> Router {

@@ -1,8 +1,11 @@
-use axum::{Json, extract::{State, Path, Query}};
-use axum::Router;
-use crate::api::types::{AppState, PaginationParams, PaginatedResponse};
+use crate::api::types::{AppState, PaginatedResponse, PaginationParams};
 use crate::core::error::AppError;
 use crate::domain::entity::LogEntry;
+use axum::Router;
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
 
 pub async fn list(
     State(state): State<AppState>,
@@ -19,8 +22,6 @@ pub async fn delete(
     state.log_service.delete_log(id).await?;
     Ok(Json("deleted"))
 }
-
-
 
 /// 路由表（集中注册于 routes.rs 组合根）
 pub fn routes() -> Router<AppState> {

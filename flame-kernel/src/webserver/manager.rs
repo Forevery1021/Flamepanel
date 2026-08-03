@@ -1,7 +1,7 @@
-use std::process::Stdio;
+use super::engine::WebServerEngine;
 use crate::core::error::AppError;
 use crate::domain::entity::WebServerInstance;
-use super::engine::WebServerEngine;
+use std::process::Stdio;
 
 #[derive(Clone)]
 pub struct WebServerManager;
@@ -12,7 +12,7 @@ impl WebServerManager {
     }
 
     pub async fn check_status(&self, instance: &WebServerInstance) -> Result<String, AppError> {
-        let engine = WebServerEngine::from_str(&instance.engine)
+        let engine = WebServerEngine::from_name(&instance.engine)
             .ok_or_else(|| AppError::BadRequest(format!("Unknown engine: {}", instance.engine)))?;
 
         let output = tokio::process::Command::new("pgrep")
@@ -30,10 +30,13 @@ impl WebServerManager {
     }
 
     pub async fn start(&self, instance: &WebServerInstance) -> Result<String, AppError> {
-        let engine = WebServerEngine::from_str(&instance.engine)
+        let engine = WebServerEngine::from_name(&instance.engine)
             .ok_or_else(|| AppError::BadRequest(format!("Unknown engine: {}", instance.engine)))?;
 
-        let binary = instance.binary_path.as_deref().unwrap_or(engine.binary_name());
+        let binary = instance
+            .binary_path
+            .as_deref()
+            .unwrap_or(engine.binary_name());
         let output = tokio::process::Command::new(binary)
             .arg("-c")
             .arg(&instance.config_path)
@@ -41,31 +44,43 @@ impl WebServerManager {
             .stderr(Stdio::piped())
             .output()
             .await
-            .map_err(|e| AppError::internal(format!("Failed to start {}: {}", engine.as_str(), e)))?;
+            .map_err(|e| {
+                AppError::internal(format!("Failed to start {}: {}", engine.as_str(), e))
+            })?;
 
         if output.status.success() {
             Ok(format!("{} started successfully", engine.as_str()))
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(AppError::internal(format!("Failed to start {}: {}", engine.as_str(), stderr)))
+            Err(AppError::internal(format!(
+                "Failed to start {}: {}",
+                engine.as_str(),
+                stderr
+            )))
         }
     }
 
     pub async fn stop(&self, instance: &WebServerInstance) -> Result<String, AppError> {
-        let engine = WebServerEngine::from_str(&instance.engine)
+        let engine = WebServerEngine::from_name(&instance.engine)
             .ok_or_else(|| AppError::BadRequest(format!("Unknown engine: {}", instance.engine)))?;
 
         let output = tokio::process::Command::new("killall")
             .arg(engine.binary_name())
             .output()
             .await
-            .map_err(|e| AppError::internal(format!("Failed to stop {}: {}", engine.as_str(), e)))?;
+            .map_err(|e| {
+                AppError::internal(format!("Failed to stop {}: {}", engine.as_str(), e))
+            })?;
 
         if output.status.success() {
             Ok(format!("{} stopped successfully", engine.as_str()))
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(AppError::internal(format!("Failed to stop {}: {}", engine.as_str(), stderr)))
+            Err(AppError::internal(format!(
+                "Failed to stop {}: {}",
+                engine.as_str(),
+                stderr
+            )))
         }
     }
 
@@ -76,7 +91,7 @@ impl WebServerManager {
     }
 
     pub async fn reload(&self, instance: &WebServerInstance) -> Result<String, AppError> {
-        let engine = WebServerEngine::from_str(&instance.engine)
+        let engine = WebServerEngine::from_name(&instance.engine)
             .ok_or_else(|| AppError::BadRequest(format!("Unknown engine: {}", instance.engine)))?;
 
         let output = tokio::process::Command::new("sh")
@@ -84,18 +99,24 @@ impl WebServerManager {
             .arg(engine.reload_command())
             .output()
             .await
-            .map_err(|e| AppError::internal(format!("Failed to reload {}: {}", engine.as_str(), e)))?;
+            .map_err(|e| {
+                AppError::internal(format!("Failed to reload {}: {}", engine.as_str(), e))
+            })?;
 
         if output.status.success() {
             Ok(format!("{} reloaded successfully", engine.as_str()))
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(AppError::internal(format!("Failed to reload {}: {}", engine.as_str(), stderr)))
+            Err(AppError::internal(format!(
+                "Failed to reload {}: {}",
+                engine.as_str(),
+                stderr
+            )))
         }
     }
 
     pub async fn config_test(&self, instance: &WebServerInstance) -> Result<String, AppError> {
-        let engine = WebServerEngine::from_str(&instance.engine)
+        let engine = WebServerEngine::from_name(&instance.engine)
             .ok_or_else(|| AppError::BadRequest(format!("Unknown engine: {}", instance.engine)))?;
 
         let output = tokio::process::Command::new("sh")
@@ -111,7 +132,10 @@ impl WebServerManager {
         if output.status.success() {
             Ok(if stdout.is_empty() { stderr } else { stdout })
         } else {
-            Err(AppError::internal(format!("Config test failed: {}", stderr)))
+            Err(AppError::internal(format!(
+                "Config test failed: {}",
+                stderr
+            )))
         }
     }
 
@@ -121,7 +145,12 @@ impl WebServerManager {
             .map_err(|e| AppError::internal(format!("Failed to write config file {}: {}", path, e)))
     }
 
-    pub async fn enable_site(&self, engine: &WebServerEngine, domain: &str, config_path: &str) -> Result<(), AppError> {
+    pub async fn enable_site(
+        &self,
+        engine: &WebServerEngine,
+        domain: &str,
+        config_path: &str,
+    ) -> Result<(), AppError> {
         let enabled_dir = engine.sites_enabled_dir();
         let target = format!("{}/{}", enabled_dir, domain);
         tokio::fs::write(&target, config_path)
@@ -129,7 +158,11 @@ impl WebServerManager {
             .map_err(|e| AppError::internal(format!("Failed to enable site: {}", e)))
     }
 
-    pub async fn disable_site(&self, engine: &WebServerEngine, domain: &str) -> Result<(), AppError> {
+    pub async fn disable_site(
+        &self,
+        engine: &WebServerEngine,
+        domain: &str,
+    ) -> Result<(), AppError> {
         let enabled_dir = engine.sites_enabled_dir();
         let target = format!("{}/{}", enabled_dir, domain);
         if tokio::fs::try_exists(&target).await.unwrap_or(false) {
@@ -138,5 +171,10 @@ impl WebServerManager {
                 .map_err(|e| AppError::internal(format!("Failed to disable site: {}", e)))?;
         }
         Ok(())
+    }
+}
+impl Default for WebServerManager {
+    fn default() -> Self {
+        Self::new()
     }
 }

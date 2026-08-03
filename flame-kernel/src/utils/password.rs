@@ -1,5 +1,5 @@
-use bcrypt::{hash, verify, DEFAULT_COST};
 use crate::core::error::AppError;
+use bcrypt::{hash, verify, DEFAULT_COST};
 
 pub struct PasswordUtils;
 
@@ -9,7 +9,7 @@ impl PasswordUtils {
             .map_err(|e| AppError::internal(format!("Failed to hash password: {}", e)))?;
         Ok(hashed)
     }
-    
+
     pub fn verify(password: &str, hashed: &str) -> Result<bool, AppError> {
         let valid = verify(password, hashed)
             .map_err(|e| AppError::internal(format!("Failed to verify password: {}", e)))?;

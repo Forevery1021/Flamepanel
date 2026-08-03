@@ -1,11 +1,14 @@
-use axum::{Json, extract::{State, Path, Query}};
-use axum::Router;
-use serde::{Serialize, Deserialize};
 use crate::api::extract::ApiJson;
-use crate::api::types::{AppState, PaginationParams, PaginatedResponse};
+use crate::api::types::{AppState, PaginatedResponse, PaginationParams};
 use crate::core::error::AppError;
 use crate::domain::entity::FirewallRule;
+use axum::Router;
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
 pub struct FirewallRuleResponse {
@@ -126,16 +129,36 @@ pub async fn update(
     ApiJson(req): ApiJson<UpdateFirewallRuleRequest>,
 ) -> Result<Json<FirewallRuleResponse>, AppError> {
     let mut rule = state.firewall_service.get_rule(id).await?;
-    if let Some(name) = req.name { rule.name = name; }
-    if let Some(desc) = req.description { rule.description = Some(desc); }
-    if let Some(protocol) = req.protocol { rule.protocol = protocol; }
-    if let Some(port) = req.port { rule.port = Some(port); }
-    if let Some(source) = req.source { rule.source = Some(source); }
-    if let Some(dest) = req.destination { rule.destination = Some(dest); }
-    if let Some(action) = req.action { rule.action = action; }
-    if let Some(enabled) = req.enabled { rule.enabled = enabled; }
-    if let Some(priority) = req.priority { rule.priority = priority; }
-    if let Some(direction) = req.direction { rule.direction = direction; }
+    if let Some(name) = req.name {
+        rule.name = name;
+    }
+    if let Some(desc) = req.description {
+        rule.description = Some(desc);
+    }
+    if let Some(protocol) = req.protocol {
+        rule.protocol = protocol;
+    }
+    if let Some(port) = req.port {
+        rule.port = Some(port);
+    }
+    if let Some(source) = req.source {
+        rule.source = Some(source);
+    }
+    if let Some(dest) = req.destination {
+        rule.destination = Some(dest);
+    }
+    if let Some(action) = req.action {
+        rule.action = action;
+    }
+    if let Some(enabled) = req.enabled {
+        rule.enabled = enabled;
+    }
+    if let Some(priority) = req.priority {
+        rule.priority = priority;
+    }
+    if let Some(direction) = req.direction {
+        rule.direction = direction;
+    }
     rule.updated_at = Utc::now();
     let updated = state.firewall_service.update_rule(rule).await?;
     Ok(Json(to_response(updated)))
@@ -158,9 +181,7 @@ pub async fn toggle(
     Ok(Json(to_response(rule)))
 }
 
-pub async fn apply_all(
-    State(state): State<AppState>,
-) -> Result<Json<&'static str>, AppError> {
+pub async fn apply_all(State(state): State<AppState>) -> Result<Json<&'static str>, AppError> {
     state.firewall_service.apply_all_rules().await?;
     Ok(Json("applied"))
 }
@@ -172,16 +193,12 @@ pub async fn get_status(
     Ok(Json(status))
 }
 
-pub async fn enable(
-    State(state): State<AppState>,
-) -> Result<Json<&'static str>, AppError> {
+pub async fn enable(State(state): State<AppState>) -> Result<Json<&'static str>, AppError> {
     state.firewall_service.enable_firewall().await?;
     Ok(Json("enabled"))
 }
 
-pub async fn disable(
-    State(state): State<AppState>,
-) -> Result<Json<&'static str>, AppError> {
+pub async fn disable(State(state): State<AppState>) -> Result<Json<&'static str>, AppError> {
     state.firewall_service.disable_firewall().await?;
     Ok(Json("disabled"))
 }
@@ -194,8 +211,6 @@ pub async fn reorder(
     Ok(Json("reordered"))
 }
 
-
-
 /// 路由表（集中注册于 routes.rs 组合根）
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -204,7 +219,10 @@ pub fn routes() -> Router<AppState> {
         .route("/api/firewall/rules/:id", axum::routing::get(get))
         .route("/api/firewall/rules/:id", axum::routing::put(update))
         .route("/api/firewall/rules/:id", axum::routing::delete(delete))
-        .route("/api/firewall/rules/:id/toggle", axum::routing::post(toggle))
+        .route(
+            "/api/firewall/rules/:id/toggle",
+            axum::routing::post(toggle),
+        )
         .route("/api/firewall/apply", axum::routing::post(apply_all))
         .route("/api/firewall/status", axum::routing::get(get_status))
         .route("/api/firewall/enable", axum::routing::post(enable))

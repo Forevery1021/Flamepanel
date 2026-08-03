@@ -1,14 +1,16 @@
+use crate::api::rate_limiter;
+use crate::api::types::{route_permission, AppState, UserId};
+use crate::core::error::AppError;
+use crate::utils::jwt::JwtUtils;
 use axum::{
-    Router, extract::State, http::{Request, header},
-    response::Response,
+    extract::State,
+    http::{header, Request},
     middleware::{self, Next},
+    response::Response,
+    Router,
 };
 use tower_http::trace::TraceLayer;
 use tracing::info;
-use crate::core::error::AppError;
-use crate::utils::jwt::JwtUtils;
-use crate::api::rate_limiter;
-use crate::api::types::{AppState, UserId, route_permission};
 
 /// 无需认证的白名单路径
 fn is_public_path(path: &str) -> bool {
@@ -42,7 +44,8 @@ async fn auth_middleware<B>(
     }
 
     // 1. 解析并校验 JWT
-    let auth_header = req.headers()
+    let auth_header = req
+        .headers()
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| AppError::Unauthorized("Missing Authorization header".to_string()))?;
@@ -54,17 +57,24 @@ async fn auth_middleware<B>(
     let jwt = JwtUtils::new(&state.jwt_secret, 24);
     let claims = jwt.verify(token)?;
 
-    let user_id: i64 = claims.sub.parse().map_err(|_| {
-        AppError::Unauthorized("Invalid token subject".to_string())
-    })?;
+    let user_id: i64 = claims
+        .sub
+        .parse()
+        .map_err(|_| AppError::Unauthorized("Invalid token subject".to_string()))?;
 
     // 2. 一次用户查询（认证 + RBAC 共用）
-    let user = state.user_service.find_by_id(user_id).await?
+    let user = state
+        .user_service
+        .find_by_id(user_id)
+        .await?
         .ok_or_else(|| AppError::Unauthorized("User no longer exists".to_string()))?;
 
     // 3. RBAC 鉴权
     if let Some((resource, action)) = route_permission(req.method(), path) {
-        let allowed = state.role_service.check_permission(&user.role, resource, action).await?;
+        let allowed = state
+            .role_service
+            .check_permission(&user.role, resource, action)
+            .await?;
         if !allowed {
             return Err(AppError::Forbidden(format!(
                 "Missing permission: {}:{}",

@@ -1,13 +1,18 @@
-use axum::{Json, extract::{State, Path}};
-use axum::Router;
-use serde::{Deserialize, Serialize};
 use crate::api::extract::ApiJson;
-use crate::api::types::{AppState, PluginSettingRequest, PluginMetricsResponse, PluginReloadRequest};
+use crate::api::types::{
+    AppState, PluginMetricsResponse, PluginReloadRequest, PluginSettingRequest,
+};
 use crate::core::error::AppError;
 use crate::domain::entity::Plugin;
 use crate::plugin::sandbox::PluginConfig;
-use base64::{Engine as _, engine::general_purpose};
+use axum::Router;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
+use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 pub struct LoadPluginRequest {
@@ -61,25 +66,39 @@ pub async fn list_plugins(
     let plugins = state.plugin_registry.list_all();
     let sandbox_plugins = state.plugin_sandbox.list_plugins().await;
 
-    let responses: Vec<PluginResponse> = plugins.into_iter().map(|p| {
-        let sandbox_info = sandbox_plugins.iter().find(|s| s.id == p.id);
-        PluginResponse {
-            id: p.id,
-            name: p.name,
-            version: p.version,
-            author: p.author,
-            description: p.description,
-            enabled: p.enabled,
-            status: sandbox_info.map(|s| format!("{:?}", s.status)).unwrap_or_else(|| "Unloaded".into()),
-            homepage: p.homepage,
-            license: p.license,
-            tags: p.tags,
-            dependencies: p.dependencies.iter().map(|d| format!("{} ({})", d.plugin_id, d.version_requirement)).collect(),
-            loaded_at: sandbox_info.map(|s| s.loaded_at.to_rfc3339()).unwrap_or_default(),
-            last_executed_at: sandbox_info.and_then(|s| s.last_executed_at.map(|t| t.to_rfc3339())),
-            exec_count: sandbox_info.map(|s| s.metrics.total_executions).unwrap_or(0),
-        }
-    }).collect();
+    let responses: Vec<PluginResponse> = plugins
+        .into_iter()
+        .map(|p| {
+            let sandbox_info = sandbox_plugins.iter().find(|s| s.id == p.id);
+            PluginResponse {
+                id: p.id,
+                name: p.name,
+                version: p.version,
+                author: p.author,
+                description: p.description,
+                enabled: p.enabled,
+                status: sandbox_info
+                    .map(|s| format!("{:?}", s.status))
+                    .unwrap_or_else(|| "Unloaded".into()),
+                homepage: p.homepage,
+                license: p.license,
+                tags: p.tags,
+                dependencies: p
+                    .dependencies
+                    .iter()
+                    .map(|d| format!("{} ({})", d.plugin_id, d.version_requirement))
+                    .collect(),
+                loaded_at: sandbox_info
+                    .map(|s| s.loaded_at.to_rfc3339())
+                    .unwrap_or_default(),
+                last_executed_at: sandbox_info
+                    .and_then(|s| s.last_executed_at.map(|t| t.to_rfc3339())),
+                exec_count: sandbox_info
+                    .map(|s| s.metrics.total_executions)
+                    .unwrap_or(0),
+            }
+        })
+        .collect();
 
     Ok(Json(responses))
 }
@@ -90,10 +109,21 @@ pub async fn get_plugin(
 ) -> Result<Json<PluginResponse>, AppError> {
     let plugin = state.plugin_registry.get(&id)?;
     let sandbox_info = state.plugin_sandbox.get_plugin(&id).await.ok();
-    let status = sandbox_info.as_ref().map(|s| format!("{:?}", s.status)).unwrap_or_else(|| "Unloaded".into());
-    let loaded_at = sandbox_info.as_ref().map(|s| s.loaded_at.to_rfc3339()).unwrap_or_default();
-    let last_executed_at = sandbox_info.as_ref().and_then(|s| s.last_executed_at.map(|t| t.to_rfc3339()));
-    let exec_count = sandbox_info.as_ref().map(|s| s.metrics.total_executions).unwrap_or(0);
+    let status = sandbox_info
+        .as_ref()
+        .map(|s| format!("{:?}", s.status))
+        .unwrap_or_else(|| "Unloaded".into());
+    let loaded_at = sandbox_info
+        .as_ref()
+        .map(|s| s.loaded_at.to_rfc3339())
+        .unwrap_or_default();
+    let last_executed_at = sandbox_info
+        .as_ref()
+        .and_then(|s| s.last_executed_at.map(|t| t.to_rfc3339()));
+    let exec_count = sandbox_info
+        .as_ref()
+        .map(|s| s.metrics.total_executions)
+        .unwrap_or(0);
 
     Ok(Json(PluginResponse {
         id: plugin.id,
@@ -106,7 +136,11 @@ pub async fn get_plugin(
         homepage: plugin.homepage,
         license: plugin.license,
         tags: plugin.tags,
-        dependencies: plugin.dependencies.iter().map(|d| format!("{} ({})", d.plugin_id, d.version_requirement)).collect(),
+        dependencies: plugin
+            .dependencies
+            .iter()
+            .map(|d| format!("{} ({})", d.plugin_id, d.version_requirement))
+            .collect(),
         loaded_at,
         last_executed_at,
         exec_count,
@@ -117,14 +151,15 @@ pub async fn load_plugin(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<LoadPluginRequest>,
 ) -> Result<Json<PluginResponse>, AppError> {
-    let wasm_bytes = general_purpose::STANDARD.decode(&req.wasm_base64)
+    let wasm_bytes = general_purpose::STANDARD
+        .decode(&req.wasm_base64)
         .map_err(|e| AppError::BadRequest(format!("Invalid base64: {}", e)))?;
 
     if wasm_bytes.is_empty() {
         return Err(AppError::BadRequest("WASM module is empty".into()));
     }
 
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(&wasm_bytes);
     let wasm_hash = format!("{:x}", hasher.finalize());
@@ -137,7 +172,10 @@ pub async fn load_plugin(
         config.timeout_ms = timeout;
     }
 
-    let sandbox_plugin = state.plugin_sandbox.load_plugin(&req.id, wasm_bytes, Some(config)).await?;
+    let sandbox_plugin = state
+        .plugin_sandbox
+        .load_plugin(&req.id, wasm_bytes, Some(config))
+        .await?;
 
     let now = Utc::now();
     let plugin = Plugin {
@@ -185,7 +223,8 @@ pub async fn reload_plugin(
     Path(id): Path<String>,
     ApiJson(req): ApiJson<PluginReloadRequest>,
 ) -> Result<Json<PluginResponse>, AppError> {
-    let wasm_bytes = general_purpose::STANDARD.decode(&req.wasm_base64)
+    let wasm_bytes = general_purpose::STANDARD
+        .decode(&req.wasm_base64)
         .map_err(|e| AppError::BadRequest(format!("Invalid base64: {}", e)))?;
 
     let mut config = PluginConfig::default();
@@ -196,7 +235,10 @@ pub async fn reload_plugin(
         config.timeout_ms = timeout;
     }
 
-    let sandbox_plugin = state.plugin_sandbox.reload_plugin(&id, wasm_bytes, Some(config)).await?;
+    let sandbox_plugin = state
+        .plugin_sandbox
+        .reload_plugin(&id, wasm_bytes, Some(config))
+        .await?;
     let plugin = state.plugin_registry.get(&id)?;
 
     Ok(Json(PluginResponse {
@@ -210,7 +252,11 @@ pub async fn reload_plugin(
         homepage: plugin.homepage,
         license: plugin.license,
         tags: plugin.tags,
-        dependencies: plugin.dependencies.iter().map(|d| format!("{} ({})", d.plugin_id, d.version_requirement)).collect(),
+        dependencies: plugin
+            .dependencies
+            .iter()
+            .map(|d| format!("{} ({})", d.plugin_id, d.version_requirement))
+            .collect(),
         loaded_at: sandbox_plugin.loaded_at.to_rfc3339(),
         last_executed_at: sandbox_plugin.last_executed_at.map(|t| t.to_rfc3339()),
         exec_count: sandbox_plugin.metrics.total_executions,
@@ -227,7 +273,10 @@ pub async fn execute_plugin(
         return Err(AppError::BadRequest(format!("Plugin {} is disabled", id)));
     }
 
-    let result = state.plugin_sandbox.execute_plugin(&id, &function, req.args).await?;
+    let result = state
+        .plugin_sandbox
+        .execute_plugin(&id, &function, req.args)
+        .await?;
 
     Ok(Json(ExecutionResponse {
         output: result.output.clone(),
@@ -245,10 +294,21 @@ pub async fn enable_plugin(
     let _ = state.plugin_sandbox.enable_plugin(&id).await;
 
     let sandbox_info = state.plugin_sandbox.get_plugin(&id).await.ok();
-    let status = sandbox_info.as_ref().map(|s| format!("{:?}", s.status)).unwrap_or_else(|| "Unloaded".into());
-    let loaded_at = sandbox_info.as_ref().map(|s| s.loaded_at.to_rfc3339()).unwrap_or_default();
-    let last_executed_at = sandbox_info.as_ref().and_then(|s| s.last_executed_at.map(|t| t.to_rfc3339()));
-    let exec_count = sandbox_info.as_ref().map(|s| s.metrics.total_executions).unwrap_or(0);
+    let status = sandbox_info
+        .as_ref()
+        .map(|s| format!("{:?}", s.status))
+        .unwrap_or_else(|| "Unloaded".into());
+    let loaded_at = sandbox_info
+        .as_ref()
+        .map(|s| s.loaded_at.to_rfc3339())
+        .unwrap_or_default();
+    let last_executed_at = sandbox_info
+        .as_ref()
+        .and_then(|s| s.last_executed_at.map(|t| t.to_rfc3339()));
+    let exec_count = sandbox_info
+        .as_ref()
+        .map(|s| s.metrics.total_executions)
+        .unwrap_or(0);
 
     Ok(Json(PluginResponse {
         id: plugin.id,
@@ -261,7 +321,11 @@ pub async fn enable_plugin(
         homepage: plugin.homepage,
         license: plugin.license,
         tags: plugin.tags,
-        dependencies: plugin.dependencies.iter().map(|d| format!("{} ({})", d.plugin_id, d.version_requirement)).collect(),
+        dependencies: plugin
+            .dependencies
+            .iter()
+            .map(|d| format!("{} ({})", d.plugin_id, d.version_requirement))
+            .collect(),
         loaded_at,
         last_executed_at,
         exec_count,
@@ -276,10 +340,21 @@ pub async fn disable_plugin(
     let _ = state.plugin_sandbox.disable_plugin(&id).await;
 
     let sandbox_info = state.plugin_sandbox.get_plugin(&id).await.ok();
-    let status = sandbox_info.as_ref().map(|s| format!("{:?}", s.status)).unwrap_or_else(|| "Unloaded".into());
-    let loaded_at = sandbox_info.as_ref().map(|s| s.loaded_at.to_rfc3339()).unwrap_or_default();
-    let last_executed_at = sandbox_info.as_ref().and_then(|s| s.last_executed_at.map(|t| t.to_rfc3339()));
-    let exec_count = sandbox_info.as_ref().map(|s| s.metrics.total_executions).unwrap_or(0);
+    let status = sandbox_info
+        .as_ref()
+        .map(|s| format!("{:?}", s.status))
+        .unwrap_or_else(|| "Unloaded".into());
+    let loaded_at = sandbox_info
+        .as_ref()
+        .map(|s| s.loaded_at.to_rfc3339())
+        .unwrap_or_default();
+    let last_executed_at = sandbox_info
+        .as_ref()
+        .and_then(|s| s.last_executed_at.map(|t| t.to_rfc3339()));
+    let exec_count = sandbox_info
+        .as_ref()
+        .map(|s| s.metrics.total_executions)
+        .unwrap_or(0);
 
     Ok(Json(PluginResponse {
         id: plugin.id,
@@ -292,7 +367,11 @@ pub async fn disable_plugin(
         homepage: plugin.homepage,
         license: plugin.license,
         tags: plugin.tags,
-        dependencies: plugin.dependencies.iter().map(|d| format!("{} ({})", d.plugin_id, d.version_requirement)).collect(),
+        dependencies: plugin
+            .dependencies
+            .iter()
+            .map(|d| format!("{} ({})", d.plugin_id, d.version_requirement))
+            .collect(),
         loaded_at,
         last_executed_at,
         exec_count,
@@ -324,7 +403,11 @@ pub async fn get_plugin_metrics(
         failed_executions: metrics.failed_executions,
         avg_execution_ms: metrics.avg_execution_ms,
         max_execution_ms: metrics.max_execution_ms,
-        min_execution_ms: if metrics.min_execution_ms == u64::MAX { 0 } else { metrics.min_execution_ms },
+        min_execution_ms: if metrics.min_execution_ms == u64::MAX {
+            0
+        } else {
+            metrics.min_execution_ms
+        },
         last_execution_ms: metrics.last_execution_ms,
         peak_memory_bytes: metrics.peak_memory_bytes,
     }))
@@ -335,7 +418,9 @@ pub async fn reset_plugin_metrics(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     state.plugin_sandbox.reset_plugin_metrics(&id).await?;
-    Ok(Json(serde_json::json!({"message": "Metrics reset", "id": id})))
+    Ok(Json(
+        serde_json::json!({"message": "Metrics reset", "id": id}),
+    ))
 }
 
 pub async fn list_plugin_settings(
@@ -351,8 +436,13 @@ pub async fn set_plugin_setting(
     Path(id): Path<String>,
     ApiJson(req): ApiJson<PluginSettingRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    state.plugin_sandbox.set_plugin_setting(&id, &req.key, &req.value).await?;
-    Ok(Json(serde_json::json!({"message": "Setting saved", "id": id, "key": req.key})))
+    state
+        .plugin_sandbox
+        .set_plugin_setting(&id, &req.key, &req.value)
+        .await?;
+    Ok(Json(
+        serde_json::json!({"message": "Setting saved", "id": id, "key": req.key}),
+    ))
 }
 
 pub async fn get_plugin_setting(
@@ -360,10 +450,10 @@ pub async fn get_plugin_setting(
     Path((id, key)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let value = state.plugin_sandbox.get_plugin_setting(&id, &key).await?;
-    Ok(Json(serde_json::json!({"id": id, "key": key, "value": value})))
+    Ok(Json(
+        serde_json::json!({"id": id, "key": key, "value": value}),
+    ))
 }
-
-
 
 /// 路由表（集中注册于 routes.rs 组合根）
 pub fn routes() -> Router<AppState> {
@@ -372,13 +462,40 @@ pub fn routes() -> Router<AppState> {
         .route("/api/plugins", axum::routing::post(load_plugin))
         .route("/api/plugins/:id", axum::routing::get(get_plugin))
         .route("/api/plugins/:id", axum::routing::post(unload_plugin))
-        .route("/api/plugins/:id/enable", axum::routing::post(enable_plugin))
-        .route("/api/plugins/:id/disable", axum::routing::post(disable_plugin))
-        .route("/api/plugins/:id/execute/:function", axum::routing::post(execute_plugin))
-        .route("/api/plugins/:id/reload", axum::routing::post(reload_plugin))
-        .route("/api/plugins/:id/metrics", axum::routing::get(get_plugin_metrics))
-        .route("/api/plugins/:id/metrics", axum::routing::delete(reset_plugin_metrics))
-        .route("/api/plugins/:id/settings", axum::routing::get(list_plugin_settings))
-        .route("/api/plugins/:id/settings", axum::routing::post(set_plugin_setting))
-        .route("/api/plugins/:id/settings/:key", axum::routing::get(get_plugin_setting))
+        .route(
+            "/api/plugins/:id/enable",
+            axum::routing::post(enable_plugin),
+        )
+        .route(
+            "/api/plugins/:id/disable",
+            axum::routing::post(disable_plugin),
+        )
+        .route(
+            "/api/plugins/:id/execute/:function",
+            axum::routing::post(execute_plugin),
+        )
+        .route(
+            "/api/plugins/:id/reload",
+            axum::routing::post(reload_plugin),
+        )
+        .route(
+            "/api/plugins/:id/metrics",
+            axum::routing::get(get_plugin_metrics),
+        )
+        .route(
+            "/api/plugins/:id/metrics",
+            axum::routing::delete(reset_plugin_metrics),
+        )
+        .route(
+            "/api/plugins/:id/settings",
+            axum::routing::get(list_plugin_settings),
+        )
+        .route(
+            "/api/plugins/:id/settings",
+            axum::routing::post(set_plugin_setting),
+        )
+        .route(
+            "/api/plugins/:id/settings/:key",
+            axum::routing::get(get_plugin_setting),
+        )
 }

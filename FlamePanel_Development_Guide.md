@@ -1,6 +1,6 @@
 # FlamePanel 开发部署流程指南
 
-> Rust 内核 + Vue 3 前端 · 版本 v1.15 · 更新 2026-08-02
+> Rust 内核 + Vue 3 前端 · 版本 v1.16 · 更新 2026-08-02
 
 ## 目录
 
@@ -129,6 +129,7 @@ Flamepanel/
 │       ├── locales/       # i18n: zh-CN/en-US/ja-JP
 │       └── views/         # 17 个视图页面
 ├── agent/                 # 轻量 Rust Agent
+├── scripts/               # 运维脚本（sync-gitee 同步 / package-release 打包）
 ├── install.sh             # Linux 一键安装脚本
 ├── uninstall.sh           # Linux 卸载脚本
 ├── Dockerfile             # 多阶段构建
@@ -195,8 +196,8 @@ cd ../flame-kernel && cargo build --release
 
 ```bash
 cargo check        # 零错误零警告
-cargo test         # 141 个测试全部通过 (86 集成 + 55 单元)
-cargo clippy       # (可选) lint 检查
+cargo test         # 142 个测试全部通过 (87 集成 + 55 单元)
+cargo clippy --all-targets -- -D warnings   # 零告警（CI 标准）
 ```
 
 ---
@@ -780,6 +781,28 @@ flowchart TD
 
 ## 12. 更新日志
 
+### v0.4.0 (2026-08-03)
+
+#### 事件总线接入业务
+- **服务层发布领域事件** — `UserService::create_user` / `NodeService::register_node` / `WebsiteService::create_website` 创建成功后发布 `UserCreated` / `NodeRegistered` / `WebsiteCreated`（此前总线已接线但从未发事件）
+- **SMTP 通知真正生效** — `EventHandler` 收到事件后向 `admin@flamepanel.local` 发送邮件通知（此前配置存在但永不触发）
+- **EventBus 入 Services 聚合** — `Services` 新增 `event_bus` 字段，`build_services` 统一组装；`EventBus` 派生 `Clone`（broadcast Sender）
+
+#### Release 流水线（打通 install.sh 一键安装）
+- **本地打包脚本** — `scripts/package-release.sh`（`just package`）：release 构建 → 打包 `flamepanel-linux-{amd64,arm64}.tar.gz`（顶层为二进制）+ `flamepanel-frontend.tar.gz`（顶层为 dist 内容），与 install.sh 解包逻辑严格对齐
+- **CI 自动发布** — `.github/workflows/release.yml`：推送 `v*` 标签自动构建、打包、创建 GitHub Release 上传资产（此前 install.sh 依赖的 Releases 资产无人生成）
+
+#### 暗色主题闭环
+- **启动持久化** — `utils/theme.ts` 新增 `applyStoredTheme()`：启动时读 `localStorage['flame-theme']`，无记录时跟随系统 `prefers-color-scheme`
+- **设置页联动** — SettingsView 保存主题后即时应用 DOM class（此前仅存后端不生效）；TopBar 切换收敛到共享工具函数
+
+#### 代码质量（CI 绿灯）
+- **clippy 存量清零** — 修复 49 个存量 clippy 问题：25 个 `Default` 实现、6 个 `from_str` 改名 `from_name`（避免与标准 trait 混淆）、`filter().next()`→`find()`、`is_digit(10)`→`is_ascii_digit`、`assert_eq!`→`assert!`、无用转换/借用等
+- **fmt 存量修复** — `cargo fmt --check` 通过（含 agent/）
+
+#### 测试
+- 142 个测试全部通过（87 集成 + 55 单元），新增服务层事件发布测试（用户/节点/网站创建均断言事件）
+
 ### v0.3.0 (2026-08-02)
 
 #### 统一错误体系
@@ -804,7 +827,7 @@ flowchart TD
 - **错误码 i18n** — `getErrorMessage()` 按错误码查 `common.error.<code>`（zh/en/ja 三语言 8 个错误码），回退后端 message
 
 #### 测试
-- 141 个测试全部通过（86 集成 + 55 单元），新增：401/403 JSON 错误格式、全局 404 JSON、错误响应结构断言
+- 142 个测试全部通过（87 集成 + 55 单元），新增：401/403 JSON 错误格式、全局 404 JSON、错误响应结构断言
 
 ### v0.2.0 (2026-08-01)
 

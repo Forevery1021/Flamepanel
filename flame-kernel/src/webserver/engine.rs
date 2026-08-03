@@ -10,7 +10,7 @@ pub enum WebServerEngine {
 }
 
 impl WebServerEngine {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn from_name(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "nginx" => Some(Self::Nginx),
             "apache" => Some(Self::Apache),
@@ -136,10 +136,7 @@ impl WebServerEngine {
     }
 
     pub fn supports_load_balancing(&self) -> bool {
-        match self {
-            Self::Caddy => false,
-            _ => true,
-        }
+        !matches!(self, Self::Caddy)
     }
 
     pub fn config_test_command(&self) -> &'static str {

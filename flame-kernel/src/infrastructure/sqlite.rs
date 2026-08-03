@@ -1,8 +1,8 @@
-use async_trait::async_trait;
-use sqlx::{SqlitePool, Row};
+use crate::core::error::AppError;
 use crate::domain::entity::*;
 use crate::domain::repository::*;
-use crate::core::error::AppError;
+use async_trait::async_trait;
+use sqlx::{Row, SqlitePool};
 
 pub struct SqliteUserRepository {
     pool: SqlitePool,
@@ -38,7 +38,12 @@ impl UserRepository for SqliteUserRepository {
         Ok(user)
     }
 
-    async fn create(&self, username: &str, password_hash: &str, role: &str) -> Result<User, AppError> {
+    async fn create(
+        &self,
+        username: &str,
+        password_hash: &str,
+        role: &str,
+    ) -> Result<User, AppError> {
         let id = sqlx::query("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)")
             .bind(username)
             .bind(password_hash)
@@ -51,14 +56,15 @@ impl UserRepository for SqliteUserRepository {
     }
 
     async fn update(&self, user: &User) -> Result<(), AppError> {
-        let result = sqlx::query("UPDATE users SET username = ?, password_hash = ?, role = ? WHERE id = ?")
-            .bind(&user.username)
-            .bind(&user.password_hash)
-            .bind(&user.role)
-            .bind(user.id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        let result =
+            sqlx::query("UPDATE users SET username = ?, password_hash = ?, role = ? WHERE id = ?")
+                .bind(&user.username)
+                .bind(&user.password_hash)
+                .bind(&user.role)
+                .bind(user.id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound("User not found".into()));
         }
@@ -145,15 +151,17 @@ impl NodeRepository for SqliteNodeRepository {
     }
 
     async fn update(&self, node: &ServerNode) -> Result<(), AppError> {
-        let result = sqlx::query("UPDATE nodes SET name = ?, hostname = ?, ip_address = ?, status = ? WHERE id = ?")
-            .bind(&node.name)
-            .bind(&node.hostname)
-            .bind(&node.ip_address)
-            .bind(&node.status)
-            .bind(node.id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        let result = sqlx::query(
+            "UPDATE nodes SET name = ?, hostname = ?, ip_address = ?, status = ? WHERE id = ?",
+        )
+        .bind(&node.name)
+        .bind(&node.hostname)
+        .bind(&node.ip_address)
+        .bind(&node.status)
+        .bind(node.id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound("Node not found".into()));
         }
@@ -602,12 +610,10 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .await
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_installed_apps_key ON installed_apps(package_key)",
-    )
-    .execute(pool)
-    .await
-    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_installed_apps_key ON installed_apps(package_key)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     Ok(())
 }
@@ -738,13 +744,11 @@ impl SqliteSettingsRepository {
 #[async_trait]
 impl SettingsRepository for SqliteSettingsRepository {
     async fn get(&self, key: &str) -> Result<Option<String>, AppError> {
-        let row = sqlx::query_scalar::<_, String>(
-            "SELECT value FROM panel_settings WHERE key = ?",
-        )
-        .bind(key)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        let row = sqlx::query_scalar::<_, String>("SELECT value FROM panel_settings WHERE key = ?")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(row)
     }
 
@@ -776,9 +780,10 @@ impl SettingsRepository for SqliteSettingsRepository {
             .fetch_all(&self.pool)
             .await
             .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
-        Ok(rows.iter().map(|r| {
-            (r.get::<String, _>("key"), r.get::<String, _>("value"))
-        }).collect())
+        Ok(rows
+            .iter()
+            .map(|r| (r.get::<String, _>("key"), r.get::<String, _>("value")))
+            .collect())
     }
 }
 
@@ -815,7 +820,11 @@ impl PermissionRepository for SqlitePermissionRepository {
         Ok(perm)
     }
 
-    async fn find_by_resource_action(&self, resource: &str, action: &str) -> Result<Option<Permission>, AppError> {
+    async fn find_by_resource_action(
+        &self,
+        resource: &str,
+        action: &str,
+    ) -> Result<Option<Permission>, AppError> {
         let perm = sqlx::query_as::<_, Permission>(
             "SELECT id, resource, action, description FROM permissions WHERE resource = ? AND action = ?",
         )
@@ -828,16 +837,15 @@ impl PermissionRepository for SqlitePermissionRepository {
     }
 
     async fn create(&self, permission: &Permission) -> Result<i64, AppError> {
-        let id = sqlx::query(
-            "INSERT INTO permissions (resource, action, description) VALUES (?, ?, ?)",
-        )
-        .bind(&permission.resource)
-        .bind(&permission.action)
-        .bind(&permission.description)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
-        .last_insert_rowid();
+        let id =
+            sqlx::query("INSERT INTO permissions (resource, action, description) VALUES (?, ?, ?)")
+                .bind(&permission.resource)
+                .bind(&permission.action)
+                .bind(&permission.description)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+                .last_insert_rowid();
         Ok(id)
     }
 
@@ -864,47 +872,42 @@ impl SqliteRoleRepository {
 #[async_trait]
 impl RoleRepository for SqliteRoleRepository {
     async fn list_all(&self) -> Result<Vec<Role>, AppError> {
-        let roles = sqlx::query_as::<_, Role>(
-            "SELECT id, name, description FROM roles ORDER BY id",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        let roles =
+            sqlx::query_as::<_, Role>("SELECT id, name, description FROM roles ORDER BY id")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(roles)
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<Role>, AppError> {
-        let role = sqlx::query_as::<_, Role>(
-            "SELECT id, name, description FROM roles WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        let role =
+            sqlx::query_as::<_, Role>("SELECT id, name, description FROM roles WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(role)
     }
 
     async fn find_by_name(&self, name: &str) -> Result<Option<Role>, AppError> {
-        let role = sqlx::query_as::<_, Role>(
-            "SELECT id, name, description FROM roles WHERE name = ?",
-        )
-        .bind(name)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        let role =
+            sqlx::query_as::<_, Role>("SELECT id, name, description FROM roles WHERE name = ?")
+                .bind(name)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(role)
     }
 
     async fn create(&self, role: &Role) -> Result<i64, AppError> {
-        let id = sqlx::query(
-            "INSERT INTO roles (name, description) VALUES (?, ?)",
-        )
-        .bind(&role.name)
-        .bind(&role.description)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
-        .last_insert_rowid();
+        let id = sqlx::query("INSERT INTO roles (name, description) VALUES (?, ?)")
+            .bind(&role.name)
+            .bind(&role.description)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+            .last_insert_rowid();
         Ok(id)
     }
 
@@ -934,17 +937,20 @@ impl RoleRepository for SqliteRoleRepository {
     }
 
     async fn get_role_permissions(&self, role_id: i64) -> Result<Vec<i64>, AppError> {
-        let rows: Vec<(i64,)> = sqlx::query_as(
-            "SELECT permission_id FROM role_permissions WHERE role_id = ?",
-        )
-        .bind(role_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        let rows: Vec<(i64,)> =
+            sqlx::query_as("SELECT permission_id FROM role_permissions WHERE role_id = ?")
+                .bind(role_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
-    async fn set_role_permissions(&self, role_id: i64, permission_ids: &[i64]) -> Result<(), AppError> {
+    async fn set_role_permissions(
+        &self,
+        role_id: i64,
+        permission_ids: &[i64],
+    ) -> Result<(), AppError> {
         sqlx::query("DELETE FROM role_permissions WHERE role_id = ?")
             .bind(role_id)
             .execute(&self.pool)
@@ -974,7 +980,13 @@ impl SqliteOperationLogRepository {
 
 #[async_trait]
 impl OperationLogRepository for SqliteOperationLogRepository {
-    async fn create(&self, username: &str, action: &str, target: Option<&str>, ip: Option<&str>) -> Result<OperationLog, AppError> {
+    async fn create(
+        &self,
+        username: &str,
+        action: &str,
+        target: Option<&str>,
+        ip: Option<&str>,
+    ) -> Result<OperationLog, AppError> {
         let result = sqlx::query(
             "INSERT INTO operation_logs (username, action, target, ip, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
         )
@@ -1050,7 +1062,13 @@ impl SqliteLogRepository {
 
 #[async_trait]
 impl LogRepository for SqliteLogRepository {
-    async fn create(&self, source: &str, level: &str, message: &str, metadata: Option<&str>) -> Result<LogEntry, AppError> {
+    async fn create(
+        &self,
+        source: &str,
+        level: &str,
+        message: &str,
+        metadata: Option<&str>,
+    ) -> Result<LogEntry, AppError> {
         let result = sqlx::query(
             "INSERT INTO logs (source, level, message, metadata, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
         )
@@ -1222,12 +1240,14 @@ impl FirewallRepository for SqliteFirewallRepository {
     async fn reorder(&self, ids: &[i64]) -> Result<(), AppError> {
         let mut priority = 10i32;
         for id in ids {
-            sqlx::query("UPDATE firewall_rules SET priority=?, updated_at=datetime('now') WHERE id=?")
-                .bind(priority)
-                .bind(id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+            sqlx::query(
+                "UPDATE firewall_rules SET priority=?, updated_at=datetime('now') WHERE id=?",
+            )
+            .bind(priority)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
             priority += 10;
         }
         Ok(())

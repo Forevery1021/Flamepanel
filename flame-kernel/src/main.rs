@@ -1,6 +1,6 @@
 use flame_kernel::config::AppConfig;
-use flame_kernel::FlameKernel;
 use flame_kernel::infrastructure::factory::RepoFactory;
+use flame_kernel::FlameKernel;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

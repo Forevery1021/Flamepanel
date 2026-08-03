@@ -1,10 +1,9 @@
-use lettre::{
-    Message,
-    transport::smtp::authentication::Credentials,
-    AsyncSmtpTransport, AsyncTransport, Tokio1Executor,
-};
-use lettre::message::header::ContentType;
 use crate::core::error::AppError;
+use lettre::message::header::ContentType;
+use lettre::{
+    transport::smtp::authentication::Credentials, AsyncSmtpTransport, AsyncTransport, Message,
+    Tokio1Executor,
+};
 
 #[derive(Debug, Clone)]
 pub struct SmtpConfig {
@@ -19,9 +18,12 @@ pub struct SmtpConfig {
 impl Default for SmtpConfig {
     fn default() -> Self {
         Self {
-            host: "localhost".into(), port: 25,
-            username: String::new(), password: String::new(),
-            from: "noreply@flamepanel.local".into(), use_tls: false,
+            host: "localhost".into(),
+            port: 25,
+            username: String::new(),
+            password: String::new(),
+            from: "noreply@flamepanel.local".into(),
+            use_tls: false,
         }
     }
 }
@@ -37,8 +39,15 @@ impl EmailNotifier {
 
     pub async fn send(&self, to: &str, subject: &str, body: &str) -> Result<(), AppError> {
         let email = Message::builder()
-            .from(self.config.from.parse().map_err(|e| AppError::internal(format!("Invalid from: {}", e)))?)
-            .to(to.parse().map_err(|e| AppError::internal(format!("Invalid to: {}", e)))?)
+            .from(
+                self.config
+                    .from
+                    .parse()
+                    .map_err(|e| AppError::internal(format!("Invalid from: {}", e)))?,
+            )
+            .to(to
+                .parse()
+                .map_err(|e| AppError::internal(format!("Invalid to: {}", e)))?)
             .subject(subject)
             .header(ContentType::TEXT_PLAIN)
             .body(body.to_string())
@@ -51,7 +60,10 @@ impl EmailNotifier {
             .credentials(creds)
             .build();
 
-        mailer.send(email).await.map_err(|e| AppError::internal(format!("Send email: {}", e)))?;
+        mailer
+            .send(email)
+            .await
+            .map_err(|e| AppError::internal(format!("Send email: {}", e)))?;
         Ok(())
     }
 }

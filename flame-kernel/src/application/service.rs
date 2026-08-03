@@ -1,23 +1,41 @@
+use crate::api::types::{paginate_slice, PaginatedResponse, PaginationParams};
+use crate::core::error::AppError;
+use crate::database::{mysql::MySqlManager, redis::RedisManager, NativeDbManager};
 use crate::domain::entity::*;
 use crate::domain::repository::*;
-use crate::core::error::AppError;
-use crate::webserver::{WebServerEngine, WebServerManager, get_config_generator};
-use crate::database::{NativeDbManager, mysql::MySqlManager, redis::RedisManager};
-use crate::api::types::{PaginatedResponse, PaginationParams, paginate_slice};
-use std::sync::Arc;
+use crate::event::EventBus;
+use crate::webserver::{get_config_generator, WebServerEngine, WebServerManager};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct UserService {
     pub user_repo: Arc<dyn UserRepository>,
+    pub event_bus: EventBus,
 }
 
 impl UserService {
-    pub fn new(user_repo: Arc<dyn UserRepository>) -> Self {
-        Self { user_repo }
+    pub fn new(user_repo: Arc<dyn UserRepository>, event_bus: EventBus) -> Self {
+        Self {
+            user_repo,
+            event_bus,
+        }
     }
 
-    pub async fn create_user(&self, username: &str, password_hash: &str, role: &str) -> Result<User, AppError> {
-        self.user_repo.create(username, password_hash, role).await
+    pub async fn create_user(
+        &self,
+        username: &str,
+        password_hash: &str,
+        role: &str,
+    ) -> Result<User, AppError> {
+        let user = self.user_repo.create(username, password_hash, role).await?;
+        let _ = self
+            .event_bus
+            .publish(DomainEvent::UserCreated {
+                user_id: user.id,
+                username: username.to_string(),
+            })
+            .await;
+        Ok(user)
     }
 
     pub async fn find_by_id(&self, id: i64) -> Result<Option<User>, AppError> {
@@ -36,7 +54,10 @@ impl UserService {
         self.user_repo.list().await
     }
 
-    pub async fn list_users_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<User>, AppError> {
+    pub async fn list_users_paginated(
+        &self,
+        params: &PaginationParams,
+    ) -> Result<PaginatedResponse<User>, AppError> {
         let users = self.user_repo.list().await?;
         let total = users.len() as i64;
         let data = paginate_slice(&users, params);
@@ -44,18 +65,24 @@ impl UserService {
     }
 
     pub async fn get_user(&self, id: i64) -> Result<User, AppError> {
-        self.user_repo.find_by_id(id).await?
+        self.user_repo
+            .find_by_id(id)
+            .await?
             .ok_or_else(|| AppError::NotFound(format!("User {} not found", id)))
     }
 
     pub async fn update_user(&self, user: &User) -> Result<(), AppError> {
-        self.user_repo.find_by_id(user.id).await?
+        self.user_repo
+            .find_by_id(user.id)
+            .await?
             .ok_or_else(|| AppError::NotFound(format!("User {} not found", user.id)))?;
         self.user_repo.update(user).await
     }
 
     pub async fn delete_user(&self, id: i64) -> Result<(), AppError> {
-        self.user_repo.find_by_id(id).await?
+        self.user_repo
+            .find_by_id(id)
+            .await?
             .ok_or_else(|| AppError::NotFound(format!("User {} not found", id)))?;
         self.user_repo.delete(id).await
     }
@@ -63,22 +90,37 @@ impl UserService {
 
 pub struct NodeService {
     pub node_repo: Arc<dyn NodeRepository>,
+    pub event_bus: EventBus,
 }
 
 impl NodeService {
-    pub fn new(node_repo: Arc<dyn NodeRepository>) -> Self {
-        Self { node_repo }
+    pub fn new(node_repo: Arc<dyn NodeRepository>, event_bus: EventBus) -> Self {
+        Self {
+            node_repo,
+            event_bus,
+        }
     }
 
     pub async fn register_node(&self, node: &ServerNode) -> Result<i64, AppError> {
-        self.node_repo.create(node).await
+        let id = self.node_repo.create(node).await?;
+        let _ = self
+            .event_bus
+            .publish(DomainEvent::NodeRegistered {
+                node_id: id,
+                node_name: node.name.clone(),
+            })
+            .await;
+        Ok(id)
     }
 
     pub async fn list_nodes(&self) -> Result<Vec<ServerNode>, AppError> {
         self.node_repo.list_all().await
     }
 
-    pub async fn list_nodes_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<ServerNode>, AppError> {
+    pub async fn list_nodes_paginated(
+        &self,
+        params: &PaginationParams,
+    ) -> Result<PaginatedResponse<ServerNode>, AppError> {
         let nodes = self.node_repo.list_all().await?;
         let total = nodes.len() as i64;
         let data = paginate_slice(&nodes, params);
@@ -86,18 +128,24 @@ impl NodeService {
     }
 
     pub async fn get_node(&self, id: i64) -> Result<ServerNode, AppError> {
-        self.node_repo.find_by_id(id).await?
+        self.node_repo
+            .find_by_id(id)
+            .await?
             .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))
     }
 
     pub async fn update_node(&self, node: &ServerNode) -> Result<(), AppError> {
-        self.node_repo.find_by_id(node.id).await?
+        self.node_repo
+            .find_by_id(node.id)
+            .await?
             .ok_or_else(|| AppError::NotFound(format!("Node {} not found", node.id)))?;
         self.node_repo.update(node).await
     }
 
     pub async fn delete_node(&self, id: i64) -> Result<(), AppError> {
-        self.node_repo.find_by_id(id).await?
+        self.node_repo
+            .find_by_id(id)
+            .await?
             .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
         self.node_repo.delete(id).await
     }
@@ -105,22 +153,37 @@ impl NodeService {
 
 pub struct WebsiteService {
     pub website_repo: Arc<dyn WebsiteRepository>,
+    pub event_bus: EventBus,
 }
 
 impl WebsiteService {
-    pub fn new(website_repo: Arc<dyn WebsiteRepository>) -> Self {
-        Self { website_repo }
+    pub fn new(website_repo: Arc<dyn WebsiteRepository>, event_bus: EventBus) -> Self {
+        Self {
+            website_repo,
+            event_bus,
+        }
     }
 
     pub async fn create_website(&self, website: &Website) -> Result<i64, AppError> {
-        self.website_repo.create(website).await
+        let id = self.website_repo.create(website).await?;
+        let _ = self
+            .event_bus
+            .publish(DomainEvent::WebsiteCreated {
+                website_id: id,
+                domain: website.domain.clone(),
+            })
+            .await;
+        Ok(id)
     }
 
     pub async fn list_websites(&self) -> Result<Vec<Website>, AppError> {
         self.website_repo.list_all().await
     }
 
-    pub async fn list_websites_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<Website>, AppError> {
+    pub async fn list_websites_paginated(
+        &self,
+        params: &PaginationParams,
+    ) -> Result<PaginatedResponse<Website>, AppError> {
         let websites = self.website_repo.list_all().await?;
         let total = websites.len() as i64;
         let data = paginate_slice(&websites, params);
@@ -128,7 +191,9 @@ impl WebsiteService {
     }
 
     pub async fn get_website(&self, id: i64) -> Result<Website, AppError> {
-        self.website_repo.find_by_id(id).await?
+        self.website_repo
+            .find_by_id(id)
+            .await?
             .ok_or_else(|| AppError::NotFound(format!("Website {} not found", id)))
     }
 
@@ -137,13 +202,19 @@ impl WebsiteService {
     }
 
     pub async fn delete_website(&self, id: i64) -> Result<(), AppError> {
-        self.website_repo.find_by_id(id).await?
+        self.website_repo
+            .find_by_id(id)
+            .await?
             .ok_or_else(|| AppError::NotFound(format!("Website {} not found", id)))?;
         self.website_repo.delete(id).await
     }
 
     /// 切换网站 Web 服务器引擎，并重新生成站点配置
-    pub async fn switch_engine(&self, id: i64, new_engine: &WebServerEngine) -> Result<Website, AppError> {
+    pub async fn switch_engine(
+        &self,
+        id: i64,
+        new_engine: &WebServerEngine,
+    ) -> Result<Website, AppError> {
         let mut site = self.get_website(id).await?;
         let old_engine = site.engine.clone();
         if old_engine.eq_ignore_ascii_case(new_engine.as_str()) {
@@ -203,8 +274,14 @@ impl DockerService {
         self.docker_repo.remove_image(id).await
     }
 
-    pub async fn compose_deploy(&self, project_name: &str, compose_yaml: &str) -> Result<serde_json::Value, AppError> {
-        self.docker_repo.compose_deploy(project_name, compose_yaml).await
+    pub async fn compose_deploy(
+        &self,
+        project_name: &str,
+        compose_yaml: &str,
+    ) -> Result<serde_json::Value, AppError> {
+        self.docker_repo
+            .compose_deploy(project_name, compose_yaml)
+            .await
     }
 
     pub async fn compose_up(&self, project_name: &str) -> Result<(), AppError> {
@@ -222,8 +299,14 @@ pub struct RoleService {
 }
 
 impl RoleService {
-    pub fn new(role_repo: Arc<dyn RoleRepository>, perm_repo: Arc<dyn PermissionRepository>) -> Self {
-        Self { role_repo, perm_repo }
+    pub fn new(
+        role_repo: Arc<dyn RoleRepository>,
+        perm_repo: Arc<dyn PermissionRepository>,
+    ) -> Self {
+        Self {
+            role_repo,
+            perm_repo,
+        }
     }
 
     pub async fn list_roles(&self) -> Result<Vec<Role>, AppError> {
@@ -246,16 +329,30 @@ impl RoleService {
         self.role_repo.get_role_permissions(role_id).await
     }
 
-    pub async fn set_role_permissions(&self, role_id: i64, permission_ids: &[i64]) -> Result<(), AppError> {
-        self.role_repo.set_role_permissions(role_id, permission_ids).await
+    pub async fn set_role_permissions(
+        &self,
+        role_id: i64,
+        permission_ids: &[i64],
+    ) -> Result<(), AppError> {
+        self.role_repo
+            .set_role_permissions(role_id, permission_ids)
+            .await
     }
 
-    pub async fn check_permission(&self, user_role: &str, resource: &str, action: &str) -> Result<bool, AppError> {
+    pub async fn check_permission(
+        &self,
+        user_role: &str,
+        resource: &str,
+        action: &str,
+    ) -> Result<bool, AppError> {
         let role = self.role_repo.find_by_name(user_role).await?;
         match role {
             Some(r) => {
                 let pids = self.role_repo.get_role_permissions(r.id).await?;
-                let perm = self.perm_repo.find_by_resource_action(resource, action).await?;
+                let perm = self
+                    .perm_repo
+                    .find_by_resource_action(resource, action)
+                    .await?;
                 match perm {
                     Some(p) => Ok(pids.contains(&p.id)),
                     None => Ok(false),
@@ -297,7 +394,10 @@ impl WebServerService {
         self.server_repo.list_all().await
     }
 
-    pub async fn list_servers_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<WebServerInstance>, AppError> {
+    pub async fn list_servers_paginated(
+        &self,
+        params: &PaginationParams,
+    ) -> Result<PaginatedResponse<WebServerInstance>, AppError> {
         let servers = self.server_repo.list_all().await?;
         let total = servers.len() as i64;
         let data = paginate_slice(&servers, params);
@@ -305,7 +405,9 @@ impl WebServerService {
     }
 
     pub async fn get_server(&self, id: i64) -> Result<WebServerInstance, AppError> {
-        self.server_repo.find_by_id(id).await?
+        self.server_repo
+            .find_by_id(id)
+            .await?
             .ok_or_else(|| AppError::NotFound(format!("Web server {} not found", id)))
     }
 
@@ -351,41 +453,75 @@ impl WebServerService {
         self.manager.check_status(&instance).await
     }
 
-    pub fn generate_site_config(&self, site: &Website, engine: &WebServerEngine,
-        ssl_cert: Option<&str>, ssl_key: Option<&str>) -> String {
+    pub fn generate_site_config(
+        &self,
+        site: &Website,
+        engine: &WebServerEngine,
+        ssl_cert: Option<&str>,
+        ssl_key: Option<&str>,
+    ) -> String {
         let generator = get_config_generator(engine);
         generator.generate_site_config(site, ssl_cert, ssl_key)
     }
 
-    pub fn generate_global_config(&self, engine: &WebServerEngine, port: u16, workers: u32) -> String {
+    pub fn generate_global_config(
+        &self,
+        engine: &WebServerEngine,
+        port: u16,
+        workers: u32,
+    ) -> String {
         let generator = get_config_generator(engine);
         generator.generate_global_config(port, workers)
     }
 
-    pub fn generate_reverse_proxy_config(&self, engine: &WebServerEngine,
-        domain: &str, proxy_pass: &str, port: u16) -> String {
+    pub fn generate_reverse_proxy_config(
+        &self,
+        engine: &WebServerEngine,
+        domain: &str,
+        proxy_pass: &str,
+        port: u16,
+    ) -> String {
         let generator = get_config_generator(engine);
         generator.generate_reverse_proxy_config(domain, proxy_pass, port)
     }
 
-    pub async fn write_site_config(&self, engine: &WebServerEngine, site: &Website,
-        ssl_cert: Option<&str>, ssl_key: Option<&str>) -> Result<(), AppError> {
+    pub async fn write_site_config(
+        &self,
+        engine: &WebServerEngine,
+        site: &Website,
+        ssl_cert: Option<&str>,
+        ssl_key: Option<&str>,
+    ) -> Result<(), AppError> {
         let config = self.generate_site_config(site, engine, ssl_cert, ssl_key);
         let config_path = format!("{}/{}", engine.sites_available_dir(), site.domain);
         self.manager.write_config_file(&config_path, &config).await
     }
 
-    pub async fn enable_site(&self, engine: &WebServerEngine, site: &Website) -> Result<(), AppError> {
+    pub async fn enable_site(
+        &self,
+        engine: &WebServerEngine,
+        site: &Website,
+    ) -> Result<(), AppError> {
         let config = self.generate_site_config(site, engine, None, None);
-        self.manager.enable_site(engine, &site.domain, &config).await
+        self.manager
+            .enable_site(engine, &site.domain, &config)
+            .await
     }
 
-    pub async fn disable_site(&self, engine: &WebServerEngine, site: &Website) -> Result<(), AppError> {
+    pub async fn disable_site(
+        &self,
+        engine: &WebServerEngine,
+        site: &Website,
+    ) -> Result<(), AppError> {
         self.manager.disable_site(engine, &site.domain).await
     }
 
     /// 切换 Web 服务器实例引擎：更新实例信息并重新生成全局配置
-    pub async fn switch_engine(&self, id: i64, new_engine: &WebServerEngine) -> Result<WebServerInstance, AppError> {
+    pub async fn switch_engine(
+        &self,
+        id: i64,
+        new_engine: &WebServerEngine,
+    ) -> Result<WebServerInstance, AppError> {
         let instance = self.get_server(id).await?;
         let new = WebServerInstance {
             id: instance.id,
@@ -402,12 +538,22 @@ impl WebServerService {
     }
 
     /// 应用性能预设：根据引擎生成全局配置并写入
-    pub async fn apply_preset(&self, id: i64, preset: &crate::webserver::preset::PerformancePreset) -> Result<WebServerInstance, AppError> {
+    pub async fn apply_preset(
+        &self,
+        id: i64,
+        preset: &crate::webserver::preset::PerformancePreset,
+    ) -> Result<WebServerInstance, AppError> {
         let instance = self.get_server(id).await?;
-        let engine = WebServerEngine::from_str(&instance.engine)
+        let engine = WebServerEngine::from_name(&instance.engine)
             .ok_or_else(|| AppError::BadRequest(format!("Unknown engine: {}", instance.engine)))?;
-        let config = self.generate_global_config(&engine, instance.port as u16, preset.worker_processes(&instance.engine));
-        self.manager.write_config_file(&instance.config_path, &config).await?;
+        let config = self.generate_global_config(
+            &engine,
+            instance.port as u16,
+            preset.worker_processes(&instance.engine),
+        );
+        self.manager
+            .write_config_file(&instance.config_path, &config)
+            .await?;
         Ok(instance)
     }
 }
@@ -425,7 +571,10 @@ impl SettingsService {
         self.repo.list_all().await
     }
 
-    pub async fn list_all_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<PanelSetting>, AppError> {
+    pub async fn list_all_paginated(
+        &self,
+        params: &PaginationParams,
+    ) -> Result<PaginatedResponse<PanelSetting>, AppError> {
         let settings = self.repo.list_all().await?;
         let total = settings.len() as i64;
         let data = paginate_slice(&settings, params);
@@ -464,7 +613,10 @@ impl DatabaseService {
         self.repo.list_all().await
     }
 
-    pub async fn list_instances_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<DatabaseInstance>, AppError> {
+    pub async fn list_instances_paginated(
+        &self,
+        params: &PaginationParams,
+    ) -> Result<PaginatedResponse<DatabaseInstance>, AppError> {
         let instances = self.repo.list_all().await?;
         let total = instances.len() as i64;
         let data = paginate_slice(&instances, params);
@@ -472,7 +624,9 @@ impl DatabaseService {
     }
 
     pub async fn get_instance(&self, id: i64) -> Result<DatabaseInstance, AppError> {
-        self.repo.find_by_id(id).await?
+        self.repo
+            .find_by_id(id)
+            .await?
             .ok_or_else(|| AppError::NotFound(format!("Database instance {} not found", id)))
     }
 
@@ -480,10 +634,20 @@ impl DatabaseService {
         self.repo.delete(id).await
     }
 
-    pub async fn install_mysql(&self, version: Option<&str>, port: i32, password: &str, name: &str) -> Result<DatabaseInstance, AppError> {
+    pub async fn install_mysql(
+        &self,
+        version: Option<&str>,
+        port: i32,
+        password: &str,
+        name: &str,
+    ) -> Result<DatabaseInstance, AppError> {
         let db_type = DatabaseType::Mysql;
         self.mysql_manager.install(version, port, password).await?;
-        let ver = self.mysql_manager.get_version().await.unwrap_or_else(|_| "latest".into());
+        let ver = self
+            .mysql_manager
+            .get_version()
+            .await
+            .unwrap_or_else(|_| "latest".into());
         let instance = DatabaseInstance {
             id: 0,
             db_type: db_type.as_str().into(),
@@ -499,12 +663,27 @@ impl DatabaseService {
             updated_at: chrono::Utc::now(),
         };
         let id = self.repo.create(&instance).await?;
-        self.repo.find_by_id(id).await?.ok_or_else(|| AppError::internal("Failed to create database instance"))
+        self.repo
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| AppError::internal("Failed to create database instance"))
     }
 
-    pub async fn install_redis(&self, version: Option<&str>, port: i32, password: Option<&str>, name: &str) -> Result<DatabaseInstance, AppError> {
-        self.redis_manager.install(version, port, password.unwrap_or("")).await?;
-        let ver = self.redis_manager.get_version().await.unwrap_or_else(|_| "latest".into());
+    pub async fn install_redis(
+        &self,
+        version: Option<&str>,
+        port: i32,
+        password: Option<&str>,
+        name: &str,
+    ) -> Result<DatabaseInstance, AppError> {
+        self.redis_manager
+            .install(version, port, password.unwrap_or(""))
+            .await?;
+        let ver = self
+            .redis_manager
+            .get_version()
+            .await
+            .unwrap_or_else(|_| "latest".into());
         let instance = DatabaseInstance {
             id: 0,
             db_type: "redis".into(),
@@ -520,7 +699,10 @@ impl DatabaseService {
             updated_at: chrono::Utc::now(),
         };
         let id = self.repo.create(&instance).await?;
-        self.repo.find_by_id(id).await?.ok_or_else(|| AppError::internal("Failed to create database instance"))
+        self.repo
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| AppError::internal("Failed to create database instance"))
     }
 
     pub async fn start(&self, id: i64) -> Result<(), AppError> {
@@ -528,7 +710,10 @@ impl DatabaseService {
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.start().await,
             "redis" => self.redis_manager.start().await,
-            t => Err(AppError::BadRequest(format!("Unknown database type: {}", t))),
+            t => Err(AppError::BadRequest(format!(
+                "Unknown database type: {}",
+                t
+            ))),
         }?;
         self.repo.update_status(id, "running").await
     }
@@ -538,7 +723,10 @@ impl DatabaseService {
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.stop().await,
             "redis" => self.redis_manager.stop().await,
-            t => Err(AppError::BadRequest(format!("Unknown database type: {}", t))),
+            t => Err(AppError::BadRequest(format!(
+                "Unknown database type: {}",
+                t
+            ))),
         }?;
         self.repo.update_status(id, "stopped").await
     }
@@ -548,7 +736,10 @@ impl DatabaseService {
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.restart().await,
             "redis" => self.redis_manager.restart().await,
-            t => Err(AppError::BadRequest(format!("Unknown database type: {}", t))),
+            t => Err(AppError::BadRequest(format!(
+                "Unknown database type: {}",
+                t
+            ))),
         }
     }
 
@@ -556,20 +747,39 @@ impl DatabaseService {
         let inst = self.get_instance(id).await?;
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => {
-                if self.mysql_manager.is_running().await? { Ok("running".into()) } else { Ok("stopped".into()) }
+                if self.mysql_manager.is_running().await? {
+                    Ok("running".into())
+                } else {
+                    Ok("stopped".into())
+                }
             }
             "redis" => {
-                if self.redis_manager.is_running().await? { Ok("running".into()) } else { Ok("stopped".into()) }
+                if self.redis_manager.is_running().await? {
+                    Ok("running".into())
+                } else {
+                    Ok("stopped".into())
+                }
             }
-            t => Err(AppError::BadRequest(format!("Unknown database type: {}", t))),
+            t => Err(AppError::BadRequest(format!(
+                "Unknown database type: {}",
+                t
+            ))),
         }
     }
 
-    pub async fn create_database(&self, instance_id: i64, db_name: &str, charset: &str) -> Result<(), AppError> {
+    pub async fn create_database(
+        &self,
+        instance_id: i64,
+        db_name: &str,
+        charset: &str,
+    ) -> Result<(), AppError> {
         let inst = self.get_instance(instance_id).await?;
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.create_database(db_name, charset).await,
-            t => Err(AppError::BadRequest(format!("Database creation not supported for: {}", t))),
+            t => Err(AppError::BadRequest(format!(
+                "Database creation not supported for: {}",
+                t
+            ))),
         }
     }
 
@@ -577,7 +787,10 @@ impl DatabaseService {
         let inst = self.get_instance(instance_id).await?;
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.drop_database(db_name).await,
-            t => Err(AppError::BadRequest(format!("Database drop not supported for: {}", t))),
+            t => Err(AppError::BadRequest(format!(
+                "Database drop not supported for: {}",
+                t
+            ))),
         }
     }
 
@@ -585,16 +798,32 @@ impl DatabaseService {
         let inst = self.get_instance(instance_id).await?;
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.list_databases().await,
-            t => Err(AppError::BadRequest(format!("Database listing not supported for: {}", t))),
+            t => Err(AppError::BadRequest(format!(
+                "Database listing not supported for: {}",
+                t
+            ))),
         }
     }
 
-    pub async fn create_user(&self, instance_id: i64, username: &str, password: &str, host: &str) -> Result<(), AppError> {
+    pub async fn create_user(
+        &self,
+        instance_id: i64,
+        username: &str,
+        password: &str,
+        host: &str,
+    ) -> Result<(), AppError> {
         let _inst = self.get_instance(instance_id).await?;
-        self.mysql_manager.create_user(username, password, host).await
+        self.mysql_manager
+            .create_user(username, password, host)
+            .await
     }
 
-    pub async fn drop_user(&self, instance_id: i64, username: &str, host: &str) -> Result<(), AppError> {
+    pub async fn drop_user(
+        &self,
+        instance_id: i64,
+        username: &str,
+        host: &str,
+    ) -> Result<(), AppError> {
         let _inst = self.get_instance(instance_id).await?;
         self.mysql_manager.drop_user(username, host).await
     }
@@ -604,7 +833,10 @@ impl DatabaseService {
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.uninstall().await,
             "redis" => self.redis_manager.uninstall().await,
-            t => Err(AppError::BadRequest(format!("Unknown database type: {}", t))),
+            t => Err(AppError::BadRequest(format!(
+                "Unknown database type: {}",
+                t
+            ))),
         }?;
         self.repo.delete(id).await
     }
@@ -619,7 +851,13 @@ impl OperationLogService {
         Self { log_repo }
     }
 
-    pub async fn log(&self, username: &str, action: &str, target: Option<&str>, ip: Option<&str>) -> Result<OperationLog, AppError> {
+    pub async fn log(
+        &self,
+        username: &str,
+        action: &str,
+        target: Option<&str>,
+        ip: Option<&str>,
+    ) -> Result<OperationLog, AppError> {
         self.log_repo.create(username, action, target, ip).await
     }
 
@@ -627,7 +865,10 @@ impl OperationLogService {
         self.log_repo.list().await
     }
 
-    pub async fn list_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<OperationLog>, AppError> {
+    pub async fn list_paginated(
+        &self,
+        params: &PaginationParams,
+    ) -> Result<PaginatedResponse<OperationLog>, AppError> {
         let logs = self.log_repo.list().await?;
         let total = logs.len() as i64;
         let data = paginate_slice(&logs, params);
@@ -656,7 +897,13 @@ impl LogService {
         Self { log_repo }
     }
 
-    pub async fn log(&self, source: &str, level: &str, message: &str, metadata: Option<&str>) -> Result<LogEntry, AppError> {
+    pub async fn log(
+        &self,
+        source: &str,
+        level: &str,
+        message: &str,
+        metadata: Option<&str>,
+    ) -> Result<LogEntry, AppError> {
         self.log_repo.create(source, level, message, metadata).await
     }
 
@@ -664,7 +911,10 @@ impl LogService {
         self.log_repo.list().await
     }
 
-    pub async fn list_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<LogEntry>, AppError> {
+    pub async fn list_paginated(
+        &self,
+        params: &PaginationParams,
+    ) -> Result<PaginatedResponse<LogEntry>, AppError> {
         let logs = self.log_repo.list().await?;
         let total = logs.len() as i64;
         let data = paginate_slice(&logs, params);
@@ -737,7 +987,11 @@ impl FirewallManager {
                     .await
                     .map_err(|e| AppError::internal(format!("firewall-cmd state failed: {}", e)))?;
                 let running = out.status.success();
-                Ok(if running { "running".into() } else { "stopped".into() })
+                Ok(if running {
+                    "running".into()
+                } else {
+                    "stopped".into()
+                })
             }
             FirewallBackend::Iptables => {
                 let out = tokio::process::Command::new("iptables")
@@ -798,7 +1052,11 @@ impl FirewallManager {
                     "deny" | "reject" => "remove",
                     _ => "add",
                 };
-                let proto = if rule.protocol == "any" { "tcp" } else { &rule.protocol };
+                let proto = if rule.protocol == "any" {
+                    "tcp"
+                } else {
+                    &rule.protocol
+                };
                 if let Some(ref src) = rule.source {
                     if src != "0.0.0.0/0" && src != "any" {
                         let rich = format!("rule family=\"ipv4\" source address=\"{}\" port port=\"{}\" protocol=\"{}\" {}", 
@@ -807,7 +1065,9 @@ impl FirewallManager {
                             .args(["--permanent", &format!("--add-rich-rule={}", rich)])
                             .output()
                             .await
-                            .map_err(|e| AppError::internal(format!("firewalld rich rule failed: {}", e)))?;
+                            .map_err(|e| {
+                                AppError::internal(format!("firewalld rich rule failed: {}", e))
+                            })?;
                         if !out.status.success() {
                             let stderr = String::from_utf8_lossy(&out.stderr);
                             return Err(AppError::internal(format!("firewalld error: {}", stderr)));
@@ -816,22 +1076,39 @@ impl FirewallManager {
                             .arg("--reload")
                             .output()
                             .await
-                            .map_err(|e| AppError::internal(format!("firewalld reload failed: {}", e)))?;
+                            .map_err(|e| {
+                                AppError::internal(format!("firewalld reload failed: {}", e))
+                            })?;
                         return Ok(());
                     }
                 }
                 let out = tokio::process::Command::new("firewall-cmd")
-                    .args(&["--permanent", &format!("--{}-port={}/{}", action, rule.port.as_deref().unwrap_or(""), proto)])
+                    .args([
+                        "--permanent",
+                        &format!(
+                            "--{}-port={}/{}",
+                            action,
+                            rule.port.as_deref().unwrap_or(""),
+                            proto
+                        ),
+                    ])
                     .output()
                     .await
-                    .map_err(|e| AppError::internal(format!("firewalld port rule failed: {}", e)))?;
+                    .map_err(|e| {
+                        AppError::internal(format!("firewalld port rule failed: {}", e))
+                    })?;
                 if !out.status.success() {
                     // Try without protocol
                     let out2 = tokio::process::Command::new("firewall-cmd")
-                        .args(&["--permanent", &format!("--{}-port={}", action, rule.port.as_deref().unwrap_or(""))])
+                        .args([
+                            "--permanent",
+                            &format!("--{}-port={}", action, rule.port.as_deref().unwrap_or("")),
+                        ])
                         .output()
                         .await
-                        .map_err(|e| AppError::internal(format!("firewalld port rule failed: {}", e)))?;
+                        .map_err(|e| {
+                            AppError::internal(format!("firewalld port rule failed: {}", e))
+                        })?;
                     if !out2.status.success() {
                         let stderr = String::from_utf8_lossy(&out2.stderr);
                         return Err(AppError::internal(format!("firewalld error: {}", stderr)));
@@ -845,7 +1122,11 @@ impl FirewallManager {
                 Ok(())
             }
             FirewallBackend::Iptables => {
-                let chain = if rule.direction == "in" { "INPUT" } else { "OUTPUT" };
+                let chain = if rule.direction == "in" {
+                    "INPUT"
+                } else {
+                    "OUTPUT"
+                };
                 let action = match rule.action.as_str() {
                     "allow" => "ACCEPT",
                     "deny" => "DROP",
@@ -878,7 +1159,7 @@ impl FirewallManager {
                 args.push(action.into());
 
                 let out = tokio::process::Command::new("iptables")
-                    .args(&args.clone())
+                    .args(args.clone())
                     .output()
                     .await
                     .map_err(|e| AppError::internal(format!("iptables failed: {}", e)))?;
@@ -915,13 +1196,26 @@ impl FirewallManager {
                     "deny" | "reject" => "add",
                     _ => "remove",
                 };
-                let proto = if rule.protocol == "any" { "tcp" } else { &rule.protocol };
+                let proto = if rule.protocol == "any" {
+                    "tcp"
+                } else {
+                    &rule.protocol
+                };
                 let out = tokio::process::Command::new("firewall-cmd")
-                    .args(&["--permanent", &format!("--{}-port={}/{}", action, 
-                        rule.port.as_deref().unwrap_or(""), proto)])
+                    .args([
+                        "--permanent",
+                        &format!(
+                            "--{}-port={}/{}",
+                            action,
+                            rule.port.as_deref().unwrap_or(""),
+                            proto
+                        ),
+                    ])
                     .output()
                     .await
-                    .map_err(|e| AppError::internal(format!("firewalld remove port failed: {}", e)))?;
+                    .map_err(|e| {
+                        AppError::internal(format!("firewalld remove port failed: {}", e))
+                    })?;
                 tokio::process::Command::new("firewall-cmd")
                     .arg("--reload")
                     .output()
@@ -934,7 +1228,11 @@ impl FirewallManager {
                 Ok(())
             }
             FirewallBackend::Iptables => {
-                let chain = if rule.direction == "in" { "INPUT" } else { "OUTPUT" };
+                let chain = if rule.direction == "in" {
+                    "INPUT"
+                } else {
+                    "OUTPUT"
+                };
                 let mut args = vec!["iptables".to_string(), "-D".into(), chain.into()];
                 if let Some(ref src) = rule.source {
                     if src != "0.0.0.0/0" && src != "any" {
@@ -1046,7 +1344,10 @@ impl FirewallService {
         self.firewall_repo.list_all().await
     }
 
-    pub async fn list_rules_paginated(&self, params: &PaginationParams) -> Result<PaginatedResponse<FirewallRule>, AppError> {
+    pub async fn list_rules_paginated(
+        &self,
+        params: &PaginationParams,
+    ) -> Result<PaginatedResponse<FirewallRule>, AppError> {
         let rules = self.firewall_repo.list_all().await?;
         let total = rules.len() as i64;
         let data = paginate_slice(&rules, params);
@@ -1054,7 +1355,9 @@ impl FirewallService {
     }
 
     pub async fn get_rule(&self, id: i64) -> Result<FirewallRule, AppError> {
-        self.firewall_repo.find_by_id(id).await?
+        self.firewall_repo
+            .find_by_id(id)
+            .await?
             .ok_or_else(|| AppError::NotFound("Firewall rule not found".into()))
     }
 
@@ -1070,7 +1373,10 @@ impl FirewallService {
 
     pub async fn update_rule(&self, rule: FirewallRule) -> Result<FirewallRule, AppError> {
         // Get old rule to remove OS rule if changed
-        let old = self.firewall_repo.find_by_id(rule.id).await?
+        let old = self
+            .firewall_repo
+            .find_by_id(rule.id)
+            .await?
             .ok_or_else(|| AppError::NotFound("Firewall rule not found".into()))?;
 
         self.firewall_repo.update(&rule).await?;
@@ -1091,7 +1397,10 @@ impl FirewallService {
     }
 
     pub async fn toggle_rule(&self, id: i64, enabled: bool) -> Result<FirewallRule, AppError> {
-        let rule = self.firewall_repo.find_by_id(id).await?
+        let rule = self
+            .firewall_repo
+            .find_by_id(id)
+            .await?
             .ok_or_else(|| AppError::NotFound("Firewall rule not found".into()))?;
         self.firewall_repo.update_enabled(id, enabled).await?;
         if enabled {
@@ -1099,7 +1408,9 @@ impl FirewallService {
         } else {
             FirewallManager::remove_rule(&rule).await.ok();
         }
-        self.firewall_repo.find_by_id(id).await?
+        self.firewall_repo
+            .find_by_id(id)
+            .await?
             .ok_or_else(|| AppError::NotFound("Firewall rule not found".into()))
     }
 
@@ -1118,15 +1429,22 @@ impl FirewallService {
         let mut info = HashMap::new();
         info.insert("backend".to_string(), format!("{:?}", backend));
         match FirewallManager::get_status().await {
-            Ok(s) => { info.insert("status".to_string(), s); }
-            Err(_) => { info.insert("status".to_string(), "unknown".into()); }
+            Ok(s) => {
+                info.insert("status".to_string(), s);
+            }
+            Err(_) => {
+                info.insert("status".to_string(), "unknown".into());
+            }
         }
-        info.insert("backend_name".to_string(), match backend {
-            FirewallBackend::Ufw => "ufw".into(),
-            FirewallBackend::Firewalld => "firewalld".into(),
-            FirewallBackend::Iptables => "iptables".into(),
-            FirewallBackend::Unsupported(m) => m,
-        });
+        info.insert(
+            "backend_name".to_string(),
+            match backend {
+                FirewallBackend::Ufw => "ufw".into(),
+                FirewallBackend::Firewalld => "firewalld".into(),
+                FirewallBackend::Iptables => "iptables".into(),
+                FirewallBackend::Unsupported(m) => m,
+            },
+        );
         Ok(info)
     }
 

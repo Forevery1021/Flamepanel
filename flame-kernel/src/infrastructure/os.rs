@@ -16,19 +16,30 @@ pub struct OsInfo;
 impl OsInfo {
     pub async fn detect_distro() -> DistroType {
         let output = tokio::process::Command::new("sh")
-            .args(["-c", "cat /etc/os-release 2>/dev/null || cat /etc/*release 2>/dev/null"])
+            .args([
+                "-c",
+                "cat /etc/os-release 2>/dev/null || cat /etc/*release 2>/dev/null",
+            ])
             .output()
             .await;
         match output {
             Ok(out) => {
                 let c = String::from_utf8_lossy(&out.stdout);
-                if c.contains("Ubuntu") { DistroType::Ubuntu }
-                else if c.contains("Debian") { DistroType::Debian }
-                else if c.contains("CentOS") { DistroType::CentOS }
-                else if c.contains("Red Hat") || c.contains("RHEL") { DistroType::RHEL }
-                else if c.contains("Fedora") { DistroType::Fedora }
-                else if c.contains("Alpine") { DistroType::Alpine }
-                else { DistroType::Unknown("unknown".into()) }
+                if c.contains("Ubuntu") {
+                    DistroType::Ubuntu
+                } else if c.contains("Debian") {
+                    DistroType::Debian
+                } else if c.contains("CentOS") {
+                    DistroType::CentOS
+                } else if c.contains("Red Hat") || c.contains("RHEL") {
+                    DistroType::RHEL
+                } else if c.contains("Fedora") {
+                    DistroType::Fedora
+                } else if c.contains("Alpine") {
+                    DistroType::Alpine
+                } else {
+                    DistroType::Unknown("unknown".into())
+                }
             }
             Err(_) => DistroType::Unknown("unknown".into()),
         }
@@ -64,7 +75,11 @@ impl ServiceManager {
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         if !out.status.success() {
-            return Err(AppError::internal(format!("{}: {}", args.join(" "), stderr)));
+            return Err(AppError::internal(format!(
+                "{}: {}",
+                args.join(" "),
+                stderr
+            )));
         }
         Ok(if stdout.is_empty() { stderr } else { stdout })
     }
@@ -78,7 +93,9 @@ impl ServiceManager {
     }
 
     pub async fn restart(name: &str) -> Result<(), AppError> {
-        Self::exec(&["systemctl", "restart", name]).await.map(|_| ())
+        Self::exec(&["systemctl", "restart", name])
+            .await
+            .map(|_| ())
     }
 
     pub async fn enable(name: &str) -> Result<(), AppError> {
@@ -86,7 +103,9 @@ impl ServiceManager {
     }
 
     pub async fn disable(name: &str) -> Result<(), AppError> {
-        Self::exec(&["systemctl", "disable", name]).await.map(|_| ())
+        Self::exec(&["systemctl", "disable", name])
+            .await
+            .map(|_| ())
     }
 
     pub async fn is_running(name: &str) -> Result<bool, AppError> {
@@ -121,9 +140,16 @@ impl PackageManager {
         let s = String::from_utf8_lossy(&out.stdout).to_string();
         let e = String::from_utf8_lossy(&out.stderr).to_string();
         if !out.status.success() {
-            return Err(AppError::internal(format!("Failed to install {}: {}", pkg, e)));
+            return Err(AppError::internal(format!(
+                "Failed to install {}: {}",
+                pkg, e
+            )));
         }
-        Ok(if s.len() > 200 { format!("{}... ({} chars)", &s[..200], s.len()) } else { s })
+        Ok(if s.len() > 200 {
+            format!("{}... ({} chars)", &s[..200], s.len())
+        } else {
+            s
+        })
     }
 
     pub async fn is_installed(pkg: &str) -> Result<bool, AppError> {
@@ -141,8 +167,12 @@ impl PackageManager {
     pub async fn uninstall(pkg: &str) -> Result<(), AppError> {
         let distro = OsInfo::detect_distro().await;
         let (cmd, args): (&str, Vec<String>) = match distro {
-            DistroType::Ubuntu | DistroType::Debian => ("apt-get", vec!["remove".into(), "-y".into(), pkg.into()]),
-            DistroType::CentOS | DistroType::RHEL | DistroType::Fedora => ("dnf", vec!["remove".into(), "-y".into(), pkg.into()]),
+            DistroType::Ubuntu | DistroType::Debian => {
+                ("apt-get", vec!["remove".into(), "-y".into(), pkg.into()])
+            }
+            DistroType::CentOS | DistroType::RHEL | DistroType::Fedora => {
+                ("dnf", vec!["remove".into(), "-y".into(), pkg.into()])
+            }
             DistroType::Alpine => ("apk", vec!["del".into(), pkg.into()]),
             DistroType::Unknown(_) => ("apt-get", vec!["remove".into(), "-y".into(), pkg.into()]),
         };
@@ -153,7 +183,10 @@ impl PackageManager {
             .map_err(|e| AppError::internal(format!("Package uninstall failed: {}", e)))?;
         if !out.status.success() {
             let e = String::from_utf8_lossy(&out.stderr);
-            return Err(AppError::internal(format!("Failed to uninstall {}: {}", pkg, e)));
+            return Err(AppError::internal(format!(
+                "Failed to uninstall {}: {}",
+                pkg, e
+            )));
         }
         Ok(())
     }
@@ -162,14 +195,23 @@ impl PackageManager {
         let distro = OsInfo::detect_distro().await;
         let args: Vec<&str> = match distro {
             DistroType::Ubuntu | DistroType::Debian => vec!["-l", pkg],
-            DistroType::CentOS | DistroType::RHEL | DistroType::Fedora => vec!["-q", "--queryformat", "%{VERSION}", pkg],
+            DistroType::CentOS | DistroType::RHEL | DistroType::Fedora => {
+                vec!["-q", "--queryformat", "%{VERSION}", pkg]
+            }
             DistroType::Alpine => vec!["info", pkg],
             DistroType::Unknown(_) => vec!["-l", pkg],
         };
         let out = tokio::process::Command::new(
-            if distro == DistroType::CentOS || distro == DistroType::RHEL || distro == DistroType::Fedora { "rpm" }
-            else if distro == DistroType::Alpine { "apk" }
-            else { "dpkg" }
+            if distro == DistroType::CentOS
+                || distro == DistroType::RHEL
+                || distro == DistroType::Fedora
+            {
+                "rpm"
+            } else if distro == DistroType::Alpine {
+                "apk"
+            } else {
+                "dpkg"
+            },
         )
         .args(&args)
         .output()

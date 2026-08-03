@@ -1,12 +1,17 @@
-use async_trait::async_trait;
-use crate::domain::entity::*;
 use crate::core::error::AppError;
+use crate::domain::entity::*;
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait UserRepository: Send + Sync {
     async fn find_by_id(&self, id: i64) -> Result<Option<User>, AppError>;
     async fn find_by_username(&self, username: &str) -> Result<Option<User>, AppError>;
-    async fn create(&self, username: &str, password_hash: &str, role: &str) -> Result<User, AppError>;
+    async fn create(
+        &self,
+        username: &str,
+        password_hash: &str,
+        role: &str,
+    ) -> Result<User, AppError>;
     async fn update(&self, user: &User) -> Result<(), AppError>;
     async fn list(&self) -> Result<Vec<User>, AppError>;
     async fn update_password(&self, id: i64, new_password_hash: &str) -> Result<(), AppError>;
@@ -45,14 +50,24 @@ pub trait DockerRepository: Send + Sync {
     async fn get_container_stats(&self, id: &str) -> Result<serde_json::Value, AppError>;
     async fn list_images(&self) -> Result<Vec<serde_json::Value>, AppError>;
     async fn remove_image(&self, id: &str) -> Result<(), AppError>;
-    async fn compose_deploy(&self, project_name: &str, compose_yaml: &str) -> Result<serde_json::Value, AppError>;
+    async fn compose_deploy(
+        &self,
+        project_name: &str,
+        compose_yaml: &str,
+    ) -> Result<serde_json::Value, AppError>;
     async fn compose_up(&self, project_name: &str) -> Result<(), AppError>;
     async fn compose_down(&self, project_name: &str) -> Result<(), AppError>;
 }
 
 #[async_trait]
 pub trait OperationLogRepository: Send + Sync {
-    async fn create(&self, username: &str, action: &str, target: Option<&str>, ip: Option<&str>) -> Result<OperationLog, AppError>;
+    async fn create(
+        &self,
+        username: &str,
+        action: &str,
+        target: Option<&str>,
+        ip: Option<&str>,
+    ) -> Result<OperationLog, AppError>;
     async fn list(&self) -> Result<Vec<OperationLog>, AppError>;
     async fn find_by_id(&self, id: i64) -> Result<Option<OperationLog>, AppError>;
     async fn list_by_username(&self, username: &str) -> Result<Vec<OperationLog>, AppError>;
@@ -61,7 +76,13 @@ pub trait OperationLogRepository: Send + Sync {
 
 #[async_trait]
 pub trait LogRepository: Send + Sync {
-    async fn create(&self, source: &str, level: &str, message: &str, metadata: Option<&str>) -> Result<LogEntry, AppError>;
+    async fn create(
+        &self,
+        source: &str,
+        level: &str,
+        message: &str,
+        metadata: Option<&str>,
+    ) -> Result<LogEntry, AppError>;
     async fn list(&self) -> Result<Vec<LogEntry>, AppError>;
     async fn find_by_id(&self, id: i64) -> Result<Option<LogEntry>, AppError>;
     async fn list_by_source(&self, source: &str) -> Result<Vec<LogEntry>, AppError>;
@@ -73,7 +94,11 @@ pub trait LogRepository: Send + Sync {
 pub trait PermissionRepository: Send + Sync {
     async fn list_all(&self) -> Result<Vec<Permission>, AppError>;
     async fn find_by_id(&self, id: i64) -> Result<Option<Permission>, AppError>;
-    async fn find_by_resource_action(&self, resource: &str, action: &str) -> Result<Option<Permission>, AppError>;
+    async fn find_by_resource_action(
+        &self,
+        resource: &str,
+        action: &str,
+    ) -> Result<Option<Permission>, AppError>;
     async fn create(&self, permission: &Permission) -> Result<i64, AppError>;
     async fn delete(&self, id: i64) -> Result<(), AppError>;
 }
@@ -87,7 +112,11 @@ pub trait RoleRepository: Send + Sync {
     async fn update(&self, role: &Role) -> Result<(), AppError>;
     async fn delete(&self, id: i64) -> Result<(), AppError>;
     async fn get_role_permissions(&self, role_id: i64) -> Result<Vec<i64>, AppError>;
-    async fn set_role_permissions(&self, role_id: i64, permission_ids: &[i64]) -> Result<(), AppError>;
+    async fn set_role_permissions(
+        &self,
+        role_id: i64,
+        permission_ids: &[i64],
+    ) -> Result<(), AppError>;
 }
 
 #[async_trait]

@@ -1,7 +1,7 @@
-use async_trait::async_trait;
 use crate::core::error::AppError;
 use crate::database::NativeDbManager;
-use crate::infrastructure::os::{ServiceManager, PackageManager};
+use crate::infrastructure::os::{PackageManager, ServiceManager};
+use async_trait::async_trait;
 
 pub struct MySqlManager {
     pub service_name: String,
@@ -33,14 +33,22 @@ impl MySqlManager {
 
 #[async_trait]
 impl NativeDbManager for MySqlManager {
-    async fn install(&self, version: Option<&str>, port: i32, root_password: &str) -> Result<(), AppError> {
+    async fn install(
+        &self,
+        version: Option<&str>,
+        port: i32,
+        root_password: &str,
+    ) -> Result<(), AppError> {
         let pkg = if let Some(ver) = version {
             format!("mysql-server-{}", ver)
         } else {
             "mysql-server".to_string()
         };
 
-        if PackageManager::is_installed("mysql-server").await.unwrap_or(false) {
+        if PackageManager::is_installed("mysql-server")
+            .await
+            .unwrap_or(false)
+        {
             return Err(AppError::BadRequest("MySQL is already installed".into()));
         }
 
@@ -77,9 +85,13 @@ impl NativeDbManager for MySqlManager {
         if port != 3306 {
             let port_line = format!("port = {}", port);
             tokio::process::Command::new("sh")
-                .args(["-c", &format!("echo '{}' >> {}", port_line, self.config_file)])
+                .args([
+                    "-c",
+                    &format!("echo '{}' >> {}", port_line, self.config_file),
+                ])
                 .output()
-                .await.ok();
+                .await
+                .ok();
             ServiceManager::restart("mysql").await?;
         }
 
@@ -152,8 +164,15 @@ impl NativeDbManager for MySqlManager {
 // Additional MySQL management functions
 impl MySqlManager {
     pub async fn create_database(&self, db_name: &str, charset: &str) -> Result<(), AppError> {
-        let charset = if charset.is_empty() { "utf8mb4" } else { charset };
-        let sql = format!("CREATE DATABASE IF NOT EXISTS `{}` CHARACTER SET {};", db_name, charset);
+        let charset = if charset.is_empty() {
+            "utf8mb4"
+        } else {
+            charset
+        };
+        let sql = format!(
+            "CREATE DATABASE IF NOT EXISTS `{}` CHARACTER SET {};",
+            db_name, charset
+        );
         Self::exec_mysql(&sql).await?;
         Ok(())
     }
@@ -166,15 +185,27 @@ impl MySqlManager {
 
     pub async fn list_databases(&self) -> Result<Vec<String>, AppError> {
         let out = Self::exec_mysql("SHOW DATABASES;").await?;
-        let dbs: Vec<String> = out.lines()
-            .filter(|l| !l.is_empty() && !l.contains("Database") && !l.contains("information_schema")
-                && !l.contains("performance_schema") && !l.contains("mysql") && !l.contains("sys"))
+        let dbs: Vec<String> = out
+            .lines()
+            .filter(|l| {
+                !l.is_empty()
+                    && !l.contains("Database")
+                    && !l.contains("information_schema")
+                    && !l.contains("performance_schema")
+                    && !l.contains("mysql")
+                    && !l.contains("sys")
+            })
             .map(|l| l.trim().to_string())
             .collect();
         Ok(dbs)
     }
 
-    pub async fn create_user(&self, username: &str, password: &str, host: &str) -> Result<(), AppError> {
+    pub async fn create_user(
+        &self,
+        username: &str,
+        password: &str,
+        host: &str,
+    ) -> Result<(), AppError> {
         let host = if host.is_empty() { "localhost" } else { host };
         let sql = format!(
             "CREATE USER IF NOT EXISTS '{}'@'{}' IDENTIFIED BY '{}';",
@@ -193,16 +224,32 @@ impl MySqlManager {
         Ok(())
     }
 
-    pub async fn grant_privileges(&self, username: &str, db_name: &str, host: &str) -> Result<(), AppError> {
+    pub async fn grant_privileges(
+        &self,
+        username: &str,
+        db_name: &str,
+        host: &str,
+    ) -> Result<(), AppError> {
         let host = if host.is_empty() { "localhost" } else { host };
-        let sql = format!("GRANT ALL PRIVILEGES ON `{}`.* TO '{}'@'{}'; FLUSH PRIVILEGES;", db_name, username, host);
+        let sql = format!(
+            "GRANT ALL PRIVILEGES ON `{}`.* TO '{}'@'{}'; FLUSH PRIVILEGES;",
+            db_name, username, host
+        );
         Self::exec_mysql(&sql).await?;
         Ok(())
     }
 
     pub async fn change_password(&self, new_password: &str) -> Result<(), AppError> {
-        let sql = format!("ALTER USER 'root'@'localhost' IDENTIFIED BY '{}'; FLUSH PRIVILEGES;", new_password.replace('\'', "\\'"));
+        let sql = format!(
+            "ALTER USER 'root'@'localhost' IDENTIFIED BY '{}'; FLUSH PRIVILEGES;",
+            new_password.replace('\'', "\\'")
+        );
         Self::exec_mysql(&sql).await?;
         Ok(())
+    }
+}
+impl Default for MySqlManager {
+    fn default() -> Self {
+        Self::new()
     }
 }

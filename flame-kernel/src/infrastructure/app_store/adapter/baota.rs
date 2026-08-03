@@ -1,8 +1,10 @@
-use std::path::Path;
-use serde::Deserialize;
+use super::{field_type_from_str, AppPackageAdapter};
 use crate::core::error::AppError;
-use crate::domain::entity::{AppFormat, AppMetadata, AppVersionInfo, FormField, InstallMode, SelectOption};
-use super::{AppPackageAdapter, field_type_from_str};
+use crate::domain::entity::{
+    AppFormat, AppMetadata, AppVersionInfo, FormField, InstallMode, SelectOption,
+};
+use serde::Deserialize;
+use std::path::Path;
 
 /// 宝塔（aaPanel）Docker 应用格式解析器
 ///
@@ -18,7 +20,13 @@ use super::{AppPackageAdapter, field_type_from_str};
 /// ```
 pub struct BaotaAdapter;
 
-const PORT_VARS: &[&str] = &["HOST_IP", "CPUS", "MEMORY_LIMIT", "APP_PATH", "CONTAINER_NAME"];
+const PORT_VARS: &[&str] = &[
+    "HOST_IP",
+    "CPUS",
+    "MEMORY_LIMIT",
+    "APP_PATH",
+    "CONTAINER_NAME",
+];
 
 #[derive(Debug, Deserialize)]
 struct BaotaAppJson {
@@ -49,7 +57,10 @@ impl BaotaAdapter {
     fn read_app_json(root: &Path) -> Result<BaotaAppJson, AppError> {
         let path = root.join("app.json");
         if !path.exists() {
-            return Err(AppError::BadRequest(format!("缺少 app.json: {}", root.display())));
+            return Err(AppError::BadRequest(format!(
+                "缺少 app.json: {}",
+                root.display()
+            )));
         }
         let content = std::fs::read_to_string(&path)
             .map_err(|e| AppError::BadRequest(format!("读取 app.json 失败: {}", e)))?;
@@ -65,24 +76,26 @@ impl AppPackageAdapter for BaotaAdapter {
         }
         // 与内置 Flame 格式区分：宝塔 app.json 含 appname/apptitle/apptype
         if let Ok(content) = std::fs::read_to_string(root.join("app.json")) {
-            return content.contains("appname") || content.contains("apptitle") || content.contains("apptype");
+            return content.contains("appname")
+                || content.contains("apptitle")
+                || content.contains("apptype");
         }
         false
     }
 
     fn parse_metadata(&self, root: &Path) -> Result<AppMetadata, AppError> {
         let json = Self::read_app_json(root)?;
-        let key = json
-            .appname
-            .unwrap_or_else(|| root.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string());
+        let key = json.appname.unwrap_or_else(|| {
+            root.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        });
         let versions = self.list_versions(root)?;
         let default_version = if versions.iter().any(|v| v == "latest") {
             "latest".into()
         } else {
-            versions
-                .first()
-                .cloned()
-                .unwrap_or_else(|| "latest".into())
+            versions.first().cloned().unwrap_or_else(|| "latest".into())
         };
 
         Ok(AppMetadata {
@@ -137,21 +150,28 @@ impl AppPackageAdapter for BaotaAdapter {
             let field_type = f
                 .field_type
                 .as_deref()
-                .and_then(|t| field_type_from_str(t).eq(&crate::domain::entity::FieldType::Text).then(|| {
-                    match t.to_lowercase().as_str() {
-                        "select" => crate::domain::entity::FieldType::Select,
-                        "number" => crate::domain::entity::FieldType::Number,
-                        "password" => crate::domain::entity::FieldType::Password,
-                        _ => field_type_from_str(t),
-                    }
-                }))
+                .and_then(|t| {
+                    field_type_from_str(t)
+                        .eq(&crate::domain::entity::FieldType::Text)
+                        .then(|| match t.to_lowercase().as_str() {
+                            "select" => crate::domain::entity::FieldType::Select,
+                            "number" => crate::domain::entity::FieldType::Number,
+                            "password" => crate::domain::entity::FieldType::Password,
+                            _ => field_type_from_str(t),
+                        })
+                })
                 .unwrap_or_else(|| field_type_from_str(f.field_type.as_deref().unwrap_or("text")));
 
             let options = f
                 .selects
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(|v| v.as_str().map(|s| SelectOption { label: s.to_string(), value: s.to_string() }))
+                .filter_map(|v| {
+                    v.as_str().map(|s| SelectOption {
+                        label: s.to_string(),
+                        value: s.to_string(),
+                    })
+                })
                 .collect();
 
             form_fields.push(FormField {
@@ -289,7 +309,10 @@ mod tests {
         let version = adapter.parse_version(&dir, "latest").unwrap();
         assert_eq!(version.form_fields.len(), 3);
         assert_eq!(version.form_fields[1].env_key, "PORT");
-        assert_eq!(version.form_fields[1].field_type, crate::domain::entity::FieldType::Number);
+        assert_eq!(
+            version.form_fields[1].field_type,
+            crate::domain::entity::FieldType::Number
+        );
         let compose = version.compose_template.unwrap();
         assert!(compose.contains("flamepanel-network"));
         assert!(!compose.contains("baota_net"));

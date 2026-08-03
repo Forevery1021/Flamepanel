@@ -52,14 +52,19 @@ pub fn scan_compose(compose_yaml: &str, confirmed_risky: bool) -> ScanResult {
 
     if compose_yaml.to_lowercase().contains("privileged: true") {
         result.findings.push(ScanFinding {
-            severity: if confirmed_risky { Severity::High } else { Severity::Block },
+            severity: if confirmed_risky {
+                Severity::High
+            } else {
+                Severity::Block
+            },
             message: "容器以 privileged 特权模式运行，具有宿主 root 权限".into(),
             item: "privileged: true".into(),
         });
     }
 
     for mount in SENSITIVE_MOUNTS {
-        if compose_yaml.contains(&format!("\"{}:", mount)) || compose_yaml.contains(&format!(" - {}:", mount))
+        if compose_yaml.contains(&format!("\"{}:", mount))
+            || compose_yaml.contains(&format!(" - {}:", mount))
             || compose_yaml.contains(&format!("- {}:", mount))
         {
             result.findings.push(ScanFinding {
@@ -79,19 +84,33 @@ pub fn scan_compose(compose_yaml: &str, confirmed_risky: bool) -> ScanResult {
     }
 
     // 镜像仓库检查（白名单）
-    let trusted_registries = ["docker.io", "ghcr.io", "quay.io", "registry.cn-hangzhou.aliyuncs.com"];
+    let trusted_registries = [
+        "docker.io",
+        "ghcr.io",
+        "quay.io",
+        "registry.cn-hangzhou.aliyuncs.com",
+    ];
     for line in compose_yaml.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("image:") {
-            let image = trimmed.trim_start_matches("image:").trim().trim_matches('"').trim_matches('\'');
+            let image = trimmed
+                .trim_start_matches("image:")
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'');
             let registry = image.split('/').next().unwrap_or(image);
-            if image.contains('/') && !trusted_registries.contains(&registry)
-                && !registry.contains('.') && !registry.contains(':')
+            if image.contains('/')
+                && !trusted_registries.contains(&registry)
+                && !registry.contains('.')
+                && !registry.contains(':')
             {
                 // 如 "wordpress:6.7" 不带仓库前缀，视为 docker.io
                 continue;
             }
-            if !trusted_registries.contains(&registry) && registry.contains('.') && !registry.contains(":") {
+            if !trusted_registries.contains(&registry)
+                && registry.contains('.')
+                && !registry.contains(":")
+            {
                 result.findings.push(ScanFinding {
                     severity: Severity::Low,
                     message: format!("镜像来自非白名单仓库: {}", image),
@@ -137,7 +156,11 @@ pub fn ensure_restart_policy(compose_yaml: &str) -> String {
             }
             // 找到 services 下的第一个顶层服务（缩进 2 的空格，不以空格开头的是 services: 或注释）
             let trimmed = cur.trim_start();
-            if cur_indent == 2 && !trimmed.starts_with('#') && !trimmed.starts_with('-') && !trimmed.starts_with("services:") {
+            if cur_indent == 2
+                && !trimmed.starts_with('#')
+                && !trimmed.starts_with('-')
+                && !trimmed.starts_with("services:")
+            {
                 lines.insert(i + 1, "    restart: unless-stopped");
                 inserted = true;
                 break;
@@ -210,20 +233,14 @@ mod tests {
     fn unknown_registry_flagged_low() {
         let yaml = "services:\n  app:\n    image: myregistry.example.com/myapp:1.0\n";
         let result = scan_compose(yaml, false);
-        assert!(result
-            .findings
-            .iter()
-            .any(|f| f.severity == Severity::Low));
+        assert!(result.findings.iter().any(|f| f.severity == Severity::Low));
     }
 
     #[test]
     fn missing_restart_gets_info() {
         let yaml = "services:\n  app:\n    image: nginx:alpine\n";
         let result = scan_compose(yaml, false);
-        assert!(result
-            .findings
-            .iter()
-            .any(|f| f.severity == Severity::Info));
+        assert!(result.findings.iter().any(|f| f.severity == Severity::Info));
     }
 
     #[test]

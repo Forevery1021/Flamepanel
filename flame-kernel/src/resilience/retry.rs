@@ -1,5 +1,5 @@
-use std::time::Duration;
 use crate::core::error::AppError;
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
@@ -20,10 +20,7 @@ impl Default for RetryConfig {
     }
 }
 
-pub async fn retry_with_backoff<F, Fut, T, E>(
-    config: &RetryConfig,
-    mut f: F,
-) -> Result<T, AppError>
+pub async fn retry_with_backoff<F, Fut, T, E>(config: &RetryConfig, mut f: F) -> Result<T, AppError>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, E>>,
@@ -31,7 +28,7 @@ where
 {
     let mut last_error = None;
     let mut delay = config.initial_delay;
-    
+
     for attempt in 0..=config.max_retries {
         match f().await {
             Ok(result) => {
@@ -41,7 +38,7 @@ where
                 last_error = Some(e);
             }
         }
-        
+
         if attempt < config.max_retries {
             tokio::time::sleep(delay).await;
             delay = std::cmp::min(
@@ -50,18 +47,17 @@ where
             );
         }
     }
-    
+
     Err(AppError::internal(format!(
         "Operation failed after {} retries: {}",
         config.max_retries,
-        last_error.map(|e: E| e.to_string()).unwrap_or_else(|| "Unknown error".into())
+        last_error
+            .map(|e: E| e.to_string())
+            .unwrap_or_else(|| "Unknown error".into())
     )))
 }
 
-pub async fn retry_simple<F, Fut, T, E>(
-    max_retries: u32,
-    mut f: F,
-) -> Result<T, AppError>
+pub async fn retry_simple<F, Fut, T, E>(max_retries: u32, mut f: F) -> Result<T, AppError>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, E>>,
@@ -92,13 +88,13 @@ mod tests {
     async fn test_retry_success_after_failures() {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
-        
+
         let config = RetryConfig {
             max_retries: 3,
             initial_delay: Duration::from_millis(10),
             ..Default::default()
         };
-        
+
         let result = retry_with_backoff(&config, || {
             let count = counter_clone.fetch_add(1, Ordering::SeqCst);
             async move {
@@ -108,8 +104,9 @@ mod tests {
                     Ok(42)
                 }
             }
-        }).await;
-        
+        })
+        .await;
+
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 42);
         assert_eq!(counter.load(Ordering::SeqCst), 3);
@@ -122,11 +119,12 @@ mod tests {
             initial_delay: Duration::from_millis(10),
             ..Default::default()
         };
-        
+
         let result = retry_with_backoff(&config, || async {
             Err::<i32, String>("Permanent failure".into())
-        }).await;
-        
+        })
+        .await;
+
         assert!(result.is_err());
     }
 
@@ -134,7 +132,7 @@ mod tests {
     async fn test_retry_simple() {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
-        
+
         let result = retry_simple(3, || {
             let count = counter_clone.fetch_add(1, Ordering::SeqCst);
             async move {
@@ -144,8 +142,9 @@ mod tests {
                     Ok(42)
                 }
             }
-        }).await;
-        
+        })
+        .await;
+
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 42);
     }

@@ -1,7 +1,10 @@
-use axum::{Router, routing::get};
-use crate::api::handler::{auth, user, node, website, docker, plugin, ws, operation_log, log, web_server, settings, database, file, firewall, app_store};
+use crate::api::handler::{
+    app_store, auth, database, docker, file, firewall, log, node, operation_log, plugin, settings,
+    user, web_server, website, ws,
+};
 use crate::api::types::AppState;
 use crate::core::error::AppError;
+use axum::{routing::get, Router};
 
 /// 全局 fallback：未匹配路由 / 方法返回 JSON 错误而非纯文本 404
 pub async fn fallback_handler(uri: axum::http::Uri) -> AppError {
