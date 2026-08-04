@@ -1001,7 +1001,10 @@ mod tests {
         let sandbox = Arc::new(PluginSandbox::new());
         let registry = Arc::new(PluginRegistry::new());
         let plugin_repo: Arc<dyn PluginRepository> = Arc::new(InMemoryPluginRepository::new());
-        let dir = std::env::temp_dir().join(format!("appstore_svc_{}", std::process::id()));
+        // 每个测试唯一目录（原子计数），避免并行测试互相删除临时目录
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("appstore_svc_{}_{}", std::process::id(), seq));
         let _ = std::fs::remove_dir_all(&dir);
         AppStoreService::new(
             pkg_repo,
