@@ -53,7 +53,9 @@ impl EventHandler {
                     )
                     .await?;
             }
-            DomainEvent::AppInstalled { app_name, version, .. } => {
+            DomainEvent::AppInstalled {
+                app_name, version, ..
+            } => {
                 notifier
                     .send(
                         "admin@flamepanel.local",
@@ -71,7 +73,9 @@ impl EventHandler {
                     )
                     .await?;
             }
-            DomainEvent::AppUpgraded { app_name, from, to, .. } => {
+            DomainEvent::AppUpgraded {
+                app_name, from, to, ..
+            } => {
                 notifier
                     .send(
                         "admin@flamepanel.local",

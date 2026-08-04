@@ -1,6 +1,6 @@
 use crate::api::handler::{
-    app_store, auth, backup, database, docker, file, firewall, health, log, memo, metrics, node, operation_log,
-    plugin, scheduled_task, settings, user, web_server, website, ws,
+    app_store, auth, backup, database, docker, file, firewall, health, log, memo, metrics, node,
+    operation_log, plugin, scheduled_task, settings, user, web_server, website, ws,
 };
 use crate::api::types::AppState;
 use crate::core::error::AppError;

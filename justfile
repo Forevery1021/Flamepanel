@@ -38,12 +38,20 @@ lint:
     cd frontend && npm run lint
     cargo clippy --package flame-kernel -- -D warnings
 
+# 后端格式检查（CI 必查：cargo fmt --check）
+fmt:
+    cargo fmt --all -- --check
+
+# 后端格式化
+fmt-fix:
+    cargo fmt --all
+
 # 前端类型检查
 typecheck:
     cd frontend && npx vue-tsc --noEmit
 
-# 全量验证（发版前跑）：测试 + lint + 类型检查 + 构建
-check-full: test lint typecheck build
+# 全量验证（发版前跑）：格式 + 测试 + lint + 类型检查 + 构建
+check-full: fmt test lint typecheck build
 
 # 打包发行资产（release-assets/，自动读取版本号）
 release:

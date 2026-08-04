@@ -345,7 +345,9 @@ impl DockerRepository for InMemoryDockerRepository {
     }
 
     async fn prune_containers(&self) -> Result<serde_json::Value, AppError> {
-        Ok(serde_json::json!({ "mode": "memory", "containers_deleted": null, "space_reclaimed": 0 }))
+        Ok(
+            serde_json::json!({ "mode": "memory", "containers_deleted": null, "space_reclaimed": 0 }),
+        )
     }
 
     async fn list_networks(&self) -> Result<Vec<serde_json::Value>, AppError> {
@@ -365,7 +367,11 @@ impl DockerRepository for InMemoryDockerRepository {
         Ok(())
     }
 
-    async fn connect_network(&self, _network_id: &str, _container_id: &str) -> Result<(), AppError> {
+    async fn connect_network(
+        &self,
+        _network_id: &str,
+        _container_id: &str,
+    ) -> Result<(), AppError> {
         Ok(())
     }
 
@@ -386,7 +392,11 @@ impl DockerRepository for InMemoryDockerRepository {
         Ok(vec![])
     }
 
-    async fn create_volume(&self, _name: &str, _driver: &str) -> Result<serde_json::Value, AppError> {
+    async fn create_volume(
+        &self,
+        _name: &str,
+        _driver: &str,
+    ) -> Result<serde_json::Value, AppError> {
         Ok(serde_json::json!({ "mode": "memory", "name": _name }))
     }
 

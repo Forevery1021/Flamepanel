@@ -140,7 +140,11 @@ impl WebServerNativeManager {
     }
 
     /// systemd 开机自启开关
-    pub async fn set_autostart(&self, engine: &WebServerEngine, enabled: bool) -> Result<(), AppError> {
+    pub async fn set_autostart(
+        &self,
+        engine: &WebServerEngine,
+        enabled: bool,
+    ) -> Result<(), AppError> {
         if enabled {
             ServiceManager::enable(engine.service_name()).await
         } else {
@@ -172,10 +176,9 @@ impl WebServerNativeManager {
         // Server version: Apache/2.4.41
         // openresty/1.19.3.2
         // v2.7.6 h1:xxxx
-        let re = regex::Regex::new(
-            r"(nginx|openresty|Apache|httpd|caddy|v)?[/ ]?(\d+\.\d+(\.\d+)?)",
-        )
-        .map_err(|e| AppError::internal(format!("Regex error: {}", e)))?;
+        let re =
+            regex::Regex::new(r"(nginx|openresty|Apache|httpd|caddy|v)?[/ ]?(\d+\.\d+(\.\d+)?)")
+                .map_err(|e| AppError::internal(format!("Regex error: {}", e)))?;
         if let Some(caps) = re.captures(&combined) {
             if let Some(ver) = caps.get(2) {
                 return Ok(ver.as_str().to_string());

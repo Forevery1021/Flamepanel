@@ -130,7 +130,7 @@ impl AppPackageAdapter for OnePanelAdapter {
             min_memory_mb: None,
             architectures: vec![],
             readme: None,
-        recommended: false,
+            recommended: false,
         })
     }
 

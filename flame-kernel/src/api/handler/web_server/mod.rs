@@ -279,7 +279,9 @@ pub async fn native_uninstall(
         .web_server_service
         .native_uninstall_by_engine(&engine)
         .await?;
-    Ok(Json(serde_json::json!({"deleted": true, "engine": engine.as_str()})))
+    Ok(Json(
+        serde_json::json!({"deleted": true, "engine": engine.as_str()}),
+    ))
 }
 
 pub async fn set_autostart(

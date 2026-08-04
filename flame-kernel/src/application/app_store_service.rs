@@ -351,7 +351,7 @@ impl AppStoreService {
             params_json: serde_json::to_string(&req.values).unwrap_or_default(),
             created_at: now,
             updated_at: now,
-        launch_count: 0,
+            launch_count: 0,
         };
         let id = self.installed_repo.create(&app).await?;
         Ok(self.installed_repo.find_by_id(id).await?.unwrap_or(app))
@@ -397,7 +397,8 @@ impl AppStoreService {
                     port: Some(req.port.unwrap_or(3306)),
                     params_json: serde_json::to_string(&req.values).unwrap_or_default(),
                     created_at: Utc::now(),
-                    updated_at: Utc::now(),                launch_count: 0,
+                    updated_at: Utc::now(),
+                    launch_count: 0,
                 };
                 let id = self.installed_repo.create(&app).await?;
                 return self
@@ -429,7 +430,8 @@ impl AppStoreService {
                     port: Some(req.port.unwrap_or(6379)),
                     params_json: serde_json::to_string(&req.values).unwrap_or_default(),
                     created_at: Utc::now(),
-                    updated_at: Utc::now(),                launch_count: 0,
+                    updated_at: Utc::now(),
+                    launch_count: 0,
                 };
                 let id = self.installed_repo.create(&app).await?;
                 return self
@@ -470,7 +472,8 @@ impl AppStoreService {
                     port: Some(req.port.unwrap_or(engine.default_port() as i32)),
                     params_json: serde_json::to_string(&req.values).unwrap_or_default(),
                     created_at: Utc::now(),
-                    updated_at: Utc::now(),                launch_count: 0,
+                    updated_at: Utc::now(),
+                    launch_count: 0,
                 };
                 let id = self.installed_repo.create(&app).await?;
                 return self
@@ -515,7 +518,8 @@ impl AppStoreService {
                     port: req.port,
                     params_json: serde_json::to_string(&req.values).unwrap_or_default(),
                     created_at: Utc::now(),
-                    updated_at: Utc::now(),                launch_count: 0,
+                    updated_at: Utc::now(),
+                    launch_count: 0,
                 };
                 let id = self.installed_repo.create(&app).await?;
                 return self
@@ -606,7 +610,7 @@ impl AppStoreService {
             params_json: serde_json::to_string(&req.values).unwrap_or_default(),
             created_at: now,
             updated_at: now,
-        launch_count: 0,
+            launch_count: 0,
         };
         let id = self.installed_repo.create(&app).await?;
         Ok(self.installed_repo.find_by_id(id).await?.unwrap_or(app))
@@ -792,7 +796,7 @@ impl AppStoreService {
             min_memory_mb: None,
             architectures: vec![],
             readme: None,
-        recommended: false,
+            recommended: false,
         }]
     }
 

@@ -144,7 +144,13 @@ async fn auth_middleware<B>(
         .or_else(|| req.headers().get("X-Forwarded-For"))
         .and_then(|v| v.to_str().ok())
         .map(|s| s.split(',').next().unwrap_or(s).trim().to_string());
-    audit_write(&state, req.method(), &path_owned, &user.username, ip.as_deref());
+    audit_write(
+        &state,
+        req.method(),
+        &path_owned,
+        &user.username,
+        ip.as_deref(),
+    );
 
     Ok(next.run(req).await)
 }

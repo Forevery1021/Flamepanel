@@ -85,10 +85,18 @@ impl CreateNodeRequest {
         }
         crate::domain::entity::ServerNode {
             id: 0,
-            name: if self.name.is_empty() { self.hostname.clone() } else { self.name.clone() },
+            name: if self.name.is_empty() {
+                self.hostname.clone()
+            } else {
+                self.name.clone()
+            },
             hostname: self.hostname.clone(),
             ip_address: self.ip_address.clone(),
-            status: if self.status.is_empty() { "unknown".into() } else { self.status.clone() },
+            status: if self.status.is_empty() {
+                "unknown".into()
+            } else {
+                self.status.clone()
+            },
             created_at: chrono::Utc::now(),
             last_heartbeat_at: None,
             metrics_json: None,

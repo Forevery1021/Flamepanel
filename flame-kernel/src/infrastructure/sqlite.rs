@@ -428,7 +428,13 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     // 幂等迁移：users 表补充强制改密列（旧库升级）
-    add_column_if_missing(pool, "users", "must_change_password", "INTEGER NOT NULL DEFAULT 0").await?;
+    add_column_if_missing(
+        pool,
+        "users",
+        "must_change_password",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS nodes (
@@ -705,7 +711,13 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     // 幂等迁移：installed_apps 补 launch_count（v0.7.0 常用应用）
-    add_column_if_missing(pool, "installed_apps", "launch_count", "INTEGER NOT NULL DEFAULT 0").await?;
+    add_column_if_missing(
+        pool,
+        "installed_apps",
+        "launch_count",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+    .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_installed_apps_key ON installed_apps(package_key)")
         .execute(pool)
         .await
@@ -1696,7 +1708,8 @@ impl SqliteMemoRepository {
 #[async_trait]
 impl MemoRepository for SqliteMemoRepository {
     async fn list(&self, kind: Option<&str>, done: Option<bool>) -> Result<Vec<Memo>, AppError> {
-        let mut sql = "SELECT id, content, kind, done, created_at, updated_at FROM memos".to_string();
+        let mut sql =
+            "SELECT id, content, kind, done, created_at, updated_at FROM memos".to_string();
         let mut conds: Vec<String> = Vec::new();
         if let Some(k) = kind {
             if !k.is_empty() {

@@ -199,12 +199,19 @@ impl NodeService {
 
     /// 校验 Agent 心跳令牌：库中 auth_token 存在且与请求一致才通过；
     /// 库中无 token（旧 Agent）时放行并告警（兼容）
-    pub async fn verify_agent_token(&self, id: i64, provided: Option<&str>) -> Result<bool, AppError> {
+    pub async fn verify_agent_token(
+        &self,
+        id: i64,
+        provided: Option<&str>,
+    ) -> Result<bool, AppError> {
         let node = self.get_node(id).await?;
         match node.auth_token {
             Some(stored) => Ok(Some(stored.as_str()) == provided),
             None => {
-                tracing::warn!("Node {} has no auth_token recorded; heartbeat token check skipped", id);
+                tracing::warn!(
+                    "Node {} has no auth_token recorded; heartbeat token check skipped",
+                    id
+                );
                 Ok(true)
             }
         }
@@ -393,7 +400,11 @@ impl DockerService {
         self.docker_repo.remove_network(id).await
     }
 
-    pub async fn connect_network(&self, network_id: &str, container_id: &str) -> Result<(), AppError> {
+    pub async fn connect_network(
+        &self,
+        network_id: &str,
+        container_id: &str,
+    ) -> Result<(), AppError> {
         self.docker_repo
             .connect_network(network_id, container_id)
             .await
@@ -418,7 +429,11 @@ impl DockerService {
         self.docker_repo.list_volumes().await
     }
 
-    pub async fn create_volume(&self, name: &str, driver: &str) -> Result<serde_json::Value, AppError> {
+    pub async fn create_volume(
+        &self,
+        name: &str,
+        driver: &str,
+    ) -> Result<serde_json::Value, AppError> {
         self.docker_repo.create_volume(name, driver).await
     }
 
@@ -753,7 +768,10 @@ impl WebServerService {
     }
 
     /// 按引擎名原生卸载（同时清理该引擎的注册实例）
-    pub async fn native_uninstall_by_engine(&self, engine: &WebServerEngine) -> Result<(), AppError> {
+    pub async fn native_uninstall_by_engine(
+        &self,
+        engine: &WebServerEngine,
+    ) -> Result<(), AppError> {
         self.native_manager.uninstall(engine).await?;
         let instances = self.server_repo.find_by_engine(engine.as_str()).await?;
         for inst in instances {
@@ -1118,7 +1136,12 @@ impl MemoService {
             .ok_or_else(|| AppError::internal("Memo created but not found"))
     }
 
-    pub async fn update(&self, id: i64, content: Option<&str>, done: Option<bool>) -> Result<Memo, AppError> {
+    pub async fn update(
+        &self,
+        id: i64,
+        content: Option<&str>,
+        done: Option<bool>,
+    ) -> Result<Memo, AppError> {
         let mut memo = self
             .repo
             .find_by_id(id)

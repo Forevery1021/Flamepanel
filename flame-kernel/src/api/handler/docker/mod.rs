@@ -322,7 +322,10 @@ pub async fn create_volume(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<CreateVolumeRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let result = state.docker_service.create_volume(&req.name, &req.driver).await?;
+    let result = state
+        .docker_service
+        .create_volume(&req.name, &req.driver)
+        .await?;
     Ok(Json(result))
 }
 
@@ -331,7 +334,10 @@ pub async fn remove_volume(
     Path(name): Path<String>,
     Query(query): Query<ForceQuery>,
 ) -> Result<Json<()>, AppError> {
-    state.docker_service.remove_volume(&name, query.force).await?;
+    state
+        .docker_service
+        .remove_volume(&name, query.force)
+        .await?;
     Ok(Json(()))
 }
 
@@ -349,7 +355,9 @@ pub async fn pull_image(
     ApiJson(req): ApiJson<PullImageRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let message = state.docker_service.pull_image(&req.image).await?;
-    Ok(Json(serde_json::json!({ "image": req.image, "message": message })))
+    Ok(Json(
+        serde_json::json!({ "image": req.image, "message": message }),
+    ))
 }
 
 pub async fn tag_image(
@@ -404,18 +412,12 @@ pub fn routes() -> Router<AppState> {
             axum::routing::get(stats),
         )
         .route("/api/docker/images", axum::routing::get(list_images))
-        .route(
-            "/api/docker/images/pull",
-            axum::routing::post(pull_image),
-        )
+        .route("/api/docker/images/pull", axum::routing::post(pull_image))
         .route(
             "/api/docker/images/:id/remove",
             axum::routing::post(remove_image),
         )
-        .route(
-            "/api/docker/images/:id/tag",
-            axum::routing::post(tag_image),
-        )
+        .route("/api/docker/images/:id/tag", axum::routing::post(tag_image))
         .route(
             "/api/docker/images/prune",
             axum::routing::post(prune_images),
@@ -436,10 +438,7 @@ pub fn routes() -> Router<AppState> {
             "/api/docker/containers/:id/unpause",
             axum::routing::post(unpause),
         )
-        .route(
-            "/api/docker/containers/:id/kill",
-            axum::routing::post(kill),
-        )
+        .route("/api/docker/containers/:id/kill", axum::routing::post(kill))
         .route(
             "/api/docker/containers/prune",
             axum::routing::post(prune_containers),

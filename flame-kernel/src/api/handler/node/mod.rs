@@ -48,7 +48,10 @@ pub async fn heartbeat(
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.strip_prefix("Bearer ").unwrap_or(s).to_string());
-    let valid = state.node_service.verify_agent_token(id, provided.as_deref()).await?;
+    let valid = state
+        .node_service
+        .verify_agent_token(id, provided.as_deref())
+        .await?;
     if !valid {
         return Err(AppError::Unauthorized("Invalid agent token".into()));
     }

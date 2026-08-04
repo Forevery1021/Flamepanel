@@ -4,7 +4,9 @@ use flame_kernel::FlameKernel;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let json_logs = std::env::var("RUST_LOG_FORMAT").map(|v| v == "json").unwrap_or(false);
+    let json_logs = std::env::var("RUST_LOG_FORMAT")
+        .map(|v| v == "json")
+        .unwrap_or(false);
     if json_logs {
         // 结构化 JSON 日志（生产可观测性：可被 logstash/loki 等直接采集）
         tracing_subscriber::fmt()

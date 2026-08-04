@@ -1,7 +1,7 @@
 use crate::api::types::AppState;
 use crate::core::error::AppError;
-use axum::Router;
 use axum::Json;
+use axum::Router;
 use serde::Serialize;
 
 /// 进程 TOP 条目（sysinfo 采集）
@@ -31,7 +31,11 @@ pub async fn processes() -> Result<Json<Vec<ProcessEntry>>, AppError> {
             status: format!("{:?}", proc.status()),
         })
         .collect();
-    entries.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
+    entries.sort_by(|a, b| {
+        b.cpu
+            .partial_cmp(&a.cpu)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     entries.truncate(5);
     Ok(Json(entries))
 }

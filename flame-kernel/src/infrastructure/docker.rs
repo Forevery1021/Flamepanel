@@ -617,7 +617,9 @@ impl DockerRepository for BollardDockerRepository {
         let output = Command::new("docker")
             .args(["compose", "ls", "--format", "json"])
             .output()
-            .map_err(|e| AppError::internal(format!("Failed to execute docker compose ls: {}", e)))?;
+            .map_err(|e| {
+                AppError::internal(format!("Failed to execute docker compose ls: {}", e))
+            })?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(AppError::internal(format!(

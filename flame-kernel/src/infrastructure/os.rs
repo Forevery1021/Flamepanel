@@ -73,7 +73,9 @@ pub fn is_root_process() -> bool {
             s.lines().find_map(|l| {
                 let l = l.trim();
                 l.strip_prefix("Uid:").and_then(|v| {
-                    v.split_whitespace().next().and_then(|id| id.parse::<u32>().ok())
+                    v.split_whitespace()
+                        .next()
+                        .and_then(|id| id.parse::<u32>().ok())
                 })
             })
         })

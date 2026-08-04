@@ -825,7 +825,8 @@ async fn test_docker_networks_endpoints() {
     assert_eq!(res.status(), StatusCode::OK);
 
     // create
-    let body = serde_json::json!({ "name": "test-net", "driver": "bridge", "subnet": "172.28.0.0/16" });
+    let body =
+        serde_json::json!({ "name": "test-net", "driver": "bridge", "subnet": "172.28.0.0/16" });
     let res = app
         .clone()
         .oneshot(
@@ -3684,18 +3685,23 @@ async fn test_must_change_password_enforced() {
         .create("forced", &bcrypt_hash("OldP@ss1"), "admin")
         .await
         .unwrap();
-    user_repo.update(&User {
-        must_change_password: true,
-        ..user
-    })
-    .await
-    .unwrap();
+    user_repo
+        .update(&User {
+            must_change_password: true,
+            ..user
+        })
+        .await
+        .unwrap();
 
     // 通过 service 直接验证中间件逻辑：构造 AppState 级测试过于复杂，
     // 此处验证 set_must_change_password 与 login 响应的标志位
     let bus = EventBus::new(100);
     let user_service = UserService::new(user_repo.clone(), bus);
-    let updated = user_service.find_by_username("forced").await.unwrap().unwrap();
+    let updated = user_service
+        .find_by_username("forced")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(updated.must_change_password, "flag should persist");
 
     // 清除标志
@@ -3703,7 +3709,11 @@ async fn test_must_change_password_enforced() {
         .set_must_change_password(updated.id, false)
         .await
         .unwrap();
-    let cleared = user_service.find_by_username("forced").await.unwrap().unwrap();
+    let cleared = user_service
+        .find_by_username("forced")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!cleared.must_change_password);
 }
 
@@ -3854,7 +3864,9 @@ async fn test_audit_read_operations_not_logged() {
     let logs: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     let items = logs["data"].as_array().unwrap();
     assert!(
-        items.iter().all(|l| !l["action"].as_str().unwrap_or("").starts_with("GET")),
+        items
+            .iter()
+            .all(|l| !l["action"].as_str().unwrap_or("").starts_with("GET")),
         "GET requests must not be audited"
     );
 }
@@ -4006,7 +4018,9 @@ async fn test_event_bus_emits_new_variants() {
         .unwrap()
         .unwrap();
     match received {
-        DomainEvent::AppInstalled { app_key, version, .. } => {
+        DomainEvent::AppInstalled {
+            app_key, version, ..
+        } => {
             assert_eq!(app_key, "nginx");
             assert_eq!(version, "1.27");
         }
@@ -4023,9 +4037,15 @@ async fn test_app_store_install_publishes_event() {
     let pkg_repo: Arc<dyn AppPackageRepository> = Arc::new(InMemoryAppPackageRepository::new());
     let installed_repo: Arc<dyn InstalledAppRepository> =
         Arc::new(InMemoryInstalledAppRepository::new());
-    let docker_service = Arc::new(DockerService::new(Arc::new(InMemoryDockerRepository::new())));
-    let ws_service = Arc::new(WebServerService::new(Arc::new(InMemoryWebServerRepository::new())));
-    let db_service = Arc::new(DatabaseService::new(Arc::new(InMemoryDatabaseRepository::new())));
+    let docker_service = Arc::new(DockerService::new(
+        Arc::new(InMemoryDockerRepository::new()),
+    ));
+    let ws_service = Arc::new(WebServerService::new(Arc::new(
+        InMemoryWebServerRepository::new(),
+    )));
+    let db_service = Arc::new(DatabaseService::new(Arc::new(
+        InMemoryDatabaseRepository::new(),
+    )));
     let sandbox = Arc::new(PluginSandbox::new());
     let registry = Arc::new(PluginRegistry::new());
     let plugin_repo: Arc<dyn PluginRepository> = Arc::new(InMemoryPluginRepository::new());
@@ -4194,9 +4214,15 @@ async fn test_app_launch_count() {
     let pkg_repo: Arc<dyn AppPackageRepository> = Arc::new(InMemoryAppPackageRepository::new());
     let installed_repo: Arc<dyn InstalledAppRepository> =
         Arc::new(InMemoryInstalledAppRepository::new());
-    let docker_service = Arc::new(DockerService::new(Arc::new(InMemoryDockerRepository::new())));
-    let ws_service = Arc::new(WebServerService::new(Arc::new(InMemoryWebServerRepository::new())));
-    let db_service = Arc::new(DatabaseService::new(Arc::new(InMemoryDatabaseRepository::new())));
+    let docker_service = Arc::new(DockerService::new(
+        Arc::new(InMemoryDockerRepository::new()),
+    ));
+    let ws_service = Arc::new(WebServerService::new(Arc::new(
+        InMemoryWebServerRepository::new(),
+    )));
+    let db_service = Arc::new(DatabaseService::new(Arc::new(
+        InMemoryDatabaseRepository::new(),
+    )));
     let sandbox = Arc::new(PluginSandbox::new());
     let registry = Arc::new(PluginRegistry::new());
     let plugin_repo: Arc<dyn PluginRepository> = Arc::new(InMemoryPluginRepository::new());

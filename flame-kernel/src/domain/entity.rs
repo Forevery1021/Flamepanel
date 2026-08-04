@@ -78,18 +78,53 @@ pub struct DockerContainer {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DomainEvent {
-    UserCreated { user_id: i64, username: String },
-    NodeRegistered { node_id: i64, node_name: String },
-    WebsiteCreated { website_id: i64, domain: String },
-    NodeHeartbeat { node_id: i64, node_name: String },
-    AppInstalled { app_key: String, app_name: String, version: String },
-    AppUninstalled { app_key: String, app_name: String },
-    AppUpgraded { app_key: String, app_name: String, from: String, to: String },
-    FirewallRulesApplied { rule_count: usize },
-    BackupCreated { filename: String },
-    UserLoggedIn { username: String },
-    PasswordChanged { username: String },
-    NodeOffline { node_id: i64, node_name: String },
+    UserCreated {
+        user_id: i64,
+        username: String,
+    },
+    NodeRegistered {
+        node_id: i64,
+        node_name: String,
+    },
+    WebsiteCreated {
+        website_id: i64,
+        domain: String,
+    },
+    NodeHeartbeat {
+        node_id: i64,
+        node_name: String,
+    },
+    AppInstalled {
+        app_key: String,
+        app_name: String,
+        version: String,
+    },
+    AppUninstalled {
+        app_key: String,
+        app_name: String,
+    },
+    AppUpgraded {
+        app_key: String,
+        app_name: String,
+        from: String,
+        to: String,
+    },
+    FirewallRulesApplied {
+        rule_count: usize,
+    },
+    BackupCreated {
+        filename: String,
+    },
+    UserLoggedIn {
+        username: String,
+    },
+    PasswordChanged {
+        username: String,
+    },
+    NodeOffline {
+        node_id: i64,
+        node_name: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
