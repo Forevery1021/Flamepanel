@@ -114,6 +114,14 @@ impl RepoFactory {
         }
     }
 
+    /// SQLite 模式启动时补齐默认设置，保证与 InMemory 模式行为一致。
+    pub async fn seed_default_settings(&self) -> Result<(), AppError> {
+        if let BackendKind::Sqlite(pool) = &self.kind {
+            SqliteSettingsRepository::new(pool.clone()).ensure_defaults().await?;
+        }
+        Ok(())
+    }
+
     pub fn create_web_server_repo(&self) -> Arc<dyn WebServerRepository> {
         match &self.kind {
             BackendKind::InMemory => Arc::new(InMemoryWebServerRepository::new()),

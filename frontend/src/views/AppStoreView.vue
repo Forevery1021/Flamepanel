@@ -1,239 +1,294 @@
 <template>
-  <div class="app-store">
-    <div class="header">
-      <div class="header-actions">
-        <el-input
-          v-model="search"
-          :placeholder="t('appStore.searchPlaceholder')"
-          clearable
-          class="search-input"
-        >
-          <template #prefix><el-icon><Search /></el-icon></template>
-        </el-input>
-        <el-button @click="showImportDialog = true">
-          <el-icon><FolderOpened /></el-icon>
-          <span>{{ t('appStore.import') }}</span>
-        </el-button>
+  <div class="view-container">
+    <div class="page-toolbar">
+      <div class="search-box">
+        <i class="oi oi-search search-icon" />
+        <FpInput v-model="search" :placeholder="t('appStore.searchPlaceholder')" />
       </div>
+      <FpButton variant="ghost" icon="oi oi-folder-open" @click="showImportDialog = true">
+        {{ t('appStore.import') }}
+      </FpButton>
     </div>
 
-    <el-tabs v-model="activeTab">
-      <el-tab-pane :label="t('appStore.tabStore')" name="store">
-        <!-- 推荐安装 -->
-        <div v-if="recommendedPackages.length" class="recommend-section">
-          <div class="recommend-title">{{ t('appStore.recommended') }}</div>
-          <div class="recommend-list">
-            <div
-              v-for="pkg in recommendedPackages"
-              :key="pkg.key"
-              class="recommend-card"
-              @click="openInstall(pkg)"
-            >
-              <div class="recommend-logo"><el-icon><Box /></el-icon></div>
-              <div class="recommend-info">
-                <div class="recommend-name">{{ pkg.name }}</div>
-                <div class="recommend-desc">{{ pkg.short_desc_zh }}</div>
-                <el-tag size="small" type="warning" effect="plain">{{ t('appStore.recommended') }}</el-tag>
+    <Tabs v-model:value="activeTab" class="store-tabs">
+      <TabList>
+        <Tab value="store">{{ t('appStore.tabStore') }}</Tab>
+        <Tab value="installed">{{ t('appStore.tabInstalled') }}</Tab>
+        <Tab value="wasm">{{ t('appStore.tabWasm') }}</Tab>
+      </TabList>
+      <TabPanels>
+        <TabPanel value="store">
+          <!-- 推荐安装 -->
+          <div v-if="recommendedPackages.length" class="recommend-section">
+            <div class="section-title">{{ t('appStore.recommended') }}</div>
+            <div class="recommend-list">
+              <div
+                v-for="pkg in recommendedPackages"
+                :key="pkg.key"
+                class="recommend-card"
+                @click="openInstall(pkg)"
+              >
+                <div class="recommend-logo"><i class="oi oi-box" /></div>
+                <div class="recommend-info">
+                  <div class="recommend-name">{{ pkg.name }}</div>
+                  <div class="recommend-desc">{{ pkg.short_desc_zh }}</div>
+                  <FpTag severity="warning" :value="t('appStore.recommended')" />
+                </div>
+                <FpButton variant="primary" @click.stop="openInstall(pkg)">
+                  {{ installedKeys.has(pkg.key) ? t('appStore.installed') : t('appStore.install') }}
+                </FpButton>
               </div>
-              <el-button size="small" type="primary" @click.stop="openInstall(pkg)">
-                {{ installedKeys.has(pkg.key) ? t('appStore.installed') : t('appStore.install') }}
-              </el-button>
             </div>
           </div>
-        </div>
 
-        <el-row v-loading="loading" :gutter="16">
-          <el-col v-for="pkg in filteredPackages" :key="pkg.key" :xs="24" :sm="12" :md="8" :lg="6" class="app-card-col">
-            <el-card shadow="hover" class="app-card">
+          <div v-if="loading" class="app-grid">
+            <div v-for="i in 8" :key="i" class="app-card app-card-skeleton">
+              <Skeleton height="44px" />
+              <Skeleton height="16px" />
+              <Skeleton height="12px" />
+            </div>
+          </div>
+          <div v-else-if="filteredPackages.length" class="app-grid">
+            <div v-for="pkg in filteredPackages" :key="pkg.key" class="app-card">
               <div class="app-card-body">
-                <div class="app-logo" :class="pkg.category === 'wasm' ? 'wasm-logo' : ''">
-                  <el-icon><Box /></el-icon>
+                <div class="app-logo" :class="{ 'wasm-logo': pkg.category === 'wasm' }">
+                  <i class="oi oi-box" />
                 </div>
                 <div class="app-info">
                   <div class="app-name">{{ pkg.name }}</div>
                   <div class="app-desc">{{ pkg.short_desc_zh }}</div>
                   <div class="app-tags">
-                    <el-tag size="small" type="info">{{ formatLabel(pkg.format) }}</el-tag>
-                    <el-tag v-for="tag in pkg.tags" :key="tag" size="small" class="tag">{{ tag }}</el-tag>
+                    <FpTag severity="info" :value="formatLabel(pkg.format)" />
+                    <FpTag v-for="tag in pkg.tags" :key="tag" :value="tag" />
                   </div>
                 </div>
-                <div class="app-actions">
-                  <el-button
-                    size="small"
-                    :type="installedKeys.has(pkg.key) ? 'success' : 'primary'"
-                    @click="openInstall(pkg)"
-                  >
-                    {{ installedKeys.has(pkg.key) ? t('appStore.installed') : t('appStore.install') }}
-                  </el-button>
-                </div>
               </div>
-            </el-card>
-          </el-col>
-        </el-row>
-        <el-empty v-if="!loading && filteredPackages.length === 0" :description="t('appStore.empty')" />
-      </el-tab-pane>
+              <div class="app-actions">
+                <FpButton
+                  :variant="installedKeys.has(pkg.key) ? 'success' : 'primary'"
+                  @click="openInstall(pkg)"
+                >
+                  {{ installedKeys.has(pkg.key) ? t('appStore.installed') : t('appStore.install') }}
+                </FpButton>
+              </div>
+            </div>
+          </div>
+          <FpEmpty v-else :description="t('appStore.empty')" icon="oi oi-inbox" />
+        </TabPanel>
 
-      <el-tab-pane :label="t('appStore.tabInstalled')" name="installed">
-        <el-table v-loading="loadingInstalled" :data="installedApps" style="width: 100%">
-          <el-table-column prop="name" :label="t('appStore.colName')" min-width="140" />
-          <el-table-column prop="package_key" :label="t('appStore.colPackage')" min-width="120" />
-          <el-table-column prop="version" :label="t('appStore.colVersion')" width="100" />
-          <el-table-column :label="t('appStore.colMode')" width="100">
-            <template #default="{ row }">
-              <el-tag size="small" :type="modeTagType(row.mode)">{{ modeLabel(row.mode) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('appStore.colStatus')" width="100">
-            <template #default="{ row }">
-              <el-tag size="small" :type="row.status === 'running' ? 'success' : 'danger'">
-                {{ row.status }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('appStore.colAccess')" min-width="160">
-            <template #default="{ row }">
-              <el-link v-if="row.access_url" type="primary" :href="row.access_url" target="_blank">
-                {{ row.access_url }}
-              </el-link>
-              <span v-else>-</span>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('appStore.colActions')" width="220" fixed="right">
-            <template #default="{ row }">
-              <el-button size="small" @click="showLogs(row)">{{ t('appStore.logs') }}</el-button>
-              <el-button size="small" @click="upgrade(row)">{{ t('appStore.upgrade') }}</el-button>
-              <el-button size="small" type="danger" @click="uninstall(row)">
-                {{ t('appStore.uninstall') }}
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-tab-pane>
+        <TabPanel value="installed">
+          <div class="panel">
+            <FpTable
+              :rows="installedApps"
+              :loading="loadingInstalled"
+              :empty-text="t('appStore.empty')"
+            >
+              <Column field="name" :header="t('appStore.colName')" style="min-width: 140px" />
+              <Column field="package_key" :header="t('appStore.colPackage')" style="min-width: 120px" />
+              <Column field="version" :header="t('appStore.colVersion')" style="width: 100px" />
+              <Column :header="t('appStore.colMode')" style="width: 100px">
+                <template #body="{ data }">
+                  <FpTag :severity="modeTagType(data.mode)" :value="modeLabel(data.mode)" />
+                </template>
+              </Column>
+              <Column :header="t('appStore.colStatus')" style="width: 100px">
+                <template #body="{ data }">
+                  <FpTag
+                    :severity="data.status === 'running' ? 'success' : 'danger'"
+                    :value="data.status"
+                  />
+                </template>
+              </Column>
+              <Column :header="t('appStore.colAccess')" style="min-width: 160px">
+                <template #body="{ data }">
+                  <a
+                    v-if="data.access_url"
+                    class="access-link"
+                    :href="data.access_url"
+                    target="_blank"
+                  >{{ data.access_url }}</a>
+                  <span v-else>-</span>
+                </template>
+              </Column>
+              <Column :header="t('appStore.colActions')" style="width: 240px" frozen>
+                <template #body="{ data }">
+                  <div class="row-actions">
+                    <FpButton variant="ghost" @click="showLogs(data)">{{ t('appStore.logs') }}</FpButton>
+                    <FpButton variant="ghost" @click="upgrade(data)">{{ t('appStore.upgrade') }}</FpButton>
+                    <FpButton variant="danger" @click="uninstall(data)">
+                      {{ t('appStore.uninstall') }}
+                    </FpButton>
+                  </div>
+                </template>
+              </Column>
+            </FpTable>
+          </div>
+        </TabPanel>
 
-      <el-tab-pane :label="t('appStore.tabWasm')" name="wasm">
-        <el-row v-loading="loadingWasm" :gutter="16">
-          <el-col v-for="pkg in wasmBuiltins" :key="pkg.key" :xs="24" :sm="12" :md="8" :lg="6" class="app-card-col">
-            <el-card shadow="hover" class="app-card">
+        <TabPanel value="wasm">
+          <div v-if="loadingWasm" class="app-grid">
+            <div v-for="i in 8" :key="i" class="app-card app-card-skeleton">
+              <Skeleton height="44px" />
+              <Skeleton height="16px" />
+              <Skeleton height="12px" />
+            </div>
+          </div>
+          <div v-else-if="wasmBuiltins.length" class="app-grid">
+            <div v-for="pkg in wasmBuiltins" :key="pkg.key" class="app-card">
               <div class="app-card-body">
-                <div class="app-logo wasm-logo">
-                  <el-icon><MagicStick /></el-icon>
-                </div>
+                <div class="app-logo wasm-logo"><i class="oi oi-sparkles" /></div>
                 <div class="app-info">
                   <div class="app-name">{{ pkg.name }}</div>
                   <div class="app-desc">{{ pkg.short_desc_zh }}</div>
                 </div>
-                <div class="app-actions">
-                  <el-button size="small" type="primary" @click="openInstall(pkg)">
-                    {{ t('appStore.install') }}
-                  </el-button>
-                </div>
               </div>
-            </el-card>
-          </el-col>
-        </el-row>
-        <el-empty v-if="!loadingWasm && wasmBuiltins.length === 0" :description="t('appStore.empty')" />
-      </el-tab-pane>
-    </el-tabs>
+              <div class="app-actions">
+                <FpButton variant="primary" @click="openInstall(pkg)">
+                  {{ t('appStore.install') }}
+                </FpButton>
+              </div>
+            </div>
+          </div>
+          <FpEmpty v-else :description="t('appStore.empty')" icon="oi oi-inbox" />
+        </TabPanel>
+      </TabPanels>
+    </Tabs>
 
-    <el-dialog v-model="installVisible" :title="t('appStore.installTitle') + ' - ' + (installMeta?.name || '')" width="640px">
-      <el-alert
-        v-if="securityWarning"
-        type="warning"
-        :title="t('appStore.securityWarning')"
-        :description="securityWarning"
-        show-icon
-        :closable="false"
-        class="security-alert"
-      />
-      <el-form v-loading="installLoading" :model="installForm" label-width="120px">
-        <el-form-item :label="t('appStore.fldVersion')">
-          <el-select v-model="installForm.version">
-            <el-option v-for="v in installMeta?.versions || []" :key="v" :label="v" :value="v" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('appStore.fldMode')">
-          <el-select v-model="installForm.mode">
-            <el-option
-              v-for="m in installMeta?.modes || []"
-              :key="m"
-              :label="modeLabel(m)"
-              :value="m"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('appStore.fldName')">
-          <el-input v-model="installForm.name" :placeholder="t('appStore.fldNamePlaceholder')" />
-        </el-form-item>
-        <el-form-item :label="t('appStore.fldPort')">
-          <el-input-number v-model="installForm.port" :min="1" :max="65535" />
-        </el-form-item>
-        <el-form-item :label="t('appStore.fldContainer')">
-          <el-input v-model="installForm.container_name" />
-        </el-form-item>
+    <FpModal
+      v-model="installVisible"
+      :header="t('appStore.installTitle') + ' - ' + (installMeta?.name || '')"
+      style="width: 640px"
+    >
+      <div v-if="securityWarning" class="security-alert">
+        <i class="oi oi-exclamation-triangle" />
+        <div>
+          <div class="security-title">{{ t('appStore.securityWarning') }}</div>
+          <div>{{ securityWarning }}</div>
+        </div>
+      </div>
+      <div class="modal-form">
+        <FpSelect
+          v-model="installForm.version"
+          :label="t('appStore.fldVersion')"
+          :options="versionOptions"
+          option-label="label"
+          option-value="value"
+        />
+        <FpSelect
+          v-model="installForm.mode"
+          :label="t('appStore.fldMode')"
+          :options="modeOptions"
+          option-label="label"
+          option-value="value"
+        />
+        <FpInput
+          v-model="installForm.name"
+          :label="t('appStore.fldName')"
+          :placeholder="t('appStore.fldNamePlaceholder')"
+        />
+        <div class="field-col">
+          <label class="field-label">{{ t('appStore.fldPort') }}</label>
+          <InputNumber v-model="installForm.port" :min="1" :max="65535" class="w-full" />
+        </div>
+        <FpInput v-model="installForm.container_name" :label="t('appStore.fldContainer')" />
         <template v-if="versionInfo">
-          <el-divider>{{ t('appStore.parameters') }}</el-divider>
-          <el-form-item
-            v-for="f in versionInfo.form_fields"
-            :key="f.env_key"
-            :label="f.label_zh"
-            :required="f.required"
-          >
-            <el-select v-if="f.field_type === 'select'" v-model="installForm.values[f.env_key]">
-              <el-option v-for="o in f.options" :key="o.value" :label="o.label" :value="o.value" />
-            </el-select>
-            <el-switch v-else-if="f.field_type === 'switch'" v-model="switchValues[f.env_key]" />
-            <el-input-number
-              v-else-if="f.field_type === 'number' || f.field_type === 'port'"
-              v-model="numberValues[f.env_key]"
-              :min="f.min ?? undefined"
-              :max="f.max ?? undefined"
+          <Divider>{{ t('appStore.parameters') }}</Divider>
+          <div v-for="f in versionInfo.form_fields" :key="f.env_key" class="modal-form">
+            <FpSelect
+              v-if="f.field_type === 'select'"
+              v-model="installForm.values[f.env_key]"
+              :label="f.label_zh"
+              :options="f.options"
+              option-label="label"
+              option-value="value"
             />
-            <el-input
+            <div v-else-if="f.field_type === 'switch'" class="field-col field-row">
+              <label class="field-label">{{ f.label_zh }}</label>
+              <ToggleSwitch v-model="switchValues[f.env_key]" />
+            </div>
+            <div
+              v-else-if="f.field_type === 'number' || f.field_type === 'port'"
+              class="field-col"
+            >
+              <label class="field-label">{{ f.label_zh }}</label>
+              <InputNumber
+                v-model="numberValues[f.env_key]"
+                :min="f.min ?? undefined"
+                :max="f.max ?? undefined"
+                class="w-full"
+              />
+            </div>
+            <FpInput
               v-else
               v-model="installForm.values[f.env_key]"
+              :label="f.label_zh"
               :type="f.field_type === 'password' ? 'password' : 'text'"
               :placeholder="f.description || ''"
             />
-          </el-form-item>
+          </div>
         </template>
-      </el-form>
+      </div>
       <template #footer>
-        <el-checkbox v-model="installForm.confirm_risky">
-          {{ t('appStore.confirmRisky') }}
-        </el-checkbox>
-        <el-button @click="installVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="installLoading" @click="doInstall">
-          {{ t('appStore.install') }}
-        </el-button>
+        <div class="install-footer">
+          <Checkbox v-model="installForm.confirm_risky">
+            {{ t('appStore.confirmRisky') }}
+          </Checkbox>
+          <div class="footer-btns">
+            <FpButton variant="ghost" @click="installVisible = false">
+              {{ t('common.cancel') }}
+            </FpButton>
+            <FpButton variant="primary" :loading="installLoading" @click="doInstall">
+              {{ t('appStore.install') }}
+            </FpButton>
+          </div>
+        </div>
       </template>
-    </el-dialog>
+    </FpModal>
 
-    <el-dialog v-model="logsVisible" :title="t('appStore.logs')" width="700px">
+    <FpModal v-model="logsVisible" :header="t('appStore.logs')" style="width: 700px">
       <pre class="logs-view">{{ currentLogs }}</pre>
       <template #footer>
-        <el-button type="primary" @click="logsVisible = false">{{ t('common.close') }}</el-button>
+        <FpButton variant="primary" @click="logsVisible = false">{{ t('common.close') }}</FpButton>
       </template>
-    </el-dialog>
+    </FpModal>
 
-    <el-dialog v-model="showImportDialog" :title="t('appStore.import')" width="480px">
-      <el-form label-width="100px">
-        <el-form-item :label="t('appStore.importPath')">
-          <el-input v-model="importPath" placeholder="/opt/flamepanel/apps/myapp" />
-        </el-form-item>
-      </el-form>
+    <FpModal v-model="showImportDialog" :header="t('appStore.import')" style="width: 480px">
+      <FpInput
+        v-model="importPath"
+        :label="t('appStore.importPath')"
+        placeholder="/opt/flamepanel/apps/myapp"
+      />
       <template #footer>
-        <el-button @click="showImportDialog = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" @click="doImport">{{ t('appStore.import') }}</el-button>
+        <FpButton variant="ghost" @click="showImportDialog = false">{{ t('common.cancel') }}</FpButton>
+        <FpButton variant="primary" @click="doImport">{{ t('appStore.import') }}</FpButton>
       </template>
-    </el-dialog>
+    </FpModal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, reactive, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, FolderOpened, Box, MagicStick } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
+import Tabs from 'openvue/tabs'
+import TabList from 'openvue/tablist'
+import Tab from 'openvue/tab'
+import TabPanels from 'openvue/tabpanels'
+import TabPanel from 'openvue/tabpanel'
+import InputNumber from 'openvue/inputnumber'
+import ToggleSwitch from 'openvue/toggleswitch'
+import Checkbox from 'openvue/checkbox'
+import Divider from 'openvue/divider'
+import Skeleton from 'openvue/skeleton'
+import Column from 'openvue/column'
+import FpTable from '@/components/ui/FpTable.vue'
+import FpModal from '@/components/ui/FpModal.vue'
+import FpInput from '@/components/ui/FpInput.vue'
+import FpSelect from '@/components/ui/FpSelect.vue'
+import FpButton from '@/components/ui/FpButton.vue'
+import FpTag from '@/components/ui/FpTag.vue'
+import FpEmpty from '@/components/ui/FpEmpty.vue'
+import { useFpToast } from '@/components/ui/FpToast'
+import { useFpConfirm } from '@/components/ui/FpConfirm'
 import {
   listPackages,
   getPackage,
@@ -251,6 +306,9 @@ import {
 } from '@/api/appStore'
 
 const { t } = useI18n()
+const toast = useFpToast()
+const { confirmAction } = useFpConfirm()
+
 const activeTab = ref('store')
 const search = ref('')
 const loading = ref(false)
@@ -295,6 +353,13 @@ const installForm = reactive<{
   confirm_risky: false,
   values: {},
 })
+
+const versionOptions = computed(() =>
+  (installMeta.value?.versions || []).map((v) => ({ label: v, value: v })),
+)
+const modeOptions = computed(() =>
+  (installMeta.value?.modes || []).map((m) => ({ label: modeLabel(m), value: m })),
+)
 
 const filteredPackages = computed(() => {
   if (!search.value) return packages.value
@@ -431,40 +496,39 @@ async function doInstall() {
       values,
       confirm_risky: installForm.confirm_risky,
     })
-    ElMessage.success(t('appStore.installSuccess'))
+    toast.success(t('appStore.installSuccess'))
     installVisible.value = false
     loadInstalled()
   } catch (e: unknown) {
-    ElMessage.error(errorDetail(e) || t('appStore.installFailed'))
+    toast.error(e, errorDetail(e) || t('appStore.installFailed'))
   } finally {
     installLoading.value = false
   }
 }
 
-async function uninstall(row: InstalledApp) {
-  try {
-    await ElMessageBox.confirm(t('appStore.confirmUninstall', { name: row.name }), t('common.warning'), {
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
-  try {
-    await uninstallApp(row.id)
-    ElMessage.success(t('appStore.uninstallSuccess'))
-    loadInstalled()
-  } catch (e: unknown) {
-    ElMessage.error(errorDetail(e) || t('appStore.uninstallFailed'))
-  }
+function uninstall(row: InstalledApp) {
+  confirmAction({
+    message: t('appStore.confirmUninstall', { name: row.name }),
+    header: t('common.warning'),
+    accept: async () => {
+      try {
+        await uninstallApp(row.id)
+        toast.success(t('appStore.uninstallSuccess'))
+        loadInstalled()
+      } catch (e: unknown) {
+        toast.error(e, errorDetail(e) || t('appStore.uninstallFailed'))
+      }
+    },
+  })
 }
 
 async function upgrade(row: InstalledApp) {
   try {
     await upgradeApp(row.id)
-    ElMessage.success(t('appStore.upgradeSuccess'))
+    toast.success(t('appStore.upgradeSuccess'))
     loadInstalled()
   } catch (e: unknown) {
-    ElMessage.error(errorDetail(e) || t('appStore.upgradeFailed'))
+    toast.error(e, errorDetail(e) || t('appStore.upgradeFailed'))
   }
 }
 
@@ -483,11 +547,11 @@ async function doImport() {
   if (!importPath.value) return
   try {
     await importPackage(importPath.value)
-    ElMessage.success(t('appStore.importSuccess'))
+    toast.success(t('appStore.importSuccess'))
     showImportDialog.value = false
     loadPackages()
   } catch (e: unknown) {
-    ElMessage.error(errorDetail(e) || t('appStore.importFailed'))
+    toast.error(e, errorDetail(e) || t('appStore.importFailed'))
   }
 }
 
@@ -499,123 +563,71 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.app-store {
-  padding: 20px;
-}
-.header {
+.view-container {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  gap: var(--fp-space-4);
+}
+.page-toolbar {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
+  justify-content: flex-end;
+  gap: var(--fp-space-3);
 }
-.header-actions {
-  display: flex;
-  gap: 12px;
-}
-.search-input {
+.search-box {
+  position: relative;
   width: 260px;
 }
-.app-card-col {
-  margin-bottom: 16px;
+.search-icon {
+  position: absolute;
+  left: var(--fp-space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  color: var(--fp-text-muted);
+  font-size: 14px;
+  pointer-events: none;
 }
-.app-card-body {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
+.search-box :deep(input) {
+  padding-left: 34px;
 }
-.app-logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  background: var(--el-color-primary-light-9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  color: var(--el-color-primary);
-  flex-shrink: 0;
-}
-.wasm-logo {
-  background: #f0f5ff;
-  color: #4f6ef7;
-}
-.app-info {
-  flex: 1;
-  min-width: 0;
-}
-.app-name {
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-.app-desc {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 8px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.app-tags .tag {
-  margin-left: 4px;
-}
-.app-actions {
-  flex-shrink: 0;
-}
-.security-alert {
-  margin-bottom: 12px;
-}
-.logs-view {
-  background: #0f172a;
-  color: #a5f3fc;
-  padding: 12px;
-  border-radius: 6px;
-  max-height: 420px;
-  overflow-y: auto;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-/* 推荐安装 */
-.recommend-section {
-  margin-bottom: 16px;
-}
-.recommend-title {
+.section-title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 8px;
+  color: var(--fp-text-primary);
+  margin-bottom: var(--fp-space-3);
+}
+.recommend-section {
+  margin-bottom: var(--fp-space-4);
 }
 .recommend-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 12px;
+  gap: var(--fp-space-3);
 }
 .recommend-card {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-color);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 6%, transparent), transparent);
+  gap: var(--fp-space-3);
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-lg);
+  border: 1px solid var(--fp-border);
+  background: var(--fp-bg-elevated);
   cursor: pointer;
   transition:
-    border-color var(--transition-fast),
-    box-shadow var(--transition-fast);
+    border-color var(--fp-transition-fast),
+    box-shadow var(--fp-transition-fast);
 }
 .recommend-card:hover {
-  border-color: var(--el-color-primary);
-  box-shadow: var(--card-shadow-hover);
+  border-color: var(--fp-brand);
+  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.18);
 }
 .recommend-logo {
   width: 44px;
   height: 44px;
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--brand) 12%, transparent);
-  color: var(--brand);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-brand-soft);
+  color: var(--fp-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -629,14 +641,169 @@ onMounted(() => {
 .recommend-name {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--fp-text-primary);
 }
 .recommend-desc {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--fp-text-secondary);
   margin: 2px 0 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--fp-space-3);
+}
+.app-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--fp-space-3);
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+  transition:
+    box-shadow var(--fp-transition-fast),
+    transform 120ms var(--fp-ease-out);
+}
+.app-card:hover {
+  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.18);
+  transform: translateY(-1px);
+}
+.app-card-skeleton {
+  gap: var(--fp-space-3);
+}
+.app-card-body {
+  display: flex;
+  gap: var(--fp-space-3);
+  align-items: flex-start;
+}
+.app-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-brand-soft);
+  color: var(--fp-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.wasm-logo {
+  background: var(--fp-info-soft);
+  color: var(--fp-info);
+}
+.app-info {
+  flex: 1;
+  min-width: 0;
+}
+.app-name {
+  font-weight: 600;
+  color: var(--fp-text-primary);
+  margin-bottom: 4px;
+}
+.app-desc {
+  font-size: 12px;
+  color: var(--fp-text-secondary);
+  margin-bottom: var(--fp-space-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.app-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fp-space-1);
+}
+.app-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.panel {
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+}
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-4);
+}
+.field-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-2);
+}
+.field-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fp-text-primary);
+}
+.security-alert {
+  display: flex;
+  gap: var(--fp-space-2);
+  align-items: flex-start;
+  padding: var(--fp-space-3);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-warning-soft);
+  border: 1px solid var(--fp-warning);
+  font-size: 13px;
+  color: var(--fp-text-primary);
+  margin-bottom: var(--fp-space-4);
+}
+.security-alert i {
+  color: var(--fp-warning);
+  margin-top: 2px;
+}
+.security-title {
+  font-weight: 600;
+  color: var(--fp-warning);
+  margin-bottom: 2px;
+}
+.logs-view {
+  background: #0f172a;
+  color: #a5f3fc;
+  padding: var(--fp-space-3);
+  border-radius: var(--fp-radius-sm);
+  max-height: 420px;
+  overflow-y: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: var(--fp-font-mono);
+}
+.install-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  gap: var(--fp-space-3);
+}
+.footer-btns {
+  display: flex;
+  gap: var(--fp-space-2);
+}
+.row-actions {
+  display: flex;
+  gap: var(--fp-space-2);
+  flex-wrap: wrap;
+}
+.access-link {
+  color: var(--fp-brand);
+  text-decoration: none;
+}
+.access-link:hover {
+  text-decoration: underline;
 }
 </style>

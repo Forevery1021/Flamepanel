@@ -1,106 +1,77 @@
 <template>
-  <div class="view-container">
-    <div class="card-header-title">
-    </div>
-    <el-row :gutter="16">
-      <el-col :xs="24" :md="8">
-        <el-card shadow="hover">
-          <template #header>{{ t('health.database') }}</template>
-          <div class="health-item">
-            <span class="dot" :class="dbOk ? 'green' : 'red'" />
-            <span>{{ dbOk ? t('health.connected') : t('health.disconnected') }}</span>
-          </div>
-          <div class="health-detail">{{ dbDetail }}</div>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :md="8">
-        <el-card shadow="hover">
-          <template #header>{{ t('health.docker') }}</template>
-          <div class="health-item">
-            <span class="dot" :class="dockerOk ? 'green' : 'red'" />
-            <span>{{ dockerOk ? t('health.connected') : t('health.degraded') }}</span>
-          </div>
-          <div class="health-detail">{{ dockerDetail }}</div>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :md="8">
-        <el-card shadow="hover">
-          <template #header>{{ t('health.disk') }}</template>
-          <div class="health-item">
-            <span class="dot" :class="diskOk ? 'green' : 'red'" />
-            <span>{{ diskOk ? t('health.connected') : t('health.degraded') }}</span>
-          </div>
-          <div class="health-detail">{{ diskDetail }}</div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-card shadow="hover" class="mt-4">
-      <template #header>
-        <span>{{ t('health.panel') }}</span>
-        <el-tag :type="panelStatus === 'ok' ? 'success' : 'warning'" size="small" class="ml-2">
-          {{ panelStatus }}
-        </el-tag>
-      </template>
-      <div class="info-rows">
-        <div class="info-row"><span>{{ t('health.version') }}</span><span>{{ health?.version || '—' }}</span></div>
-        <div class="info-row"><span>{{ t('health.uptime') }}</span><span>{{ uptimeText }}</span></div>
-        <div class="info-row"><span>{{ t('health.websocket') }}</span><span>{{ wsOk ? t('health.connected') : t('health.disconnected') }}</span></div>
+  <LayoutContent :title="t('health.title')" reload @reload="refreshHealth">
+    <div class="health-grid">
+      <div v-for="h in healthCards" :key="h.key" class="panel health-card">
+        <div class="health-item">
+          <span class="dot" :class="h.ok ? 'green' : 'red'" />
+          <span>{{ h.label }}</span>
+          <FpTag :severity="h.ok ? 'success' : 'danger'" :value="h.statusText" />
+        </div>
+        <div class="health-detail">{{ h.detail }}</div>
       </div>
-    </el-card>
+    </div>
 
-    <el-card shadow="hover" class="mt-4">
-      <template #header>{{ t('health.routes') }}</template>
-      <el-table
-        :data="routes"
-        border
-        stripe
-        size="small"
-        max-height="400px"
-        :empty-text="t('common.noData')"
-      >
-        <el-table-column :label="t('health.method')" width="100">
-          <template #default="{ row }">
-            <el-tag
-              size="small"
-              :type="
-                row.method === 'GET'
-                  ? 'success'
-                  : row.method === 'POST'
-                    ? 'warning'
-                    : row.method === 'WS'
-                      ? 'primary'
-                      : 'info'
-              "
-              >{{ row.method }}</el-tag
-            >
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">{{ t('health.panel') }}</span>
+        <FpTag :severity="panelStatus === 'ok' ? 'success' : 'warning'" :value="panelStatus" />
+      </div>
+      <div class="info-rows">
+        <div class="info-row">
+          <span>{{ t('health.version') }}</span>
+          <span class="mono">{{ health?.version || '—' }}</span>
+        </div>
+        <div class="info-row">
+          <span>{{ t('health.uptime') }}</span>
+          <span class="mono">{{ uptimeText }}</span>
+        </div>
+        <div class="info-row">
+          <span>{{ t('health.websocket') }}</span>
+          <span class="mono">{{ wsOk ? t('health.connected') : t('health.disconnected') }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">{{ t('health.routes') }}</span>
+      </div>
+      <FpTable :rows="routes" :paginator="false" size="small">
+        <Column :header="t('health.method')" style="width: 130px">
+          <template #body="{ data }">
+            <FpTag :severity="methodSeverity(data.method)" :value="data.method" />
           </template>
-        </el-table-column>
-        <el-table-column :label="t('health.path')" prop="path" />
-        <el-table-column :label="t('health.auth')" width="80">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.auth ? 'danger' : 'info'">{{
-              row.auth ? t('health.required') : t('health.none')
-            }}</el-tag>
+        </Column>
+        <Column :header="t('health.path')" field="path">
+          <template #body="{ data }">
+            <span class="mono path-text">{{ data.path }}</span>
           </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-  </div>
+        </Column>
+        <Column :header="t('health.auth')" style="width: 90px">
+          <template #body="{ data }">
+            <FpTag :severity="data.auth ? 'danger' : 'neutral'" :value="data.auth ? t('health.required') : t('health.none')" />
+          </template>
+        </Column>
+      </FpTable>
+    </div>
+  </LayoutContent>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import Column from 'openvue/column'
 import { connectWithRetry } from '@/utils/ws'
 import { fetchHealthDetail } from '@/api/health'
+import FpTag from '@/components/ui/FpTag.vue'
+import FpTable from '@/components/ui/FpTable.vue'
+import LayoutContent from '@/components/ui/LayoutContent.vue'
 import type { HealthDetail } from '@/types'
 
 const { t } = useI18n()
 const wsOk = ref(false)
 let wsConn: ReturnType<typeof connectWithRetry> | null = null
 
-// ── 真实 /api/health 数据 ──
 const health = ref<HealthDetail | null>(null)
 const dbOk = ref(false)
 const dockerOk = ref(false)
@@ -116,6 +87,37 @@ const uptimeText = computed(() => {
   const m = Math.floor((s % 3600) / 60)
   return `${h}h ${m}m`
 })
+
+const healthCards = computed(() => [
+  {
+    key: 'db',
+    label: t('health.database'),
+    ok: dbOk.value,
+    statusText: dbOk.value ? t('health.connected') : t('health.disconnected'),
+    detail: dbDetail.value,
+  },
+  {
+    key: 'docker',
+    label: t('health.docker'),
+    ok: dockerOk.value,
+    statusText: dockerOk.value ? t('health.connected') : t('health.degraded'),
+    detail: dockerDetail.value,
+  },
+  {
+    key: 'disk',
+    label: t('health.disk'),
+    ok: diskOk.value,
+    statusText: diskOk.value ? t('health.connected') : t('health.degraded'),
+    detail: diskDetail.value,
+  },
+])
+
+function methodSeverity(method: string) {
+  if (method.includes('GET')) return 'success'
+  if (method.includes('POST')) return 'warning'
+  if (method.includes('WS')) return 'info'
+  return 'neutral'
+}
 
 async function refreshHealth() {
   try {
@@ -208,17 +210,47 @@ onUnmounted(() => wsConn?.close())
 </script>
 
 <style scoped>
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--fp-space-4);
+}
+.health-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-3);
+}
 .health-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--fp-space-2);
   font-size: 15px;
   font-weight: 600;
 }
+.health-item .dot {
+  flex-shrink: 0;
+}
 .health-detail {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-top: 6px;
+  color: var(--fp-text-secondary);
+  word-break: break-all;
+}
+.panel {
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+}
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--fp-space-3);
+}
+.panel-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--fp-text-primary);
 }
 .dot {
   width: 10px;
@@ -227,20 +259,30 @@ onUnmounted(() => wsConn?.close())
   display: inline-block;
 }
 .dot.green {
-  background: #67c23a;
+  background: var(--fp-success);
+  box-shadow: 0 0 0 3px var(--fp-success-soft);
 }
 .dot.red {
-  background: #f56c6c;
+  background: var(--fp-danger);
+  box-shadow: 0 0 0 3px var(--fp-danger-soft);
 }
 .info-rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--fp-space-2);
 }
 .info-row {
   display: flex;
   justify-content: space-between;
   font-size: 13px;
-  color: var(--text-secondary);
+  color: var(--fp-text-secondary);
+}
+.path-text {
+  font-size: 12.5px;
+}
+@media (max-width: 768px) {
+  .health-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

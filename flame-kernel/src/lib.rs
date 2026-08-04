@@ -124,6 +124,12 @@ impl FlameKernel {
             let _ = app_store_service_for_restore.restore_wasm_plugins().await;
         });
 
+        // SQLite 模式补齐默认设置（后台异步，upsert 不覆盖用户已有配置）
+        let factory_for_seed = factory;
+        tokio::spawn(async move {
+            let _ = factory_for_seed.seed_default_settings().await;
+        });
+
         // 定时任务调度器（每 30 秒检查一次到期任务）
         let scheduled_task_service = services.scheduled_task_service.clone();
         tokio::spawn(async move {

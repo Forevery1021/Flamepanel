@@ -1,0 +1,63 @@
+/* ═══════════ Glass Material Utilities ═══════════ */
+
+/* 轻玻璃：顶栏/卡片悬浮 */
+.glass {
+  background: oklch(1 0 0 / 0.62);
+  backdrop-filter: blur(var(--fp-glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--fp-glass-blur)) saturate(1.4);
+  border: 1px solid oklch(1 0 0 / 0.5);
+  box-shadow: 0 1px 0 0 oklch(1 0 0 / 0.4) inset;
+}
+
+/* 重玻璃：Modal / Command Palette */
+.glass-heavy {
+  background: oklch(1 0 0 / 0.72);
+  backdrop-filter: blur(calc(var(--fp-glass-blur) * 2)) saturate(1.5);
+  -webkit-backdrop-filter: blur(calc(var(--fp-glass-blur) * 2)) saturate(1.5);
+  border: 1px solid oklch(1 0 0 / 0.6);
+  box-shadow:
+    0 1px 0 0 oklch(1 0 0 / 0.5) inset,
+    0 20px 40px -12px rgb(0 0 0 / 0.25);
+}
+
+.dark .glass {
+  background: oklch(0.2 0.014 250 / 0.55);
+  border-color: oklch(1 0 0 / 0.08);
+  box-shadow: 0 1px 0 0 oklch(1 0 0 / 0.06) inset;
+}
+
+.dark .glass-heavy {
+  background: oklch(0.18 0.014 250 / 0.7);
+  border-color: oklch(1 0 0 / 0.1);
+  box-shadow:
+    0 1px 0 0 oklch(1 0 0 / 0.08) inset,
+    0 20px 40px -12px rgb(0 0 0 / 0.6);
+}
+
+/* 无障碍：禁用透明度时回退纯色 */
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-heavy {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--fp-bg-elevated);
+    border-color: var(--fp-border);
+  }
+}
+
+/* ═══════════ 自定义背景联动：面板转半透明玻璃 ═══════════ */
+.app-bg-enabled .app-header,
+.app-bg-enabled .app-tabs,
+.app-bg-enabled .panel,
+.app-bg-enabled .fp-table .p-datatable-header,
+.app-bg-enabled .p-paginator {
+  background: color-mix(in srgb, var(--fp-bg-elevated) 78%, transparent);
+  backdrop-filter: blur(var(--fp-glass-blur)) saturate(1.3);
+  -webkit-backdrop-filter: blur(var(--fp-glass-blur)) saturate(1.3);
+}
+.app-bg-enabled .main {
+  background: transparent;
+}
+.app-bg-enabled .app-header {
+  border-bottom-color: color-mix(in srgb, var(--fp-border) 70%, transparent);
+}

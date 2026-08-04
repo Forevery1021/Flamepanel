@@ -1,142 +1,164 @@
 <template>
   <div class="view-container">
-    <div class="card-header-title">
-      <div class="actions">
-        <el-button @click="showUpload = true">{{ t('file.upload') }}</el-button>
-        <el-button @click="showCreateFile = true">{{ t('file.createFile') }}</el-button>
-        <el-button @click="showCreateDir = true">{{ t('file.createDir') }}</el-button>
-        <el-button :loading="loading" @click="fetch">{{ t('common.refresh') }}</el-button>
-      </div>
+    <div class="page-toolbar">
+      <FpButton variant="primary" icon="oi oi-upload" @click="showUpload = true">
+        {{ t('file.upload') }}
+      </FpButton>
+      <FpButton variant="ghost" icon="oi oi-file-plus" @click="showCreateFile = true">
+        {{ t('file.createFile') }}
+      </FpButton>
+      <FpButton variant="ghost" icon="oi oi-folder-plus" @click="showCreateDir = true">
+        {{ t('file.createDir') }}
+      </FpButton>
+      <FpButton variant="ghost" icon="oi oi-refresh" :loading="loading" @click="fetch">
+        {{ t('common.refresh') }}
+      </FpButton>
     </div>
 
-    <el-breadcrumb separator="/" class="my-3">
-      <el-breadcrumb-item v-for="(seg, i) in breadcrumbs" :key="i">
-        <a @click="goTo(seg.path)">{{ seg.name }}</a>
-      </el-breadcrumb-item>
-    </el-breadcrumb>
+    <div class="panel file-panel">
+      <Breadcrumb :model="breadcrumbItems" class="file-breadcrumb" />
 
-    <el-card shadow="hover">
-      <el-table
-        v-loading="loading"
+      <FpTable
+        :rows="entries"
+        :loading="loading"
         :empty-text="t('common.noData')"
-        :data="entries"
-        stripe
-        class="full-width"
-        @row-dblclick="openEntry"
+        striped-rows
+        @row-dblclick="onRowDblClick"
       >
-        <el-table-column :label="t('file.name')" min-width="300">
-          <template #default="{ row }">
-            <span :class="{ 'dir-icon': row.is_dir, 'file-icon': !row.is_dir }">
-              {{ row.is_dir ? '📁' : '📄' }} {{ row.name }}
+        <Column field="name" :header="t('file.name')" style="min-width: 300px">
+          <template #body="{ data }">
+            <span class="file-name" :class="data.is_dir ? 'dir-icon' : 'file-icon'">
+              <i :class="data.is_dir ? 'oi oi-folder' : 'oi oi-file'" />
+              {{ data.name }}
             </span>
           </template>
-        </el-table-column>
-        <el-table-column prop="size" :label="t('file.size')" width="100">
-          <template #default="{ row }">{{ row.is_dir ? '-' : formatSize(row.size) }}</template>
-        </el-table-column>
-        <el-table-column prop="permissions" :label="t('file.permissions')" width="90" />
-        <el-table-column prop="modified_at" :label="t('file.modified')" width="180">
-          <template #default="{ row }">{{ formatDate(row.modified_at) }}</template>
-        </el-table-column>
-        <el-table-column :label="t('file.actions')" width="280" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" :disabled="row.is_dir" @click="editFile(row)">{{
-              t('file.edit')
-            }}</el-button>
-            <el-button size="small" @click="showRename(row)">{{ t('file.rename') }}</el-button>
-            <el-button size="small" @click="showChmod(row)">{{ t('file.chmod') }}</el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">{{
-              t('file.delete')
-            }}</el-button>
+        </Column>
+        <Column :header="t('file.size')" style="width: 100px">
+          <template #body="{ data }">
+            {{ data.is_dir ? '-' : formatSize(data.size) }}
           </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+        </Column>
+        <Column field="permissions" :header="t('file.permissions')" style="width: 90px" />
+        <Column :header="t('file.modified')" style="width: 180px">
+          <template #body="{ data }">
+            {{ formatDate(data.modified_at) }}
+          </template>
+        </Column>
+        <Column :header="t('file.actions')" style="width: 280px" frozen>
+          <template #body="{ data }">
+            <div class="row-actions">
+              <FpButton variant="link" :disabled="data.is_dir" @click="editFile(data)">
+                {{ t('file.edit') }}
+              </FpButton>
+              <FpButton variant="link" @click="showRename(data)">{{ t('file.rename') }}</FpButton>
+              <FpButton variant="link" @click="showChmod(data)">{{ t('file.chmod') }}</FpButton>
+              <FpButton variant="link" @click="handleDelete(data)">{{ t('file.delete') }}</FpButton>
+            </div>
+          </template>
+        </Column>
+      </FpTable>
+    </div>
 
-    <el-dialog v-model="showEdit" :title="t('file.edit')" width="800" top="5vh">
-      <el-input v-model="editContent" type="textarea" :rows="20" class="mono" />
+    <FpModal v-model="showEdit" :header="t('file.edit')" width="800">
+      <Textarea v-model="editContent" rows="20" class="mono w-full" />
       <template #footer>
-        <el-button @click="showEdit = false">{{ t('file.cancel') }}</el-button>
-        <el-button type="primary" @click="saveEdit">{{ t('file.save') }}</el-button>
+        <FpButton variant="ghost" @click="showEdit = false">{{ t('file.cancel') }}</FpButton>
+        <FpButton variant="primary" @click="saveEdit">{{ t('file.save') }}</FpButton>
       </template>
-    </el-dialog>
+    </FpModal>
 
-    <el-dialog v-model="showCreateFile" :title="t('file.createFile')" width="400">
-      <el-form :model="createForm" label-width="80">
-        <el-form-item :label="t('file.path')">
-          <el-input v-model="createForm.path" :placeholder="currentPath + '/filename'" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showCreateFile = false">{{ t('file.cancel') }}</el-button>
-        <el-button type="primary" @click="handleCreateFile">{{ t('file.createFile') }}</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="showCreateDir" :title="t('file.createDir')" width="400">
-      <el-form :model="createForm" label-width="80">
-        <el-form-item :label="t('file.path')">
-          <el-input v-model="createForm.path" :placeholder="currentPath + '/dirname'" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showCreateDir = false">{{ t('file.cancel') }}</el-button>
-        <el-button type="primary" @click="handleCreateDir">{{ t('file.createDir') }}</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="showRenameDialog" :title="t('file.rename')" width="400">
-      <el-form :model="renameForm" label-width="80">
-        <el-form-item :label="t('file.newName')">
-          <el-input v-model="renameForm.newName" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showRenameDialog = false">{{ t('file.cancel') }}</el-button>
-        <el-button type="primary" @click="handleRename">{{ t('file.rename') }}</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="showChmodDialog" :title="t('file.chmod')" width="400">
-      <el-form :model="chmodForm" label-width="80">
-        <el-form-item :label="t('file.mode')">
-          <el-input v-model="chmodForm.mode" :placeholder="t('file.mode')" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showChmodDialog = false">{{ t('file.cancel') }}</el-button>
-        <el-button type="primary" @click="handleChmod">{{ t('common.confirm') }}</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="showUpload" :title="t('file.upload')" width="400">
-      <el-upload drag :auto-upload="false" :on-change="handleUploadChange" multiple>
-        <div class="el-upload__text">{{ t('file.uploadHere') }}</div>
-      </el-upload>
-      <div v-if="uploadFiles.length > 0" class="mt-2">
-        <el-tag
-          v-for="(f, i) in uploadFiles"
-          :key="i"
-          closable
-          class="m-1"
-          @close="uploadFiles.splice(i, 1)"
-          >{{ f.name }}</el-tag
-        >
+    <FpModal v-model="showCreateFile" :header="t('file.createFile')">
+      <div class="modal-form">
+        <FpInput
+          v-model="createForm.path"
+          :label="t('file.path')"
+          :placeholder="currentPath + '/filename'"
+        />
       </div>
       <template #footer>
-        <el-button @click="showUpload = false">{{ t('file.cancel') }}</el-button>
-        <el-button type="primary" @click="handleUpload"
-          >{{ t('file.upload') }} ({{ uploadFiles.length }})</el-button
-        >
+        <FpButton variant="ghost" @click="showCreateFile = false">{{ t('file.cancel') }}</FpButton>
+        <FpButton variant="primary" @click="handleCreateFile">{{ t('file.createFile') }}</FpButton>
       </template>
-    </el-dialog>
+    </FpModal>
+
+    <FpModal v-model="showCreateDir" :header="t('file.createDir')">
+      <div class="modal-form">
+        <FpInput
+          v-model="createForm.path"
+          :label="t('file.path')"
+          :placeholder="currentPath + '/dirname'"
+        />
+      </div>
+      <template #footer>
+        <FpButton variant="ghost" @click="showCreateDir = false">{{ t('file.cancel') }}</FpButton>
+        <FpButton variant="primary" @click="handleCreateDir">{{ t('file.createDir') }}</FpButton>
+      </template>
+    </FpModal>
+
+    <FpModal v-model="showRenameDialog" :header="t('file.rename')">
+      <div class="modal-form">
+        <FpInput v-model="renameForm.newName" :label="t('file.newName')" />
+      </div>
+      <template #footer>
+        <FpButton variant="ghost" @click="showRenameDialog = false">{{ t('file.cancel') }}</FpButton>
+        <FpButton variant="primary" @click="handleRename">{{ t('file.rename') }}</FpButton>
+      </template>
+    </FpModal>
+
+    <FpModal v-model="showChmodDialog" :header="t('file.chmod')">
+      <div class="modal-form">
+        <FpInput
+          v-model="chmodForm.mode"
+          :label="t('file.mode')"
+          :placeholder="t('file.mode')"
+        />
+      </div>
+      <template #footer>
+        <FpButton variant="ghost" @click="showChmodDialog = false">{{ t('file.cancel') }}</FpButton>
+        <FpButton variant="primary" @click="handleChmod">{{ t('common.confirm') }}</FpButton>
+      </template>
+    </FpModal>
+
+    <FpModal v-model="showUpload" :header="t('file.upload')">
+      <div class="modal-form">
+        <FileUpload
+          mode="basic"
+          :auto="false"
+          :multiple="true"
+          :custom-upload="true"
+          :choose-label="t('file.uploadHere')"
+          @select="handleUploadSelect"
+          @uploader="handleUpload"
+        />
+        <div v-if="uploadFiles.length > 0" class="upload-list">
+          <Chip
+            v-for="(f, i) in uploadFiles"
+            :key="i"
+            :label="f.name"
+            :removable="true"
+            class="upload-chip"
+            @remove="uploadFiles.splice(i, 1)"
+          />
+        </div>
+      </div>
+      <template #footer>
+        <FpButton variant="ghost" @click="showUpload = false">{{ t('file.cancel') }}</FpButton>
+        <FpButton variant="primary" :disabled="uploadFiles.length === 0" @click="handleUpload">
+          {{ t('file.upload') }} ({{ uploadFiles.length }})
+        </FpButton>
+      </template>
+    </FpModal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import Breadcrumb from 'openvue/breadcrumb'
+import Column from 'openvue/column'
+import FileUpload from 'openvue/fileupload'
+import Chip from 'openvue/chip'
+import Textarea from 'openvue/textarea'
 import {
   listFiles,
   readFile,
@@ -149,21 +171,32 @@ import {
   uploadFile,
 } from '@/api/files'
 import type { FileInfo } from '@/types'
+import FpTable from '@/components/ui/FpTable.vue'
+import FpModal from '@/components/ui/FpModal.vue'
+import FpInput from '@/components/ui/FpInput.vue'
+import FpButton from '@/components/ui/FpButton.vue'
+import { useFpToast } from '@/components/ui/FpToast'
+import { useFpConfirm } from '@/components/ui/FpConfirm'
 
 const { t } = useI18n()
+const toast = useFpToast()
+const { confirmAction } = useFpConfirm()
+
 const currentPath = ref('/')
 const entries = ref<FileInfo[]>([])
 const loading = ref(false)
-const breadcrumbs = computed(() => {
+const breadcrumbItems = computed(() => {
   const parts = currentPath.value
     .replace(/^\/|\/$/g, '')
     .split('/')
     .filter(Boolean)
-  const crumbs = [{ name: '/', path: '/' }]
+  const crumbs: Array<{ label: string; command: () => void }> = [
+    { label: '/', command: () => goTo('/') },
+  ]
   let acc = ''
   for (const p of parts) {
     acc += '/' + p
-    crumbs.push({ name: p, path: acc })
+    crumbs.push({ label: p, command: () => goTo(acc) })
   }
   return crumbs
 })
@@ -191,7 +224,7 @@ async function fetch() {
     const res = await listFiles(currentPath.value)
     entries.value = res.data
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     loading.value = false
   }
@@ -200,6 +233,10 @@ async function fetch() {
 function goTo(path: string) {
   currentPath.value = path
   fetch()
+}
+
+function onRowDblClick(e: { data: FileInfo }) {
+  openEntry(e.data)
 }
 
 function openEntry(row: FileInfo) {
@@ -213,7 +250,7 @@ function openEntry(row: FileInfo) {
         editContent.value = res.data
         showEdit.value = true
       })
-      .catch(() => ElMessage.error(t('common.failed')))
+      .catch(() => toast.error(t('common.failed')))
   }
 }
 
@@ -224,10 +261,10 @@ function editFile(row: FileInfo) {
 function saveEdit() {
   writeFile(editPath.value, editContent.value)
     .then(() => {
-      ElMessage.success(t('common.success'))
+      toast.success(t('common.success'))
       showEdit.value = false
     })
-    .catch(() => ElMessage.error(t('common.failed')))
+    .catch(() => toast.error(t('common.failed')))
 }
 
 function handleCreateFile() {
@@ -236,12 +273,12 @@ function handleCreateFile() {
     : `${currentPath.value}/${createForm.value.path}`
   createFile(path)
     .then(() => {
-      ElMessage.success(t('common.success'))
+      toast.success(t('common.success'))
       showCreateFile.value = false
       createForm.value.path = ''
       fetch()
     })
-    .catch(() => ElMessage.error(t('common.failed')))
+    .catch(() => toast.error(t('common.failed')))
 }
 
 function handleCreateDir() {
@@ -250,12 +287,12 @@ function handleCreateDir() {
     : `${currentPath.value}/${createForm.value.path}`
   createDir(path)
     .then(() => {
-      ElMessage.success(t('common.success'))
+      toast.success(t('common.success'))
       showCreateDir.value = false
       createForm.value.path = ''
       fetch()
     })
-    .catch(() => ElMessage.error(t('common.failed')))
+    .catch(() => toast.error(t('common.failed')))
 }
 
 function showRename(row: FileInfo) {
@@ -267,11 +304,11 @@ function handleRename() {
   const newPath = renameForm.value.oldPath.replace(/[^/]+$/, renameForm.value.newName)
   renameFile(renameForm.value.oldPath, newPath)
     .then(() => {
-      ElMessage.success(t('common.success'))
+      toast.success(t('common.success'))
       showRenameDialog.value = false
       fetch()
     })
-    .catch(() => ElMessage.error(t('common.failed')))
+    .catch(() => toast.error(t('common.failed')))
 }
 
 function showChmod(row: FileInfo) {
@@ -282,38 +319,40 @@ function showChmod(row: FileInfo) {
 function handleChmod() {
   chmodFile(chmodForm.value.path, chmodForm.value.mode)
     .then(() => {
-      ElMessage.success(t('common.success'))
+      toast.success(t('common.success'))
       showChmodDialog.value = false
       fetch()
     })
-    .catch(() => ElMessage.error(t('common.failed')))
+    .catch(() => toast.error(t('common.failed')))
 }
 
-async function handleDelete(row: FileInfo) {
-  try {
-    await ElMessageBox.confirm(t('file.deleteConfirm', { name: row.name }), t('common.confirm'))
-    await deleteFile(row.path, row.is_dir)
-    ElMessage.success(t('common.success'))
-    await fetch()
-  } catch {
-    /* cancelled or failed */
-  }
+function handleDelete(row: FileInfo) {
+  confirmAction({
+    message: t('file.deleteConfirm', { name: row.name }),
+    header: t('common.confirm'),
+    accept: async () => {
+      try {
+        await deleteFile(row.path, row.is_dir)
+        toast.success(t('common.success'))
+        await fetch()
+      } catch {
+        toast.error(t('common.failed'))
+      }
+    },
+  })
 }
 
-function handleUploadChange(file: File | { raw?: File }) {
-  const raw = 'raw' in file ? file.raw : file
-  if (raw instanceof File) {
-    uploadFiles.value = [...uploadFiles.value, raw]
-  }
+function handleUploadSelect(e: { files: File[] }) {
+  uploadFiles.value = [...uploadFiles.value, ...e.files]
 }
 
 async function handleUpload() {
   for (const file of uploadFiles.value) {
     try {
       await uploadFile(currentPath.value, file.name, file)
-      ElMessage.success(t('common.success'))
+      toast.success(t('common.success'))
     } catch {
-      ElMessage.error(t('common.failed'))
+      toast.error(t('common.failed'))
     }
   }
   uploadFiles.value = []
@@ -338,14 +377,53 @@ onMounted(fetch)
 </script>
 
 <style scoped>
-.actions {
+.page-toolbar {
   display: flex;
-  gap: 8px;
+  justify-content: flex-end;
+  gap: var(--fp-space-2);
+  margin-bottom: var(--fp-space-4);
 }
-.dir-icon {
-  cursor: pointer;
+.panel {
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
 }
-.file-icon {
-  cursor: pointer;
+.file-panel {
+  overflow: hidden;
+}
+.file-breadcrumb {
+  margin-bottom: var(--fp-space-3);
+}
+.file-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fp-space-2);
+}
+.file-name i {
+  font-size: 14px;
+}
+.dir-icon i {
+  color: var(--fp-warning);
+}
+.file-icon i {
+  color: var(--fp-info);
+}
+.row-actions {
+  display: flex;
+  gap: var(--fp-space-2);
+}
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-4);
+}
+.upload-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fp-space-2);
+}
+.mono {
+  font-family: var(--fp-font-mono);
 }
 </style>

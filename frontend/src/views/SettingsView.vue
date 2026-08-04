@@ -1,234 +1,344 @@
 <template>
   <div class="view-container">
-    <div class="card-header-title">
-    </div>
-
-    <el-row :gutter="16">
-      <el-col :xs="24" :md="12">
-        <el-card shadow="hover">
-          <template #header
-            ><span class="font-semibold">{{ t('settings.changePassword') }}</span></template
-          >
-          <el-form ref="pwFormRef" :model="pwForm" :label-width="labelWidth" :rules="pwRules">
-            <el-form-item :label="t('settings.oldPassword')" prop="old_password">
-              <el-input v-model="pwForm.old_password" type="password" show-password />
-            </el-form-item>
-            <el-form-item :label="t('settings.newPassword')" prop="new_password">
-              <el-input v-model="pwForm.new_password" type="password" show-password />
-            </el-form-item>
-            <el-form-item :label="t('settings.confirmPassword')" prop="confirm">
-              <el-input v-model="pwForm.confirm" type="password" show-password />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="primary" :loading="pwSubmitting" @click="handleChangePassword">{{
-                t('common.save')
-              }}</el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :md="12">
-        <el-card shadow="hover">
-          <template #header
-            ><span class="font-semibold">{{ t('settings.panelInfo') }}</span></template
-          >
-          <el-descriptions :column="1" border>
-            <el-descriptions-item :label="t('settings.version')">{{
-              version
-            }}</el-descriptions-item>
-            <el-descriptions-item :label="t('settings.panelName')">{{
-              settingsMap['panel_name'] || 'FlamePanel'
-            }}</el-descriptions-item>
-            <el-descriptions-item :label="t('settings.username')">{{
-              auth.username
-            }}</el-descriptions-item>
-            <el-descriptions-item :label="t('settings.role')">
-              <el-tag size="small" :type="auth.role === 'admin' ? 'danger' : 'info'">{{
-                auth.role
-              }}</el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item :label="t('settings.backend')"
-              ><span class="status-ok">Connected</span></el-descriptions-item
-            >
-          </el-descriptions>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-card shadow="hover" class="mt-4">
-      <template #header
-        ><span class="font-semibold">{{ t('settings.panelConfig') }}</span></template
-      >
-      <el-form v-loading="loading" :model="settingsForm" :label-width="labelWidth">
-        <el-row :gutter="16">
-          <el-col :xs="24" :md="12">
-            <el-form-item :label="t('settings.panelName')">
-              <el-input v-model="settingsForm.panel_name" placeholder="FlamePanel" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="12">
-            <el-form-item :label="t('settings.theme')">
-              <el-select v-model="settingsForm.theme" class="full-width">
-                <el-option :label="t('settings.light')" value="light" />
-                <el-option :label="t('settings.dark')" value="dark" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :xs="24" :md="12">
-            <el-form-item :label="t('settings.language')">
-              <el-select
-                v-model="settingsForm.language"
-                class="full-width"
-                @change="handleLangChange"
-              >
-                <el-option label="简体中文" value="zh-CN" />
-                <el-option label="English" value="en-US" />
-                <el-option label="日本語" value="ja-JP" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="12">
-            <el-form-item :label="t('settings.panelPort')">
-              <el-input-number
+    <Tabs v-model:value="activeTab" class="settings-tabs">
+      <TabList>
+        <Tab value="general">{{ t('settings.panelConfig') }}</Tab>
+        <Tab value="security">{{ t('settings.security') }}</Tab>
+        <Tab value="backup">{{ t('settings.backupSettings') }}</Tab>
+        <Tab value="theme">{{ t('settingsTheme.title') }}</Tab>
+        <Tab value="appearance">{{ t('settingsAppearance.title') }}</Tab>
+      </TabList>
+      <TabPanels>
+        <TabPanel value="general">
+        <div class="settings-card">
+          <div class="settings-grid">
+            <FpInput v-model="settingsForm.panel_name" :label="t('settings.panelName')" />
+            <FpSelect
+              v-model="settingsForm.language"
+              :label="t('settings.language')"
+              :options="langOptions"
+              option-label="label"
+              option-value="value"
+              @update:model-value="(v) => handleLangChange(String(v ?? 'zh-CN'))"
+            />
+            <div class="field-col">
+              <label class="field-label">{{ t('settings.panelPort') }}</label>
+              <InputNumber
                 v-model="settingsForm.panel_port_num"
                 :min="1024"
                 :max="65535"
-                class="full-width"
+                class="w-full"
               />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :xs="24" :md="12">
-            <el-form-item :label="t('settings.sessionTimeout')">
-              <el-input-number
+            </div>
+            <div class="field-col">
+              <label class="field-label">{{ t('settings.sessionTimeout') }}</label>
+              <InputNumber
                 v-model="settingsForm.session_timeout_num"
                 :min="5"
                 :max="43200"
-                class="full-width"
+                class="w-full"
               />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="12">
-            <el-form-item :label="t('settings.logLevel')">
-              <el-select v-model="settingsForm.log_level" class="full-width">
-                <el-option label="Trace" value="trace" />
-                <el-option label="Debug" value="debug" />
-                <el-option label="Info" value="info" />
-                <el-option label="Warn" value="warn" />
-                <el-option label="Error" value="error" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :xs="24" :md="12">
-            <el-form-item :label="t('settings.logRetention')">
-              <el-input-number
+            </div>
+            <FpSelect
+              v-model="settingsForm.log_level"
+              :label="t('settings.logLevel')"
+              :options="logLevelOptions"
+              option-label="label"
+              option-value="value"
+            />
+            <div class="field-col">
+              <label class="field-label">{{ t('settings.logRetention') }}</label>
+              <InputNumber
                 v-model="settingsForm.log_retention_num"
                 :min="1"
                 :max="365"
-                class="full-width"
+                class="w-full"
               />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="12">
-            <el-form-item :label="t('settings.twoFactor')">
-              <el-switch v-model="settingsForm.two_factor_enabled_bool" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item>
-          <el-button type="primary" :loading="saving" @click="handleSaveSettings">{{
-            t('settings.save')
-          }}</el-button>
-          <el-button @click="resetSettings">{{ t('common.reset') }}</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+            </div>
+            <div class="field-col field-row">
+              <label class="field-label">{{ t('settings.twoFactor') }}</label>
+              <ToggleSwitch v-model="settingsForm.two_factor_enabled_bool" />
+            </div>
+          </div>
+          <div class="settings-actions">
+            <FpButton variant="primary" :loading="saving" @click="handleSaveSettings">
+              {{ t('settings.save') }}
+            </FpButton>
+            <FpButton variant="ghost" @click="resetSettings">{{ t('common.reset') }}</FpButton>
+          </div>
+        </div>
+      </TabPanel>
 
-    <el-card shadow="hover" class="mt-4">
-      <template #header
-        ><span class="font-semibold">{{ t('settings.backupSettings') }}</span></template
-      >
-      <el-form :label-width="labelWidth" class="backup-form">
-        <el-form-item :label="t('settings.autoBackup')">
-          <el-switch v-model="backupForm.enabled" />
-          <span class="ml-2 text-xs text-muted">{{ t('settings.autoBackupHint') }}</span>
-        </el-form-item>
-        <el-form-item :label="t('settings.backupInterval')">
-          <el-input-number
-            v-model="backupForm.intervalHours"
-            :min="1"
-            :max="168"
-            class="backup-input"
-          />
-          <span class="ml-2 text-xs text-muted">{{ t('settings.hoursUnit') }}</span>
-        </el-form-item>
-        <el-form-item :label="t('settings.backupRetention')">
-          <el-input-number
-            v-model="backupForm.retention"
-            :min="1"
-            :max="100"
-            class="backup-input"
-          />
-          <span class="ml-2 text-xs text-muted">{{ t('settings.backupRetentionHint') }}</span>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="backupSaving" @click="handleSaveBackupSettings">{{
-            t('common.save')
-          }}</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+      <!-- 安全 -->
+      <TabPanel value="security">
+        <div class="settings-card">
+          <h3 class="settings-section">{{ t('settings.changePassword') }}</h3>
+          <div class="settings-form-col">
+            <FpInput v-model="pwForm.old_password" :label="t('settings.oldPassword')" type="password" />
+            <FpInput
+              v-model="pwForm.new_password"
+              :label="t('settings.newPassword')"
+              type="password"
+              toggle-mask
+            />
+            <FpInput
+              v-model="pwForm.confirm"
+              :label="t('settings.confirmPassword')"
+              type="password"
+              toggle-mask
+            />
+            <div>
+              <FpButton variant="primary" :loading="pwSubmitting" @click="handleChangePassword">
+                {{ t('common.save') }}
+              </FpButton>
+            </div>
+          </div>
 
-    <el-card shadow="hover" class="mt-4">
-      <template #header
-        ><span class="font-semibold">JWT {{ t('settings.jwtSecret') }}</span></template
-      >
-      <el-descriptions :column="1" border>
-        <el-descriptions-item :label="t('settings.jwtSecret')">
-          <el-tag type="warning" size="small">{{ t('settings.alreadySet') }}</el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item :label="t('common.operation')">
-          <el-button type="warning" :loading="rotating" @click="handleRotateJwtSecret">{{
-            t('settings.rotate')
-          }}</el-button>
-          <span class="ml-2 text-xs text-muted">{{ t('common.confirmAction') }}</span>
-        </el-descriptions-item>
-      </el-descriptions>
-    </el-card>
+          <Divider />
+
+          <h3 class="settings-section">JWT {{ t('settings.jwtSecret') }}</h3>
+          <div class="settings-row">
+            <FpTag severity="warning" :value="t('settings.alreadySet')" />
+            <FpButton variant="warning" :loading="rotating" @click="handleRotateJwtSecret">
+              {{ t('settings.rotate') }}
+            </FpButton>
+            <span class="hint">{{ t('common.confirmAction') }}</span>
+          </div>
+        </div>
+      </TabPanel>
+
+      <!-- 备份 -->
+      <TabPanel value="backup">
+        <div class="settings-card">
+          <div class="settings-form-col settings-form-col-narrow">
+            <div class="field-col field-row">
+              <label class="field-label">{{ t('settings.autoBackup') }}</label>
+              <ToggleSwitch v-model="backupForm.enabled" />
+              <span class="hint">{{ t('settings.autoBackupHint') }}</span>
+            </div>
+            <div class="field-col">
+              <label class="field-label">{{ t('settings.backupInterval') }}</label>
+              <div class="field-inline">
+                <InputNumber v-model="backupForm.intervalHours" :min="1" :max="168" style="width: 160px" />
+                <span class="hint">{{ t('settings.hoursUnit') }}</span>
+              </div>
+            </div>
+            <div class="field-col">
+              <label class="field-label">{{ t('settings.backupRetention') }}</label>
+              <div class="field-inline">
+                <InputNumber v-model="backupForm.retention" :min="1" :max="100" style="width: 160px" />
+                <span class="hint">{{ t('settings.backupRetentionHint') }}</span>
+              </div>
+            </div>
+            <div>
+              <FpButton variant="primary" :loading="backupSaving" @click="handleSaveBackupSettings">
+                {{ t('common.save') }}
+              </FpButton>
+            </div>
+          </div>
+        </div>
+      </TabPanel>
+
+      <!-- 主题定制 -->
+      <TabPanel value="theme">
+        <div class="settings-card">
+          <h3 class="settings-section">{{ t('settingsTheme.preset') }}</h3>
+          <div class="preset-grid">
+            <button
+              v-for="p in presets"
+              :key="p.id"
+              class="preset-card"
+              :class="{ 'is-active': themeStore.preset === p.id }"
+              @click="themeStore.setPreset(p.id)"
+            >
+              <span class="preset-swatch" :style="swatchStyle(p.id)" />
+              <span class="preset-name">{{ t(p.labelKey) }}</span>
+              <span class="preset-desc">{{ t(p.descKey) }}</span>
+            </button>
+          </div>
+
+          <Divider />
+
+          <h3 class="settings-section">{{ t('settingsTheme.brandColor') }}</h3>
+          <div class="custom-controls">
+            <div class="control-row">
+              <label class="field-label">{{ t('settingsTheme.hue') }}</label>
+              <Slider v-model="custom.hue" :min="0" :max="360" :step="1" class="control-slider" />
+              <span class="mono control-value">{{ custom.hue }}°</span>
+            </div>
+            <div class="control-row">
+              <label class="field-label">{{ t('settingsTheme.saturation') }}</label>
+              <Slider v-model="custom.saturation" :min="0" :max="100" :step="1" class="control-slider" />
+              <span class="mono control-value">{{ custom.saturation }}%</span>
+            </div>
+            <div class="control-row">
+              <label class="field-label">{{ t('settingsTheme.lightness') }}</label>
+              <Slider v-model="custom.lightness" :min="25" :max="80" :step="1" class="control-slider" />
+              <span class="mono control-value">{{ custom.lightness }}%</span>
+            </div>
+            <div class="control-row">
+              <label class="field-label">{{ t('settingsTheme.glassBlur') }}</label>
+              <Slider v-model="custom.glassBlur" :min="0" :max="24" :step="1" class="control-slider" />
+              <span class="mono control-value">{{ custom.glassBlur }}px</span>
+            </div>
+            <div class="control-row">
+              <label class="field-label">{{ t('settingsTheme.radius') }}</label>
+              <SelectButton
+                v-model="custom.radius"
+                :options="radiusOptions"
+                option-label="label"
+                option-value="value"
+              />
+            </div>
+            <div class="control-row">
+              <label class="field-label">{{ t('settingsTheme.density') }}</label>
+              <SelectButton
+                v-model="custom.density"
+                :options="densityOptions"
+                option-label="label"
+                option-value="value"
+              />
+            </div>
+          </div>
+
+          <div class="settings-actions">
+            <FpButton variant="primary" icon="oi oi-download" @click="exportTheme">
+              {{ t('settingsTheme.export') }}
+            </FpButton>
+            <FpButton variant="ghost" icon="oi oi-upload" @click="importTheme">
+              {{ t('settingsTheme.import') }}
+            </FpButton>
+            <FpButton variant="ghost" icon="oi oi-refresh" @click="themeStore.resetCustom()">
+              {{ t('settingsTheme.reset') }}
+            </FpButton>
+          </div>
+          <input ref="importFileRef" type="file" accept="application/json" class="hidden-file" @change="onImportFile" />
+        </div>
+      </TabPanel>
+
+      <!-- 外观 -->
+      <TabPanel value="appearance">
+        <div class="settings-card">
+          <h3 class="settings-section">{{ t('settingsAppearance.interface') }}</h3>
+          <div class="settings-form-col settings-form-col-narrow">
+            <div class="field-col field-row">
+              <label class="field-label">{{ t('settingsAppearance.menuTabs') }}</label>
+              <ToggleSwitch
+                :model-value="appearance.state.menuTabs"
+                @update:model-value="toggleMenuTabs"
+              />
+              <span class="hint">{{ t('settingsAppearance.menuTabsHint') }}</span>
+            </div>
+            <div class="field-col field-row">
+              <label class="field-label">{{ t('settingsAppearance.menuAccordion') }}</label>
+              <ToggleSwitch
+                :model-value="appearance.state.menuAccordion"
+                @update:model-value="toggleMenuAccordion"
+              />
+              <span class="hint">{{ t('settingsAppearance.menuAccordionHint') }}</span>
+            </div>
+            <div class="field-col field-row">
+              <label class="field-label">{{ t('settingsAppearance.menuShow') }}</label>
+              <FpSelect
+                :model-value="appearance.state.hideMenu"
+                :options="menuGroupOptions"
+                option-label="label"
+                option-value="value"
+                multiple
+                :placeholder="t('settingsAppearance.menuShowHint')"
+                class="menu-select"
+                @update:model-value="(v) => saveMenuVisibility(v ?? [])"
+              />
+            </div>
+          </div>
+
+          <Divider />
+
+          <h3 class="settings-section">{{ t('settingsAppearance.background') }}</h3>
+          <div class="settings-form-col settings-form-col-narrow">
+            <div class="field-col">
+              <label class="field-label">{{ t('settingsAppearance.appBackground') }}</label>
+              <div class="field-inline">
+                <div v-if="themeStore.custom.appBackground" class="bg-preview" :style="{ backgroundImage: `url(${themeStore.custom.appBackground})` }" />
+                <FpButton variant="ghost" icon="oi oi-upload" @click="pickBg('app')">
+                  {{ t('settingsAppearance.upload') }}
+                </FpButton>
+                <FpButton v-if="themeStore.custom.appBackground" variant="link" @click="clearBg('app')">
+                  {{ t('settingsAppearance.clear') }}
+                </FpButton>
+                <span class="hint">{{ t('settingsAppearance.bgHint') }}</span>
+              </div>
+            </div>
+            <div class="field-col">
+              <label class="field-label">{{ t('settingsAppearance.loginBackground') }}</label>
+              <div class="field-inline">
+                <div v-if="themeStore.custom.loginBackground" class="bg-preview" :style="{ backgroundImage: `url(${themeStore.custom.loginBackground})` }" />
+                <FpButton variant="ghost" icon="oi oi-upload" @click="pickBg('login')">
+                  {{ t('settingsAppearance.upload') }}
+                </FpButton>
+                <FpButton v-if="themeStore.custom.loginBackground" variant="link" @click="clearBg('login')">
+                  {{ t('settingsAppearance.clear') }}
+                </FpButton>
+                <span class="hint">{{ t('settingsAppearance.bgHint') }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </TabPanel>
+      </TabPanels>
+    </Tabs>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import Tabs from 'openvue/tabs'
+import TabList from 'openvue/tablist'
+import Tab from 'openvue/tab'
+import TabPanels from 'openvue/tabpanels'
+import TabPanel from 'openvue/tabpanel'
+import InputNumber from 'openvue/inputnumber'
+import ToggleSwitch from 'openvue/toggleswitch'
+import Slider from 'openvue/slider'
+import SelectButton from 'openvue/selectbutton'
+import Divider from 'openvue/divider'
 import { changePassword } from '@/api/auth'
 import { listSettings, updateSetting } from '@/api/settings'
-import { useAuthStore } from '@/stores/auth'
 import { setLanguage } from '@/locales'
-import { ElMessage } from 'element-plus'
-import { getErrorMessage } from '@/utils/error'
-import { applyTheme } from '@/utils/theme'
-import type { FormInstance, FormRules, FormItemRule } from 'element-plus'
+import { useThemeStore, PRESET_META, type ThemePreset } from '@/stores/theme'
+import { useAppearanceStore } from '@/stores/appearance'
+import FpInput from '@/components/ui/FpInput.vue'
+import FpSelect from '@/components/ui/FpSelect.vue'
+import FpButton from '@/components/ui/FpButton.vue'
+import FpTag from '@/components/ui/FpTag.vue'
+import { useFpToast } from '@/components/ui/FpToast'
 
 const { t } = useI18n()
-const auth = useAuthStore()
+const toast = useFpToast()
+const themeStore = useThemeStore()
+const appearance = useAppearanceStore()
 
-const labelWidth = computed(() => (t('settings.panelName').length > 4 ? '140px' : '120px'))
-const version = ref('v0.1.0')
+const activeTab = ref('general')
 const loading = ref(false)
 const saving = ref(false)
 const pwSubmitting = ref(false)
 const rotating = ref(false)
+const backupSaving = ref(false)
+
+const langOptions = [
+  { label: '简体中文', value: 'zh-CN' },
+  { label: 'English', value: 'en-US' },
+  { label: '日本語', value: 'ja-JP' },
+]
+const logLevelOptions = ['trace', 'debug', 'info', 'warn', 'error'].map((v) => ({
+  label: v[0].toUpperCase() + v.slice(1),
+  value: v,
+}))
 
 const settingsMap = ref<Record<string, string>>({})
 const settingsForm = reactive({
   panel_name: '',
-  theme: 'light',
   language: 'zh-CN',
   panel_port_num: 8080,
   session_timeout_num: 1440,
@@ -237,28 +347,153 @@ const settingsForm = reactive({
   two_factor_enabled_bool: false,
 })
 
-// 备份设置
-const backupSaving = ref(false)
 const backupForm = reactive({ enabled: false, intervalHours: 24, retention: 7 })
-
-const pwFormRef = ref<FormInstance>()
 const pwForm = ref({ old_password: '', new_password: '', confirm: '' })
-const pwRules: FormRules = {
-  old_password: [{ required: true, message: t('common.required'), trigger: 'blur' }],
-  new_password: [
-    { required: true, message: t('common.required'), trigger: 'blur' },
-    { min: 6, message: t('settings.passwordLength'), trigger: 'blur' },
-  ],
-  confirm: [
-    { required: true, message: t('common.required'), trigger: 'blur' },
-    {
-      validator: (_rule: FormItemRule, value: string, callback: (err?: Error) => void) => {
-        if (value !== pwForm.value.new_password) callback(new Error(t('settings.passwordMismatch')))
-        else callback()
-      },
-      trigger: 'blur',
-    },
-  ],
+
+const presets = (Object.keys(PRESET_META) as ThemePreset[]).map((id) => ({
+  id,
+  labelKey: PRESET_META[id].labelKey,
+  descKey: PRESET_META[id].descKey,
+}))
+
+function swatchStyle(id: ThemePreset) {
+  const map: Record<string, string> = {
+    flame: 'linear-gradient(135deg, #f97316, #c2410c)',
+    aurora: 'linear-gradient(135deg, #fbbf24, #f97316)',
+    infinity: 'linear-gradient(135deg, #f59e0b, #78350f)',
+    custom: 'conic-gradient(from 0deg, oklch(0.6 0.2 0), oklch(0.6 0.2 60), oklch(0.6 0.2 120), oklch(0.6 0.2 180), oklch(0.6 0.2 240), oklch(0.6 0.2 300), oklch(0.6 0.2 360))',
+  }
+  return { background: map[id] ?? map.flame }
+}
+
+const custom = computed(() => themeStore.custom)
+const radiusOptions = [
+  { label: t('settingsTheme.radiusSharp'), value: 'sharp' },
+  { label: t('settingsTheme.radiusStandard'), value: 'standard' },
+  { label: t('settingsTheme.radiusRounded'), value: 'rounded' },
+]
+const densityOptions = [
+  { label: t('settingsTheme.densityCompact'), value: 'compact' },
+  { label: t('settingsTheme.densityStandard'), value: 'standard' },
+  { label: t('settingsTheme.densityComfortable'), value: 'comfortable' },
+]
+
+// ── 外观：多页签 / 菜单显隐 ──
+const menuGroupOptions = computed(() => [
+  { label: t('nav.groupWeb'), value: 'web' },
+  { label: t('nav.groupApps'), value: 'apps' },
+  { label: t('nav.groupStorage'), value: 'storage' },
+  { label: t('nav.groupOps'), value: 'ops' },
+  { label: t('nav.groupSystem'), value: 'system' },
+])
+
+async function toggleMenuTabs(value: boolean) {
+  appearance.update({ menuTabs: value })
+  try {
+    await updateSetting('open_menu_tabs', value ? 'true' : 'false')
+    toast.success(t('common.success'))
+  } catch {
+    toast.error(t('common.failed'))
+  }
+}
+
+async function toggleMenuAccordion(value: boolean) {
+  appearance.update({ menuAccordion: value })
+  try {
+    await updateSetting('menu_accordion', value ? 'true' : 'false')
+    toast.success(t('common.success'))
+  } catch {
+    toast.error(t('common.failed'))
+  }
+}
+
+async function saveMenuVisibility(hidden: string[] | string | number) {
+  const hide = Array.isArray(hidden) ? hidden : []
+  appearance.update({ hideMenu: hide })
+  try {
+    await updateSetting('hide_menu', JSON.stringify(hide))
+    toast.success(t('common.success'))
+  } catch {
+    toast.error(t('common.failed'))
+  }
+}
+
+// ── 外观：自定义背景 ──
+const MAX_BG_BYTES = 500 * 1024
+
+function pickBg(target: 'app' | 'login') {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/*'
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (!file) return
+    try {
+      const dataUrl = await compressImage(file)
+      applyBackground(target, dataUrl)
+    } catch {
+      toast.error(t('settingsAppearance.tooLarge'))
+    }
+  }
+  input.click()
+}
+
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (file.size > 5 * 1024 * 1024) {
+      reject(new Error('too large'))
+      return
+    }
+    const img = new Image()
+    img.onload = () => {
+      const maxW = 1920
+      const scale = Math.min(1, maxW / img.width)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(img.width * scale)
+      canvas.height = Math.round(img.height * scale)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('canvas'))
+        return
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      let quality = 0.85
+      let dataUrl = canvas.toDataURL('image/jpeg', quality)
+      while (dataUrl.length > MAX_BG_BYTES && quality > 0.4) {
+        quality -= 0.1
+        dataUrl = canvas.toDataURL('image/jpeg', quality)
+      }
+      if (dataUrl.length > MAX_BG_BYTES) {
+        reject(new Error('too large'))
+        return
+      }
+      resolve(dataUrl)
+    }
+    img.onerror = () => reject(new Error('image'))
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+async function applyBackground(target: 'app' | 'login', dataUrl: string) {
+  const key = target === 'app' ? 'app_background' : 'login_background'
+  themeStore.updateCustom(target === 'app' ? { appBackground: dataUrl } : { loginBackground: dataUrl })
+  try {
+    await updateSetting(key, dataUrl)
+    toast.success(t('common.success'))
+  } catch {
+    toast.error(t('common.failed'))
+  }
+}
+
+async function clearBg(target: 'app' | 'login') {
+  const key = target === 'app' ? 'app_background' : 'login_background'
+  themeStore.updateCustom(target === 'app' ? { appBackground: '' } : { loginBackground: '' })
+  try {
+    await updateSetting(key, '')
+    toast.success(t('common.success'))
+  } catch {
+    toast.error(t('common.failed'))
+  }
 }
 
 async function fetchSettings() {
@@ -270,8 +505,9 @@ async function fetchSettings() {
       map[s.key] = s.value
     }
     settingsMap.value = map
+    appearance.syncFromServer(map)
+    themeStore.syncFromServer(map)
     settingsForm.panel_name = map['panel_name'] || 'FlamePanel'
-    settingsForm.theme = map['theme'] || 'light'
     settingsForm.language = map['language'] || 'zh-CN'
     settingsForm.panel_port_num = parseInt(map['panel_port'] || '8080')
     settingsForm.session_timeout_num = parseInt(map['session_timeout_minutes'] || '1440')
@@ -282,10 +518,14 @@ async function fetchSettings() {
     backupForm.intervalHours = parseInt(map['auto_backup_interval_hours'] || '24')
     backupForm.retention = parseInt(map['backup_retention'] || '7')
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     loading.value = false
   }
+}
+
+function handleLangChange(lang: string) {
+  setLanguage(lang)
 }
 
 async function handleSaveBackupSettings() {
@@ -294,29 +534,27 @@ async function handleSaveBackupSettings() {
     await updateSetting('auto_backup_enabled', backupForm.enabled ? 'true' : 'false')
     await updateSetting('auto_backup_interval_hours', String(backupForm.intervalHours))
     await updateSetting('backup_retention', String(backupForm.retention))
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     await fetchSettings()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     backupSaving.value = false
   }
 }
 
-function handleLangChange(lang: string) {
-  setLanguage(lang)
-}
-
 async function handleChangePassword() {
-  const valid = await pwFormRef.value?.validate().catch(() => false)
-  if (!valid) return
+  if (!pwForm.value.old_password || !pwForm.value.new_password || pwForm.value.confirm !== pwForm.value.new_password) {
+    toast.warning(t('settings.passwordMismatch'))
+    return
+  }
   pwSubmitting.value = true
   try {
     await changePassword(pwForm.value.old_password, pwForm.value.new_password)
-    ElMessage.success(t('common.success'))
-    pwFormRef.value?.resetFields()
+    toast.success(t('common.success'))
+    pwForm.value = { old_password: '', new_password: '', confirm: '' }
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, t('common.failed')))
+    toast.error(e, t('common.failed'))
   } finally {
     pwSubmitting.value = false
   }
@@ -326,21 +564,16 @@ async function handleSaveSettings() {
   saving.value = true
   try {
     await updateSetting('panel_name', settingsForm.panel_name)
-    await updateSetting('theme', settingsForm.theme)
     await updateSetting('language', settingsForm.language)
     await updateSetting('panel_port', String(settingsForm.panel_port_num))
     await updateSetting('session_timeout_minutes', String(settingsForm.session_timeout_num))
     await updateSetting('log_level', settingsForm.log_level)
     await updateSetting('log_retention_days', String(settingsForm.log_retention_num))
-    await updateSetting(
-      'two_factor_enabled',
-      settingsForm.two_factor_enabled_bool ? 'true' : 'false',
-    )
-    applyTheme(settingsForm.theme === 'dark' ? 'dark' : 'light')
-    ElMessage.success(t('common.success'))
+    await updateSetting('two_factor_enabled', settingsForm.two_factor_enabled_bool ? 'true' : 'false')
+    toast.success(t('common.success'))
     await fetchSettings()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     saving.value = false
   }
@@ -348,16 +581,13 @@ async function handleSaveSettings() {
 
 function resetSettings() {
   settingsForm.panel_name = settingsMap.value['panel_name'] || 'FlamePanel'
-  settingsForm.theme = settingsMap.value['theme'] || 'light'
   settingsForm.language = settingsMap.value['language'] || 'zh-CN'
   settingsForm.panel_port_num = parseInt(settingsMap.value['panel_port'] || '8080')
-  settingsForm.session_timeout_num = parseInt(
-    settingsMap.value['session_timeout_minutes'] || '1440',
-  )
+  settingsForm.session_timeout_num = parseInt(settingsMap.value['session_timeout_minutes'] || '1440')
   settingsForm.log_level = settingsMap.value['log_level'] || 'info'
   settingsForm.log_retention_num = parseInt(settingsMap.value['log_retention_days'] || '30')
   settingsForm.two_factor_enabled_bool = settingsMap.value['two_factor_enabled'] === 'true'
-  ElMessage.info(t('common.reset'))
+  toast.info(t('common.reset'))
 }
 
 async function handleRotateJwtSecret() {
@@ -368,26 +598,200 @@ async function handleRotateJwtSecret() {
       () => 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)],
     ).join('')
     await updateSetting('jwt_secret', secret)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     rotating.value = false
   }
+}
+
+// ── 主题导出/导入 ──
+function exportTheme() {
+  const payload = { preset: themeStore.preset, custom: themeStore.custom }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'flamepanel-theme.json'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+const importFileRef = ref<HTMLInputElement>()
+function importTheme() {
+  importFileRef.value?.click()
+}
+function onImportFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(String(reader.result))
+      if (data.preset) themeStore.setPreset(data.preset)
+      if (data.custom) themeStore.updateCustom(data.custom)
+      toast.success(t('common.success'))
+    } catch {
+      toast.error(t('common.failed'))
+    }
+  }
+  reader.readAsText(file)
+  input.value = ''
 }
 
 onMounted(fetchSettings)
 </script>
 
 <style scoped>
-.status-ok {
-  color: #67c23a;
+.settings-tabs {
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius-md);
+  padding: var(--fp-space-4);
+}
+.settings-card {
+  padding-top: var(--fp-space-2);
+  max-width: 900px;
+}
+.settings-section {
+  font-size: 14.5px;
   font-weight: 600;
+  color: var(--fp-text-primary);
+  margin-bottom: var(--fp-space-4);
 }
-.backup-form {
-  max-width: 480px;
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--fp-space-4);
 }
-.backup-input {
-  width: 160px;
+.settings-form-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-4);
+  max-width: 420px;
+}
+.settings-form-col-narrow {
+  max-width: 560px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-3);
+}
+.settings-actions {
+  display: flex;
+  gap: var(--fp-space-2);
+  margin-top: var(--fp-space-5);
+}
+.field-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field-row {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--fp-space-3);
+}
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-2);
+}
+.field-label {
+  font-size: 13px;
+  color: var(--fp-text-secondary);
+}
+.hint {
+  font-size: 12px;
+  color: var(--fp-text-muted);
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--fp-space-3);
+}
+.preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: var(--fp-space-3);
+  border-radius: var(--fp-radius-md);
+  border: 1px solid var(--fp-border);
+  background: var(--fp-bg-elevated);
+  cursor: pointer;
+  font-family: var(--fp-font-sans);
+  text-align: left;
+  transition:
+    border-color var(--fp-transition-fast),
+    box-shadow var(--fp-transition-fast),
+    transform 120ms var(--fp-ease-out);
+}
+.preset-card:hover {
+  border-color: var(--fp-brand);
+}
+.preset-card.is-active {
+  border-color: var(--fp-brand);
+  box-shadow: 0 0 0 3px var(--fp-brand-soft);
+}
+.preset-swatch {
+  width: 100%;
+  height: 44px;
+  border-radius: var(--fp-radius-sm);
+}
+.preset-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fp-text-primary);
+}
+.preset-desc {
+  font-size: 11.5px;
+  color: var(--fp-text-muted);
+}
+
+.custom-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-4);
+  max-width: 560px;
+}
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-3);
+}
+.control-slider {
+  flex: 1;
+}
+.control-value {
+  width: 56px;
+  text-align: right;
+  font-size: 12.5px;
+  color: var(--fp-text-secondary);
+}
+.hidden-file {
+  display: none;
+}
+.menu-select {
+  max-width: 320px;
+}
+.bg-preview {
+  width: 120px;
+  height: 64px;
+  border-radius: var(--fp-radius-sm);
+  border: 1px solid var(--fp-border);
+  background-size: cover;
+  background-position: center;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

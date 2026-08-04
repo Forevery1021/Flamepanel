@@ -1,20 +1,20 @@
-export type Theme = 'light' | 'dark'
-
-const THEME_KEY = 'flame-theme'
+const MODE_KEY = 'flamepanel.mode'
+const LEGACY_KEY = 'flame-theme'
 
 export function isDark(): boolean {
   return document.documentElement.classList.contains('dark')
 }
 
-export function applyTheme(theme: Theme): void {
+export function applyTheme(theme: 'light' | 'dark'): void {
   document.documentElement.classList.toggle('dark', theme === 'dark')
-  localStorage.setItem(THEME_KEY, theme)
+  localStorage.setItem(MODE_KEY, theme)
 }
 
+/** 挂载前同步明暗模式，避免首屏闪烁（兼容旧 key） */
 export function applyStoredTheme(): void {
-  const stored = localStorage.getItem(THEME_KEY)
+  const stored = localStorage.getItem(MODE_KEY) ?? localStorage.getItem(LEGACY_KEY)
   if (stored === 'light' || stored === 'dark') {
-    applyTheme(stored)
+    document.documentElement.classList.toggle('dark', stored === 'dark')
     return
   }
   const prefersDark =

@@ -1,30 +1,29 @@
 <template>
   <div class="view-container terminal-page">
-    <el-card shadow="hover" class="terminal-card">
-      <template #header>
-        <div class="card-header-title">
-          <span>{{ t('terminal.title') }}</span>
-          <div class="header-right">
-            <el-tag :type="connected ? 'success' : 'danger'" size="small" effect="dark">
-              {{ connected ? t('terminal.connected') : t('terminal.disconnected') }}
-            </el-tag>
-            <el-button size="small" :disabled="!connected" @click="sendEof">{{
-              t('terminal.ctrlD')
-            }}</el-button>
-            <el-button size="small" :disabled="!connected" @click="sendInterrupt">{{
-              t('terminal.ctrlC')
-            }}</el-button>
-            <el-button size="small" :loading="reconnecting" @click="reconnect">{{
-              t('terminal.reconnect')
-            }}</el-button>
-            <el-button size="small" type="danger" @click="handleClear">{{
-              t('terminal.clear')
-            }}</el-button>
-          </div>
+    <div class="panel terminal-card">
+      <div class="card-header-title">
+        <span>{{ t('terminal.title') }}</span>
+        <div class="header-right">
+          <FpTag
+            :severity="connected ? 'success' : 'danger'"
+            :value="connected ? t('terminal.connected') : t('terminal.disconnected')"
+          />
+          <FpButton variant="ghost" :disabled="!connected" @click="sendEof">
+            {{ t('terminal.ctrlD') }}
+          </FpButton>
+          <FpButton variant="ghost" :disabled="!connected" @click="sendInterrupt">
+            {{ t('terminal.ctrlC') }}
+          </FpButton>
+          <FpButton variant="ghost" icon="oi oi-refresh" :loading="reconnecting" @click="reconnect">
+            {{ t('terminal.reconnect') }}
+          </FpButton>
+          <FpButton variant="danger" icon="oi oi-eraser" @click="handleClear">
+            {{ t('terminal.clear') }}
+          </FpButton>
         </div>
-      </template>
+      </div>
       <div ref="terminalContainer" class="terminal-container" />
-    </el-card>
+    </div>
   </div>
 </template>
 
@@ -35,6 +34,8 @@ import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import FpButton from '@/components/ui/FpButton.vue'
+import FpTag from '@/components/ui/FpTag.vue'
 
 const { t } = useI18n()
 
@@ -153,6 +154,10 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
 }
 .terminal-container {
   flex: 1;
@@ -160,13 +165,14 @@ onUnmounted(() => {
 }
 .header-right {
   display: flex;
-  gap: 8px;
+  gap: var(--fp-space-2);
   align-items: center;
 }
 .card-header-title {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: var(--fp-space-3);
 }
 .card-header-title span {
   font-size: 16px;

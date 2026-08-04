@@ -7,7 +7,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-**FlamePanel** 是一个现代化、高性能、自托管的服务器运维面板。后端采用 Rust + Axum 六边形架构，前端使用 Vue 3 + Element Plus，支持 JWT + RBAC 权限体系。
+**FlamePanel** 是一个现代化、高性能、自托管的服务器运维面板。后端采用 Rust + Axum 六边形架构，前端使用 Vue 3 + OpenVue（PrimeVue v4 社区延续版），支持 JWT + RBAC 权限体系。
 
 ## 核心特性
 
@@ -27,8 +27,10 @@
 - **国际化** — 简体中文 / English / 日本語 三语言支持，前端实时切换
 - **备忘录 & TODO** — 后端持久化（memos 表），备忘录/待办双视图，Dashboard 今日待办快捷卡
 - **应用推荐 & 常用** — 商店推荐位 + 已装状态角标；启动次数统计驱动常用应用（Dashboard/顶栏快捷入口）
-- **1Panel 风格顶栏** — 全局搜索（Ctrl+K）、快捷应用、实时状态（节点/容器）、通知中心
-- **暗色主题** — 跟随系统 / 手动切换，Element Plus 暗色变量全覆盖
+- **多页签工作区** — 访问过的页面以可关闭页签展示（右键菜单：刷新/关闭/关闭其他/关闭全部），keep-alive 缓存保持页面状态
+- **1Panel 风格顶栏** — 全局命令面板（Ctrl+K 菜单搜索跳转）、快捷应用、实时状态（节点/容器）、通知中心
+- **主题定制系统** — 4 套预设（Flame/Aurora/Infinity/自定义）+ 品牌色 HSL 实时调色（OKLCH）、玻璃模糊/圆角/密度可调、JSON 配置导入导出；明暗双主题跟随系统 / 手动切换 / 持久化
+- **外观自定义** — 主界面/登录页自定义背景（上传图片自动压缩，服务端持久化）、侧边栏菜单分组显隐、多页签开关；自定义背景下面板自动切换玻璃材质（blur 联动）
 - **审计日志 & 系统日志** — 写操作自动审计落库（中间件）+ 登录成功/失败审计 + `?action=` 过滤；系统日志 REST + WebSocket 双通道
 - **弹性与容错** — Circuit Breaker + Retry，Docker 不可用时 InMemory 自动降级
 
@@ -41,10 +43,11 @@
 | 数据库 | SQLite (sqlx 0.9) + InMemory 双模式 |
 | 认证 | jsonwebtoken 9 + bcrypt |
 | WASM | wasmtime 29 |
-| 前端 | Vue 3.5 + TypeScript 6.0 + Element Plus + Vite 8 |
+| 前端 | Vue 3.5 + TypeScript 6.0 + OpenVue 0.7 + Vite 8 + UnoCSS |
 | 状态/路由 | Pinia 3 + Vue Router 5 |
 | 国际化 | vue-i18n 10（zh-CN / en-US / ja-JP） |
 | 终端 | xterm.js 5.5 + @xterm/addon-fit |
+| 图表 | ECharts 6（按需引入，主题令牌自适应） |
 
 ## 项目结构
 
@@ -66,7 +69,10 @@ Flamepanel/
 │   │   ├── utils/         # JWT/bcrypt/验证
 │   │   └── resilience/    # Circuit Breaker + Retry
 │   └── tests/             # 84 集成测试 + 55 单元测试
-├── frontend/              # Vue 3 前端 (17 个视图, 3 语言 i18n)
+├── frontend/              # Vue 3 + OpenVue 前端 (20 个视图, 3 语言 i18n)
+│   ├── src/theme/         # 设计令牌 (OKLCH) + OpenVue 品牌预设 + 玻璃材质
+│   ├── src/components/ui/ # Fp* 封装层 (FpTable/FpModal/FpToast/FpConfirm 等)
+│   ├── src/components/layout/ # AppSidebar/AppHeader/CommandPalette/AppFooter
 ├── agent/                 # 轻量 Rust Agent
 ├── docker-compose.yml
 ├── install.sh
@@ -427,6 +433,7 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 - **Phase 7** ✅ 发行体系：package-release.sh 打包脚本（版本号自动读取 + SHA256 校验和）、CI 双架构发布流水线（amd64/arm64）、justfile 发版命令（check-full/release/release-verify）、docker-compose healthcheck 与数据卷、Agent Dockerfile
 - **Phase 7** ✅ 可观测性与审计（v0.6.0）：审计中间件（写操作自动落库 + 登录成败 + action 过滤）、`RUST_LOG_FORMAT=json` 结构化日志、`GET /api/health` 依赖检查、事件驱动深化（应用/防火墙/备份/节点下线告警）、前端 WS 指数退避重连
 - **测试** ✅ 180 测试全部通过（113 集成 + 67 单元）
+- **Phase 8** ✅ 前端全面重构（v0.7.0）：Element Plus → OpenVue 0.7（80+ 组件，Aura 预设派生品牌主题）、OKLCH 设计令牌体系、Fp* 组件封装层（8 态按钮/虚拟滚动表格/统一 Toast/Confirm）、主题定制面板（4 预设 + 品牌色/玻璃/圆角/密度 + JSON 导入导出）、⌘K 命令面板、轻玻璃顶栏 + 火焰品牌视觉、全部 20 视图迁移、首屏 gzip 151KB（预算 <200KB）
 
 ## License
 

@@ -1,141 +1,157 @@
 <template>
-  <div class="view-container">
-    <div class="card-header-title">
-      <el-button type="primary" @click="dialogVisible = true">{{ t('node.register') }}</el-button>
-    </div>
+  <LayoutContent :title="t('node.title')" reload @reload="fetch">
+    <template #toolbar>
+      <FpButton variant="primary" icon="oi oi-plus" @click="openCreate">
+        {{ t('node.register') }}
+      </FpButton>
+    </template>
 
-    <el-card shadow="hover">
+    <div class="panel">
       <div class="toolbar">
         <span class="text-muted text-xs">{{ t('node.liveHint') }}</span>
       </div>
-      <el-table v-loading="loading" :empty-text="t('common.noData')" :data="nodes" border stripe>
-        <el-table-column prop="id" :label="t('node.id')" width="70" />
-        <el-table-column prop="name" :label="t('node.name')" min-width="110" />
-        <el-table-column prop="hostname" :label="t('node.hostname')" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="ip_address" :label="t('node.ip')" min-width="120" />
-        <el-table-column :label="t('node.status')" width="110">
-          <template #default="{ row }">
-            <el-tag :type="row.online ? 'success' : 'danger'" size="small" effect="light">
-              {{ row.online ? t('dashboard.online') : t('dashboard.offline') }}
-            </el-tag>
+      <FpTable
+        :rows="nodes"
+        :loading="loading"
+        :first="(currentPage - 1) * pageSize"
+        :empty-text="t('common.noData')"
+      >
+        <Column field="id" :header="t('node.id')" style="width: 70px" />
+        <Column field="name" :header="t('node.name')" />
+        <Column :header="t('node.hostname')">
+          <template #body="{ data }">
+            <span v-tooltip="data.hostname" class="cell-truncate">{{ data.hostname }}</span>
           </template>
-        </el-table-column>
-        <el-table-column :label="t('node.metrics')" min-width="240">
-          <template #default="{ row }">
-            <div v-if="row.metrics" class="metrics-row">
-              <el-progress
-                :percentage="Math.round(row.metrics.cpu_usage ?? 0)"
-                :stroke-width="6"
-                :color="percentColor(row.metrics.cpu_usage ?? 0)"
-                class="metrics-bar"
-              />
+        </Column>
+        <Column field="ip_address" :header="t('node.ip')" />
+        <Column :header="t('node.status')" style="width: 110px">
+          <template #body="{ data }">
+            <FpTag
+              :severity="data.online ? 'success' : 'danger'"
+              :dot="data.online"
+              :value="data.online ? t('dashboard.online') : t('dashboard.offline')"
+            />
+          </template>
+        </Column>
+        <Column :header="t('node.metrics')">
+          <template #body="{ data }">
+            <div v-if="data.metrics" class="metrics-row">
+              <div class="metrics-bar">
+                <div
+                  class="metrics-bar-fill"
+                  :style="{
+                    width: `${Math.round(data.metrics.cpu_usage ?? 0)}%`,
+                    background: percentColor(data.metrics.cpu_usage ?? 0),
+                  }"
+                />
+              </div>
               <span class="text-xs text-muted"
-                >CPU {{ (row.metrics.cpu_usage ?? 0).toFixed(1) }}% · MEM
-                {{ (row.metrics.memory_usage_percent ?? 0).toFixed(1) }}% · DISK
-                {{ (row.metrics.disk_usage_percent ?? 0).toFixed(1) }}%</span
+                >CPU {{ (data.metrics.cpu_usage ?? 0).toFixed(1) }}% · MEM
+                {{ (data.metrics.memory_usage_percent ?? 0).toFixed(1) }}% · DISK
+                {{ (data.metrics.disk_usage_percent ?? 0).toFixed(1) }}%</span
               >
             </div>
             <span v-else class="text-muted text-xs">—</span>
           </template>
-        </el-table-column>
-        <el-table-column :label="t('node.lastHeartbeat')" width="150">
-          <template #default="{ row }">
-            <span v-if="row.last_heartbeat_at" class="text-xs">{{ row.last_heartbeat_at }}</span>
+        </Column>
+        <Column :header="t('node.lastHeartbeat')" style="width: 150px">
+          <template #body="{ data }">
+            <span v-if="data.last_heartbeat_at" class="text-xs">{{ data.last_heartbeat_at }}</span>
             <span v-else class="text-muted text-xs">—</span>
           </template>
-        </el-table-column>
-        <el-table-column :label="t('common.operation')" width="160" fixed="right">
-          <template #default="{ row }">
-            <el-button type="primary" size="small" text @click="handleEdit(row)">{{
-              t('common.edit')
-            }}</el-button>
-            <el-popconfirm
-              :title="t('node.deleteConfirm', { name: row.name })"
-              @confirm="handleDelete(row.id)"
-            >
-              <template #reference>
-                <el-button type="danger" size="small" text>{{ t('common.delete') }}</el-button>
-              </template>
-            </el-popconfirm>
+        </Column>
+        <Column :header="t('common.operation')" style="width: 130px" frozen>
+          <template #body="{ data }">
+            <div class="row-actions">
+              <FpButton variant="link" @click="handleEdit(data)">{{ t('common.edit') }}</FpButton>
+              <FpButton variant="link" @click="confirmDelete(data)">{{ t('common.delete') }}</FpButton>
+            </div>
           </template>
-        </el-table-column>
-      </el-table>
-      <el-pagination
+        </Column>
+      </FpTable>
+      <Paginator
         v-if="total > pageSize"
-        v-model:current-page="currentPage"
-        :page-size="pageSize"
-        :total="total"
-        layout="prev, pager, next, total"
-        background
-        small
-        class="table-pagination"
-        @current-change="fetch"
+        :first="(currentPage - 1) * pageSize"
+        :rows="pageSize"
+        :total-records="total"
+        :rows-per-page-options="[20, 50, 100]"
+        @update:first="(f) => goPage(f)"
       />
-    </el-card>
+    </div>
 
-    <el-dialog v-model="dialogVisible" :title="t('node.register')" width="500px">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-        <el-form-item :label="t('node.name')" prop="name">
-          <el-input v-model="form.name" />
-        </el-form-item>
-        <el-form-item :label="t('node.hostname')" prop="hostname">
-          <el-input v-model="form.hostname" />
-        </el-form-item>
-        <el-form-item :label="t('node.ip')" prop="ip_address">
-          <el-input v-model="form.ip_address" />
-        </el-form-item>
-        <el-form-item :label="t('node.status')" prop="status">
-          <el-select v-model="form.status" class="full-width">
-            <el-option :label="t('dashboard.online')" value="online" />
-            <el-option :label="t('dashboard.offline')" value="offline" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+    <FpModal v-model="dialogVisible" :header="t('node.register')" style="width: 500px">
+      <div class="modal-form">
+        <FpInput v-model="form.name" :label="t('node.name')" :error="formErrors.name" />
+        <FpInput v-model="form.hostname" :label="t('node.hostname')" :error="formErrors.hostname" />
+        <FpInput v-model="form.ip_address" :label="t('node.ip')" :error="formErrors.ip_address" />
+        <FpSelect
+          v-model="form.status"
+          :label="t('node.status')"
+          :options="statusOptions"
+          option-label="label"
+          option-value="value"
+        />
+      </div>
       <template #footer>
-        <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleCreate">{{
-          t('common.confirm')
-        }}</el-button>
+        <FpButton variant="ghost" @click="dialogVisible = false">{{ t('common.cancel') }}</FpButton>
+        <FpButton variant="primary" :loading="submitting" @click="handleCreate">
+          {{ t('common.confirm') }}
+        </FpButton>
       </template>
-    </el-dialog>
+    </FpModal>
 
-    <el-dialog v-model="editVisible" :title="t('node.editNode')" width="500px">
-      <el-form ref="editFormRef" :model="editForm" :rules="rules" label-width="100px">
-        <el-form-item :label="t('node.name')" prop="name">
-          <el-input v-model="editForm.name" />
-        </el-form-item>
-        <el-form-item :label="t('node.hostname')" prop="hostname">
-          <el-input v-model="editForm.hostname" />
-        </el-form-item>
-        <el-form-item :label="t('node.ip')" prop="ip_address">
-          <el-input v-model="editForm.ip_address" />
-        </el-form-item>
-        <el-form-item :label="t('node.status')" prop="status">
-          <el-select v-model="editForm.status" class="full-width">
-            <el-option :label="t('dashboard.online')" value="online" />
-            <el-option :label="t('dashboard.offline')" value="offline" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+    <FpModal v-model="editVisible" :header="t('node.editNode')" style="width: 500px">
+      <div class="modal-form">
+        <FpInput v-model="editForm.name" :label="t('node.name')" :error="editErrors.name" />
+        <FpInput
+          v-model="editForm.hostname"
+          :label="t('node.hostname')"
+          :error="editErrors.hostname"
+        />
+        <FpInput
+          v-model="editForm.ip_address"
+          :label="t('node.ip')"
+          :error="editErrors.ip_address"
+        />
+        <FpSelect
+          v-model="editForm.status"
+          :label="t('node.status')"
+          :options="statusOptions"
+          option-label="label"
+          option-value="value"
+        />
+      </div>
       <template #footer>
-        <el-button @click="editVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSave">{{
-          t('common.confirm')
-        }}</el-button>
+        <FpButton variant="ghost" @click="editVisible = false">{{ t('common.cancel') }}</FpButton>
+        <FpButton variant="primary" :loading="submitting" @click="handleSave">
+          {{ t('common.confirm') }}
+        </FpButton>
       </template>
-    </el-dialog>
-  </div>
+    </FpModal>
+  </LayoutContent>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import Column from 'openvue/column'
+import Paginator from 'openvue/paginator'
 import { listNodes, createNode, updateNode, deleteNode, nodeStatus, nodeMetrics } from '@/api/nodes'
-import { ElMessage } from 'element-plus'
-import type { FormInstance, FormRules } from 'element-plus'
 import type { ServerNode, NodeMetrics } from '@/types'
+import LayoutContent from '@/components/ui/LayoutContent.vue'
+import FpTable from '@/components/ui/FpTable.vue'
+import FpModal from '@/components/ui/FpModal.vue'
+import FpInput from '@/components/ui/FpInput.vue'
+import FpSelect from '@/components/ui/FpSelect.vue'
+import FpButton from '@/components/ui/FpButton.vue'
+import FpTag from '@/components/ui/FpTag.vue'
+import { useFpToast } from '@/components/ui/FpToast'
+import { useFpConfirm } from '@/components/ui/FpConfirm'
 
 const { t } = useI18n()
+const toast = useFpToast()
+const { confirmAction } = useFpConfirm()
+
 const nodes = ref<ServerNode[]>([])
 const loading = ref(false)
 const currentPage = ref(1)
@@ -144,8 +160,6 @@ const total = ref(0)
 const dialogVisible = ref(false)
 const editVisible = ref(false)
 const submitting = ref(false)
-const formRef = ref<FormInstance>()
-const editFormRef = ref<FormInstance>()
 const editingId = ref(0)
 
 // 轮询句柄（页面隐藏时暂停）
@@ -154,11 +168,13 @@ let lastVisible = document.visibilityState === 'visible'
 
 const form = reactive({ name: '', hostname: '', ip_address: '', status: 'online' })
 const editForm = reactive({ name: '', hostname: '', ip_address: '', status: 'online' })
-const rules: FormRules = {
-  name: [{ required: true, message: t('node.nameRequired'), trigger: 'blur' }],
-  hostname: [{ required: true, message: t('node.hostnameRequired'), trigger: 'blur' }],
-  ip_address: [{ required: true, message: t('node.ipRequired'), trigger: 'blur' }],
-}
+const formErrors = reactive({ name: '', hostname: '', ip_address: '' })
+const editErrors = reactive({ name: '', hostname: '', ip_address: '' })
+
+const statusOptions = computed(() => [
+  { label: t('dashboard.online'), value: 'online' },
+  { label: t('dashboard.offline'), value: 'offline' },
+])
 
 function percentColor(p: number) {
   return p > 80 ? '#f56c6c' : p > 50 ? '#e6a23c' : '#67c23a'
@@ -232,9 +248,26 @@ function onVisibility() {
   lastVisible = visible
 }
 
+function openCreate() {
+  form.name = ''
+  form.hostname = ''
+  form.ip_address = ''
+  form.status = 'online'
+  formErrors.name = ''
+  formErrors.hostname = ''
+  formErrors.ip_address = ''
+  dialogVisible.value = true
+}
+
+function validateForm(): boolean {
+  formErrors.name = form.name ? '' : t('node.nameRequired')
+  formErrors.hostname = form.hostname ? '' : t('node.hostnameRequired')
+  formErrors.ip_address = form.ip_address ? '' : t('node.ipRequired')
+  return !formErrors.name && !formErrors.hostname && !formErrors.ip_address
+}
+
 async function handleCreate() {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
+  if (!validateForm()) return
   submitting.value = true
   try {
     await createNode({
@@ -245,7 +278,7 @@ async function handleCreate() {
       status: form.status,
       created_at: '',
     })
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     dialogVisible.value = false
     form.name = ''
     form.hostname = ''
@@ -253,7 +286,7 @@ async function handleCreate() {
     form.status = 'online'
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     submitting.value = false
   }
@@ -265,12 +298,21 @@ function handleEdit(row: ServerNode) {
   editForm.hostname = row.hostname
   editForm.ip_address = row.ip_address
   editForm.status = row.status
+  editErrors.name = ''
+  editErrors.hostname = ''
+  editErrors.ip_address = ''
   editVisible.value = true
 }
 
+function validateEditForm(): boolean {
+  editErrors.name = editForm.name ? '' : t('node.nameRequired')
+  editErrors.hostname = editForm.hostname ? '' : t('node.hostnameRequired')
+  editErrors.ip_address = editForm.ip_address ? '' : t('node.ipRequired')
+  return !editErrors.name && !editErrors.hostname && !editErrors.ip_address
+}
+
 async function handleSave() {
-  const valid = await editFormRef.value?.validate().catch(() => false)
-  if (!valid) return
+  if (!validateEditForm()) return
   submitting.value = true
   try {
     await updateNode(editingId.value, {
@@ -281,11 +323,11 @@ async function handleSave() {
       status: editForm.status,
       created_at: '',
     })
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     editVisible.value = false
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     submitting.value = false
   }
@@ -294,11 +336,24 @@ async function handleSave() {
 async function handleDelete(id: number) {
   try {
     await deleteNode(id)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   }
+}
+
+function confirmDelete(row: ServerNode) {
+  confirmAction({
+    message: t('node.deleteConfirm', { name: row.name }),
+    header: t('common.confirm'),
+    accept: () => handleDelete(row.id),
+  })
+}
+
+function goPage(first: number) {
+  currentPage.value = first / pageSize.value + 1
+  fetch()
 }
 
 onMounted(() => {
@@ -314,10 +369,32 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.panel {
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+}
 .toolbar {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 8px;
+}
+.row-actions {
+  display: flex;
+  gap: var(--fp-space-2);
+}
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-4);
+}
+.cell-truncate {
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .metrics-row {
   display: flex;
@@ -325,6 +402,15 @@ onUnmounted(() => {
   gap: 2px;
 }
 .metrics-bar {
-  max-width: 200px;
+  width: 200px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--fp-bg-hover);
+  overflow: hidden;
+}
+.metrics-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 200ms var(--fp-ease-out);
 }
 </style>

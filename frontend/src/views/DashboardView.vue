@@ -1,97 +1,38 @@
 <template>
-  <div class="view-container">
-    <el-row :gutter="16">
-      <el-col :xs="24" :sm="12" :lg="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat">
-            <div class="stat-icon icon-cpu"><el-icon :size="26"><Cpu /></el-icon></div>
-            <div class="stat-body">
-              <div class="stat-label">{{ t('dashboard.cpu') }}</div>
-              <div class="stat-value">{{ snap.cpu_usage.toFixed(1) }}%</div>
-              <el-progress
-                :percentage="Math.round(snap.cpu_usage)"
-                :color="cpuColor"
-                :stroke-width="6"
-              />
-              <div class="stat-detail">{{ snap.cpu_cores }} cores</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="12" :lg="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat">
-            <div class="stat-icon icon-mem"><el-icon :size="26"><MemoIcon /></el-icon></div>
-            <div class="stat-body">
-              <div class="stat-label">{{ t('dashboard.memory') }}</div>
-              <div class="stat-value">{{ snap.memory_usage_percent.toFixed(1) }}%</div>
-              <el-progress
-                :percentage="Math.round(snap.memory_usage_percent)"
-                :color="memColor"
-                :stroke-width="6"
-              />
-              <div class="stat-detail">
-                {{ (snap.memory_used_mb / 1024).toFixed(1) }} /
-                {{ (snap.memory_total_mb / 1024).toFixed(1) }} GB
-              </div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="12" :lg="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat">
-            <div class="stat-icon icon-disk"><el-icon :size="26"><Coin /></el-icon></div>
-            <div class="stat-body">
-              <div class="stat-label">{{ t('dashboard.disk') }}</div>
-              <div class="stat-value">{{ snap.disk_usage_percent.toFixed(1) }}%</div>
-              <el-progress
-                :percentage="Math.round(snap.disk_usage_percent)"
-                :color="diskColor"
-                :stroke-width="6"
-              />
-              <div class="stat-detail">
-                {{ snap.disk_used_gb.toFixed(1) }} / {{ snap.disk_total_gb.toFixed(1) }} GB
-              </div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="12" :lg="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat">
-            <div class="stat-icon icon-load"><el-icon :size="26"><TrendCharts /></el-icon></div>
-            <div class="stat-body">
-              <div class="stat-label">{{ t('dashboard.load') }}</div>
-              <div class="stat-value">{{ snap.load_one.toFixed(2) }}</div>
-              <div class="stat-detail">
-                1m: {{ snap.load_one.toFixed(2) }} | 5m: {{ snap.load_five.toFixed(2) }} | 15m:
-                {{ snap.load_fifteen.toFixed(2) }}
-              </div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+  <LayoutContent :title="t('dashboard.title')">
+    <!-- 指标卡 -->
+    <div class="stats-grid">
+      <div v-for="s in statCards" :key="s.key" class="stat-card" :class="`stat-${s.key}`">
+        <div class="stat-icon">
+          <i class="oi" :class="s.icon" />
+        </div>
+        <div class="stat-body">
+          <div class="stat-label">{{ s.label }}</div>
+          <div class="stat-value">{{ s.value }}</div>
+          <ProgressBar :value="s.percent" :style="`height: 5px`" />
+          <div class="stat-detail">{{ s.detail }}</div>
+        </div>
+      </div>
+    </div>
 
-    <el-row :gutter="16" class="chart-row">
-      <el-col :xs="24" :lg="12">
-        <el-card shadow="hover">
-          <template #header>
-            <div class="card-header">
-              <span>{{ t('dashboard.trend') }}</span>
-            </div>
-          </template>
-          <div ref="chartRef" class="chart-box" />
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :lg="6">
-        <el-card shadow="hover">
-          <template #header>
-            <div class="card-header">
-              <span>{{ t('dashboard.network') }}</span>
-            </div>
-          </template>
+    <!-- 图表行 -->
+    <div class="charts-grid">
+      <div class="panel panel-trend">
+        <div class="panel-header">
+          <span class="panel-title">{{ t('dashboard.trend') }}</span>
+          <span class="ws-badge" :class="{ offline: !wsConnected }">
+            <span class="dot" :class="wsConnected ? 'green' : 'red'" />
+            {{ wsConnected ? t('dashboard.wsConnected') : t('dashboard.wsDisconnected') }}
+          </span>
+        </div>
+        <div ref="chartRef" class="chart-box" />
+      </div>
+
+      <div class="side-stack">
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">{{ t('dashboard.network') }}</span>
+          </div>
           <div ref="netChartRef" class="chart-box chart-box-sm" />
           <div class="net-values">
             <span class="net-val">
@@ -103,111 +44,105 @@
               {{ snap.network_tx_mbps.toFixed(2) }} MB/s
             </span>
           </div>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :lg="6">
-        <el-card shadow="hover">
-          <template #header>
-            <div class="card-header">
-              <span>{{ t('dashboard.connection') }}</span>
-              <el-tag
-                :type="wsConnected ? 'success' : 'danger'"
-                size="small"
-                effect="light"
-              >
-                {{ wsConnected ? t('dashboard.wsConnected') : t('dashboard.wsDisconnected') }}
-              </el-tag>
-            </div>
-          </template>
+        </div>
+        <div class="panel">
           <div class="info-row">
-            <span>{{ t('dashboard.dataPoints') }}</span
-            ><span>{{ history.length }}</span>
+            <span>{{ t('dashboard.dataPoints') }}</span><span class="mono">{{ history.length }}</span>
           </div>
           <div class="info-row">
-            <span>{{ t('dashboard.lastUpdate') }}</span
-            ><span>{{ lastUpdate || '—' }}</span>
+            <span>{{ t('dashboard.lastUpdate') }}</span><span class="mono">{{ lastUpdate || '—' }}</span>
           </div>
-          <el-divider />
           <div class="load-chart-title">{{ t('dashboard.load') }}</div>
           <div ref="loadChartRef" class="load-chart" />
-        </el-card>
-      </el-col>
-    </el-row>
+        </div>
+      </div>
+    </div>
 
-    <el-row :gutter="16" class="chart-row">
-      <el-col :xs="24" :lg="10">
-        <el-card shadow="hover">
-          <template #header>
-            <div class="card-header">
-              <span>{{ t('dashboard.processTop') }}</span>
-            </div>
-          </template>
-          <el-table :data="topProcesses" size="small" :empty-text="t('common.noData')">
-            <el-table-column prop="name" :label="t('dashboard.processName')" min-width="120" show-overflow-tooltip />
-            <el-table-column prop="cpu" :label="t('dashboard.processCpu')" width="70">
-              <template #default="{ row }">{{ row.cpu.toFixed(1) }}%</template>
-            </el-table-column>
-            <el-table-column prop="memory_mb" :label="t('dashboard.processMem')" width="80">
-              <template #default="{ row }">{{ row.memory_mb }} MB</template>
-            </el-table-column>
-            <el-table-column prop="pid" :label="t('dashboard.processPid')" width="60" />
-          </el-table>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :lg="8">
-        <el-card shadow="hover">
-          <template #header>
-            <div class="card-header">
-              <span>{{ t('dashboard.todayTodos') }}</span>
-              <el-button text size="small" @click="$router.push('/memos')">{{ t('dashboard.more') }}</el-button>
-            </div>
-          </template>
-          <div v-loading="todosLoading" class="todo-list">
-            <div v-for="td in todayTodos" :key="td.id" class="todo-item" :class="{ done: td.done }">
-              <el-checkbox
-                :model-value="td.done"
-                @change="(val: string | number | boolean) => toggleTodo(td, Boolean(val))"
-              />
-              <span class="todo-content">{{ td.content }}</span>
-            </div>
-            <div v-if="!todayTodos.length" class="todo-empty">{{ t('dashboard.noTodos') }}</div>
+    <!-- 下排 -->
+    <div class="bottom-grid">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">{{ t('dashboard.processTop') }}</span>
+        </div>
+        <FpTable :rows="topProcesses" :paginator="false" size="small">
+          <Column field="name" :header="t('dashboard.processName')" />
+          <Column field="cpu" :header="t('dashboard.processCpu')" style="width: 80px">
+            <template #body="{ data }">
+              <span class="mono">{{ Number(data.cpu).toFixed(1) }}%</span>
+            </template>
+          </Column>
+          <Column field="memory_mb" :header="t('dashboard.processMem')" style="width: 90px">
+            <template #body="{ data }">
+              <span class="mono">{{ data.memory_mb }} MB</span>
+            </template>
+          </Column>
+          <Column field="pid" :header="t('dashboard.processPid')" style="width: 70px">
+            <template #body="{ data }">
+              <span class="mono">{{ data.pid }}</span>
+            </template>
+          </Column>
+        </FpTable>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">{{ t('dashboard.todayTodos') }}</span>
+          <Button text size="small" @click="router.push('/memos')">{{ t('dashboard.more') }}</Button>
+        </div>
+        <div v-if="todosLoading" class="todo-skeleton">
+          <Skeleton v-for="i in 4" :key="i" height="28px" />
+        </div>
+        <div v-else class="todo-list">
+          <div
+            v-for="td in todayTodos"
+            :key="td.id"
+            class="todo-item"
+            :class="{ done: td.done }"
+          >
+            <Checkbox :model-value="td.done" @change="(v) => toggleTodo(td, Boolean(v))" />
+            <span class="todo-content">{{ td.content }}</span>
           </div>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :lg="6">
-        <el-card shadow="hover">
-          <template #header>
-            <div class="card-header">
-              <span>{{ t('dashboard.commonApps') }}</span>
-            </div>
-          </template>
-          <div v-if="commonApps.length" class="common-apps">
-            <div
-              v-for="a in commonApps"
-              :key="a.id"
-              class="common-app"
-              @click="openApp(a)"
-            >
-              <el-icon><Box /></el-icon>
-              <span class="common-app-name">{{ a.name }}</span>
-              <span class="common-app-count">{{ a.launch_count ?? 0 }}</span>
-            </div>
-          </div>
-          <div v-else class="todo-empty">{{ t('dashboard.noCommonApps') }}</div>
-        </el-card>
-      </el-col>
-    </el-row>
-  </div>
+          <div v-if="!todayTodos.length" class="panel-empty">{{ t('dashboard.noTodos') }}</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">{{ t('dashboard.commonApps') }}</span>
+        </div>
+        <div v-if="commonApps.length" class="common-apps">
+          <button
+            v-for="a in commonApps"
+            :key="a.id"
+            class="common-app"
+            @click="openApp(a)"
+          >
+            <span class="common-app-icon"><i class="oi oi-box" /></span>
+            <span class="common-app-name">{{ a.name }}</span>
+            <span class="common-app-count mono">{{ a.launch_count ?? 0 }}</span>
+          </button>
+        </div>
+        <div v-else class="panel-empty">{{ t('dashboard.noCommonApps') }}</div>
+      </div>
+    </div>
+  </LayoutContent>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { init, use } from 'echarts/core'
 import { LineChart, GaugeChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { Cpu, Memo as MemoIcon, Coin, TrendCharts, Box } from '@element-plus/icons-vue'
+import ProgressBar from 'openvue/progressbar'
+import Column from 'openvue/column'
+import Checkbox from 'openvue/checkbox'
+import Skeleton from 'openvue/skeleton'
+import Button from 'openvue/button'
+import FpTable from '@/components/ui/FpTable.vue'
+import LayoutContent from '@/components/ui/LayoutContent.vue'
 import { connectWithRetry } from '@/utils/ws'
 import { listTopProcesses } from '@/api/metrics'
 import { listMemos, updateMemo } from '@/api/memos'
@@ -219,6 +154,7 @@ import type { ECharts } from 'echarts/core'
 use([LineChart, GaugeChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const { t } = useI18n()
+const router = useRouter()
 
 const snap = reactive<MetricsSnapshot>({
   timestamp: 0,
@@ -247,6 +183,50 @@ let chart: ECharts | null = null
 let netChart: ECharts | null = null
 let loadChart: ECharts | null = null
 let wsConn: ReturnType<typeof connectWithRetry> | null = null
+let themeObserver: MutationObserver | null = null
+
+const statCards = computed(() => [
+  {
+    key: 'cpu',
+    icon: 'oi-microchip',
+    label: t('dashboard.cpu'),
+    value: `${snap.cpu_usage.toFixed(1)}%`,
+    percent: Math.round(snap.cpu_usage),
+    detail: `${snap.cpu_cores} cores`,
+    color: usageColor(snap.cpu_usage),
+  },
+  {
+    key: 'mem',
+    icon: 'oi-database',
+    label: t('dashboard.memory'),
+    value: `${snap.memory_usage_percent.toFixed(1)}%`,
+    percent: Math.round(snap.memory_usage_percent),
+    detail: `${(snap.memory_used_mb / 1024).toFixed(1)} / ${(snap.memory_total_mb / 1024).toFixed(1)} GB`,
+    color: usageColor(snap.memory_usage_percent),
+  },
+  {
+    key: 'disk',
+    icon: 'oi-database' ,
+    label: t('dashboard.disk'),
+    value: `${snap.disk_usage_percent.toFixed(1)}%`,
+    percent: Math.round(snap.disk_usage_percent),
+    detail: `${snap.disk_used_gb.toFixed(1)} / ${snap.disk_total_gb.toFixed(1)} GB`,
+    color: usageColor(snap.disk_usage_percent),
+  },
+  {
+    key: 'load',
+    icon: 'oi-wave-pulse',
+    label: t('dashboard.load'),
+    value: snap.load_one.toFixed(2),
+    percent: Math.min(Math.round((snap.load_one / 10) * 100), 100),
+    detail: `1m: ${snap.load_one.toFixed(2)} | 5m: ${snap.load_five.toFixed(2)} | 15m: ${snap.load_fifteen.toFixed(2)}`,
+    color: 'var(--fp-success)',
+  },
+])
+
+function usageColor(p: number) {
+  return p > 80 ? 'var(--fp-danger)' : p > 50 ? 'var(--fp-warning)' : 'var(--fp-success)'
+}
 
 // ── 进程 TOP ──
 const topProcesses = ref<ProcessEntry[]>([])
@@ -301,27 +281,45 @@ function openApp(a: InstalledApp) {
   if (a.access_url) window.open(a.access_url, '_blank')
 }
 
-function cpuColor(p: number) {
-  return p > 80 ? '#f56c6c' : p > 50 ? '#e6a23c' : '#67c23a'
-}
-const memColor = cpuColor
-const diskColor = cpuColor
-
+// ── ECharts 主题自适应 ──
 function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || undefined
 }
 
 function chartPalette() {
   return {
-    axisLabel: cssVar('--text-secondary') || '#909399',
-    gridLine: cssVar('--border-color') || '#e5e7eb',
+    axisLabel: cssVar('--fp-text-secondary') || '#909399',
+    gridLine: cssVar('--fp-border') || '#e5e7eb',
+    text: cssVar('--fp-text-primary') || '#111827',
+    brand: cssVar('--fp-brand') || '#ea580c',
+    success: cssVar('--fp-success') || '#10b981',
+    info: cssVar('--fp-info') || '#3b82f6',
+    warning: cssVar('--fp-warning') || '#f59e0b',
+    danger: cssVar('--fp-danger') || '#ef4444',
   }
+}
+
+function applyChartTheme() {
+  const p = chartPalette()
+  chart?.setOption({
+    legend: { textStyle: { color: p.axisLabel } },
+    xAxis: { axisLabel: { color: p.axisLabel }, splitLine: { lineStyle: { color: p.gridLine } } },
+    yAxis: { axisLabel: { color: p.axisLabel }, splitLine: { lineStyle: { color: p.gridLine } } },
+  })
+  netChart?.setOption({
+    legend: { textStyle: { color: p.axisLabel } },
+    xAxis: { axisLabel: { color: p.axisLabel }, splitLine: { lineStyle: { color: p.gridLine } } },
+    yAxis: { axisLabel: { color: p.axisLabel }, splitLine: { lineStyle: { color: p.gridLine } } },
+  })
+  loadChart?.setOption({
+    series: [{ axisLabel: { color: p.axisLabel }, detail: { color: p.axisLabel } }],
+  })
 }
 
 function initChart() {
   if (!chartRef.value) return
   chart = init(chartRef.value)
-  const { axisLabel, gridLine } = chartPalette()
+  const { axisLabel, gridLine, brand, success, info } = chartPalette()
   chart.setOption({
     tooltip: { trigger: 'axis' },
     legend: { data: ['CPU %', 'Memory %', 'Disk %'], bottom: 0, textStyle: { color: axisLabel } },
@@ -338,42 +336,11 @@ function initChart() {
       splitLine: { lineStyle: { color: gridLine } },
     },
     series: [
-      {
-        name: 'CPU %',
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        lineStyle: { width: 2 },
-        data: [],
-      },
-      {
-        name: 'Memory %',
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        lineStyle: { width: 2 },
-        data: [],
-      },
-      {
-        name: 'Disk %',
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        lineStyle: { width: 2 },
-        data: [],
-      },
+      { name: 'CPU %', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 2, color: brand }, itemStyle: { color: brand }, data: [] },
+      { name: 'Memory %', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 2, color: info }, itemStyle: { color: info }, data: [] },
+      { name: 'Disk %', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 2, color: success }, itemStyle: { color: success }, data: [] },
     ],
   })
-  const observer = new MutationObserver(() => {
-    const { axisLabel: l, gridLine: g } = chartPalette()
-    chart?.setOption({
-      legend: { textStyle: { color: l } },
-      xAxis: { axisLabel: { color: l }, splitLine: { lineStyle: { color: g } } },
-      yAxis: { axisLabel: { color: l }, splitLine: { lineStyle: { color: g } } },
-    })
-  })
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-  window.addEventListener('beforeunload', () => observer.disconnect())
 }
 
 function updateChart() {
@@ -392,7 +359,7 @@ function updateChart() {
 function initNetChart() {
   if (!netChartRef.value) return
   netChart = init(netChartRef.value)
-  const { axisLabel, gridLine } = chartPalette()
+  const { axisLabel, gridLine, info, success } = chartPalette()
   netChart.setOption({
     tooltip: { trigger: 'axis' },
     legend: { data: ['RX', 'TX'], bottom: 0, textStyle: { color: axisLabel } },
@@ -408,8 +375,8 @@ function initNetChart() {
       splitLine: { lineStyle: { color: gridLine } },
     },
     series: [
-      { name: 'RX', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 1.5, color: '#3b82f6' }, itemStyle: { color: '#3b82f6' }, data: [] },
-      { name: 'TX', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 1.5, color: '#10b981' }, itemStyle: { color: '#10b981' }, data: [] },
+      { name: 'RX', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 1.5, color: info }, itemStyle: { color: info }, data: [] },
+      { name: 'TX', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 1.5, color: success }, itemStyle: { color: success }, data: [] },
     ],
   })
 }
@@ -425,11 +392,11 @@ function updateNetChart() {
   })
 }
 
-// ── 负载迷你图 ──
+// ── 负载仪表盘 ──
 function initLoadChart() {
   if (!loadChartRef.value) return
   loadChart = init(loadChartRef.value)
-  const { axisLabel } = chartPalette()
+  const { axisLabel, success, warning, danger } = chartPalette()
   loadChart.setOption({
     tooltip: { trigger: 'item' },
     series: [
@@ -440,7 +407,16 @@ function initLoadChart() {
         min: 0,
         max: 10,
         radius: '95%',
-        axisLine: { lineStyle: { width: 8, color: [[0.3, '#67c23a'], [0.7, '#e6a23c'], [1, '#f56c6c']] } },
+        axisLine: {
+          lineStyle: {
+            width: 8,
+            color: [
+              [0.3, success],
+              [0.7, warning],
+              [1, danger],
+            ],
+          },
+        },
         pointer: { itemStyle: { color: 'auto' }, length: '55%', width: 4 },
         axisTick: { distance: -8, length: 4, lineStyle: { color: '#fff', width: 1 } },
         splitLine: { distance: -8, length: 8, lineStyle: { color: '#fff', width: 2 } },
@@ -484,6 +460,8 @@ onMounted(() => {
     initNetChart()
     initLoadChart()
   })
+  themeObserver = new MutationObserver(() => applyChartTheme())
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
   refreshProcesses()
   refreshTodos()
   refreshCommonApps()
@@ -495,171 +473,285 @@ onUnmounted(() => {
   chart?.dispose()
   netChart?.dispose()
   loadChart?.dispose()
+  themeObserver?.disconnect()
   if (procTimer !== null) clearInterval(procTimer)
 })
 </script>
 
 <style scoped>
-.stat-card {
-  height: 140px;
+/* 指标卡 */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--fp-space-4);
 }
-.stat {
+.stat-card {
   display: flex;
-  gap: 16px;
+  gap: var(--fp-space-4);
   align-items: center;
-  height: 100%;
+  padding: var(--fp-space-5);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+  transition:
+    box-shadow var(--fp-transition-fast),
+    transform 120ms var(--fp-ease-out);
+}
+.stat-card:hover {
+  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.18);
+  transform: translateY(-1px);
 }
 .stat-icon {
-  width: 56px;
-  height: 56px;
-  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
-  font-size: 16px;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--fp-radius-md);
+  font-size: 22px;
   flex-shrink: 0;
+  color: var(--fp-brand);
+  background: var(--fp-brand-soft);
 }
-.icon-cpu {
-  background: color-mix(in srgb, var(--brand) 12%, transparent);
-  color: var(--brand);
+.stat-mem .stat-icon {
+  color: var(--fp-info);
+  background: var(--fp-info-soft);
 }
-.icon-mem {
-  background: color-mix(in srgb, #3b82f6 12%, transparent);
-  color: #3b82f6;
+.stat-disk .stat-icon {
+  color: var(--fp-warning);
+  background: var(--fp-warning-soft);
 }
-.icon-disk {
-  background: color-mix(in srgb, var(--warning) 14%, transparent);
-  color: var(--warning);
-}
-.icon-load {
-  background: color-mix(in srgb, var(--success) 12%, transparent);
-  color: var(--success);
+.stat-load .stat-icon {
+  color: var(--fp-success);
+  background: var(--fp-success-soft);
 }
 .stat-body {
   flex: 1;
   min-width: 0;
 }
 .stat-label {
-  font-size: 13px;
-  color: var(--text-secondary);
+  font-size: 12.5px;
+  color: var(--fp-text-secondary);
   margin-bottom: 2px;
 }
 .stat-value {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 700;
-  margin-bottom: 6px;
+  line-height: 1.3;
   letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--fp-text-primary);
 }
 .stat-detail {
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: 11.5px;
+  color: var(--fp-text-muted);
   margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.card-header {
+
+/* 面板 */
+.panel {
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+}
+.panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: var(--fp-space-3);
 }
-.chart-row {
-  margin-top: var(--space-4);
+.panel-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--fp-text-primary);
 }
-.info-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 0;
+.panel-empty {
+  padding: var(--fp-space-6) var(--fp-space-2);
+  text-align: center;
+  color: var(--fp-text-muted);
   font-size: 13px;
-  color: var(--text-secondary);
+}
+
+.ws-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fp-text-secondary);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.dot.green {
+  background: var(--fp-success);
+  box-shadow: 0 0 0 3px var(--fp-success-soft);
+}
+.dot.red {
+  background: var(--fp-danger);
+  box-shadow: 0 0 0 3px var(--fp-danger-soft);
+}
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: var(--fp-space-4);
+}
+.side-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-4);
+}
+.chart-box {
+  height: 300px;
 }
 .chart-box-sm {
-  height: 200px;
+  height: 170px;
 }
 .net-values {
   display: flex;
   justify-content: space-between;
+  margin-top: var(--fp-space-2);
   font-size: 12px;
-  color: var(--text-secondary);
-  padding: 4px 0;
-}
-.net-val {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  color: var(--fp-text-secondary);
 }
 .net-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
   display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
 }
 .net-dot.down {
-  background: #3b82f6;
+  background: var(--fp-info);
 }
 .net-dot.up {
-  background: #10b981;
+  background: var(--fp-success);
+}
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--fp-text-secondary);
+  padding: 3px 0;
 }
 .load-chart-title {
   font-size: 13px;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--fp-text-primary);
+  margin-top: var(--fp-space-2);
 }
 .load-chart {
-  height: 120px;
+  height: 130px;
+}
+
+/* 下排 */
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: var(--fp-space-4);
+  align-items: start;
+}
+.todo-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-2);
 }
 .todo-list {
-  min-height: 140px;
+  display: flex;
+  flex-direction: column;
 }
 .todo-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 4px;
-  font-size: 13px;
+  gap: var(--fp-space-2);
+  padding: var(--fp-space-2) 0;
+  border-bottom: 1px solid var(--fp-border);
 }
-.todo-item.done .todo-content {
-  text-decoration: line-through;
-  color: var(--text-muted);
+.todo-item:last-child {
+  border-bottom: none;
 }
 .todo-content {
+  font-size: 13.5px;
+  color: var(--fp-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.todo-empty {
-  padding: 30px 0;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
+.todo-item.done .todo-content {
+  text-decoration: line-through;
+  color: var(--fp-text-muted);
 }
 .common-apps {
   display: flex;
   flex-direction: column;
-  gap: 4px;
 }
 .common-app {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
+  gap: var(--fp-space-3);
+  padding: var(--fp-space-2);
+  border: none;
+  background: transparent;
+  border-radius: var(--fp-radius-sm);
   cursor: pointer;
-  font-size: 13px;
-  color: var(--text-primary);
+  text-align: left;
+  font-family: var(--fp-font-sans);
+  transition: background-color var(--fp-transition-fast);
 }
 .common-app:hover {
-  background: var(--bg-hover);
+  background: var(--fp-bg-hover);
+}
+.common-app-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--fp-radius-sm);
+  background: var(--fp-brand-soft);
+  color: var(--fp-brand);
+  font-size: 15px;
 }
 .common-app-name {
   flex: 1;
+  font-size: 13.5px;
+  color: var(--fp-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .common-app-count {
-  font-size: 11px;
-  color: var(--text-muted);
-  background: var(--bg-hover);
-  border-radius: 8px;
-  padding: 1px 8px;
+  font-size: 12px;
+  color: var(--fp-text-muted);
+}
+
+@media (max-width: 1100px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .charts-grid {
+    grid-template-columns: 1fr;
+  }
+  .bottom-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 768px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+  .bottom-grid {
+    grid-template-columns: 1fr;
+  }
+  .chart-box {
+    height: 240px;
+  }
 }
 </style>

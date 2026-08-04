@@ -1,271 +1,275 @@
 <template>
   <div class="view-container">
-    <el-tabs v-model="activeTab">
-      <el-tab-pane :label="t('webServer.instances')" name="instances">
-    <div class="card-header-title">
-      <el-button type="primary" @click="showInstall = true">{{
-        t('webServer.install')
-      }}</el-button>
-    </div>
+    <Tabs v-model:value="activeTab" class="servers-tabs">
+      <TabList>
+        <Tab value="instances">{{ t('webServer.instances') }}</Tab>
+        <Tab value="native">{{ t('webServer.nativeTab') }}</Tab>
+      </TabList>
+      <TabPanels>
+        <TabPanel value="instances">
+          <div class="page-toolbar">
+            <FpButton variant="primary" icon="oi oi-plus" @click="showInstall = true">
+              {{ t('webServer.install') }}
+            </FpButton>
+          </div>
 
-    <el-card shadow="hover">
-      <el-table
-        v-loading="loading"
-        :empty-text="t('common.noData')"
-        :data="instances"
-        stripe
-        class="full-width"
-      >
-        <el-table-column prop="id" :label="t('webServer.id')" width="60" />
-        <el-table-column prop="engine" :label="t('webServer.engine')" width="120" />
-        <el-table-column prop="version" :label="t('webServer.version')" width="100" />
-        <el-table-column prop="port" :label="t('webServer.port')" width="80" />
-        <el-table-column :label="t('webServer.status')" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'running' ? 'success' : 'info'" size="small">
-              {{ row.status === 'running' ? t('webServer.running') : t('webServer.stopped') }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="config_path"
-          :label="t('webServer.configPath')"
-          min-width="160"
-          show-overflow-tooltip
-        />
-        <el-table-column :label="t('webServer.actions')" width="420" fixed="right">
-          <template #default="{ row }">
-            <el-button
-              size="small"
-              :disabled="row.status === 'running'"
-              @click="handleStart(row.id)"
-              >{{ t('webServer.start') }}</el-button
+          <div class="panel">
+            <FpTable
+              :rows="instances"
+              :loading="loading"
+              :empty-text="t('common.noData')"
+              :first="(currentPage - 1) * pageSize"
+              striped-rows
             >
-            <el-button
-              size="small"
-              :disabled="row.status !== 'running'"
-              @click="handleStop(row.id)"
-              >{{ t('webServer.stop') }}</el-button
-            >
-            <el-button size="small" @click="handleRestart(row.id)">{{
-              t('webServer.restart')
-            }}</el-button>
-            <el-button size="small" @click="handleReload(row.id)">{{
-              t('webServer.reload')
-            }}</el-button>
-            <el-button size="small" @click="handleConfigtest(row.id)">{{
-              t('webServer.configtest')
-            }}</el-button>
-            <el-button size="small" @click="openPreset(row)">{{ t('webServer.preset') }}</el-button>
-            <el-button size="small" @click="openSwitch(row)">{{ t('webServer.switchEngine') }}</el-button>
-            <el-popconfirm
-              :title="t('webServer.deleteConfirm', { name: row.engine + '-' + row.id })"
-              @confirm="handleDelete(row.id)"
-            >
-              <template #reference>
-                <el-button size="small" type="danger">{{ t('webServer.uninstall') }}</el-button>
-              </template>
-            </el-popconfirm>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-pagination
-        v-if="total > pageSize"
-        v-model:current-page="currentPage"
-        :page-size="pageSize"
-        :total="total"
-        layout="prev, pager, next, total"
-        background
-        small
-        class="table-pagination"
-        @current-change="fetch"
-      />
-    </el-card>
-      </el-tab-pane>
-
-      <el-tab-pane :label="t('webServer.nativeTab')" name="native">
-        <el-card shadow="hover">
-          <div class="native-toolbar">
-            <el-button size="small" type="primary" :loading="detecting" @click="fetchNative">{{
-              t('webServer.nativeDetect')
-            }}</el-button>
-            <el-alert
-              :title="t('webServer.nativeHint')"
-              type="info"
-              :closable="false"
-              class="native-hint"
+              <Column field="id" :header="t('webServer.id')" style="width: 60px" />
+              <Column field="engine" :header="t('webServer.engine')" style="width: 120px" />
+              <Column :header="t('webServer.version')" style="width: 100px">
+                <template #body="{ data }">{{ data.version || '—' }}</template>
+              </Column>
+              <Column field="port" :header="t('webServer.port')" style="width: 80px" />
+              <Column :header="t('webServer.status')" style="width: 110px">
+                <template #body="{ data }">
+                  <FpTag
+                    :severity="data.status === 'running' ? 'success' : 'info'"
+                    :dot="data.status === 'running'"
+                  >
+                    {{ data.status === 'running' ? t('webServer.running') : t('webServer.stopped') }}
+                  </FpTag>
+                </template>
+              </Column>
+              <Column :header="t('webServer.configPath')" style="min-width: 160px">
+                <template #body="{ data }">
+                  <span v-tooltip="data.config_path" class="cell-truncate">{{ data.config_path }}</span>
+                </template>
+              </Column>
+              <Column :header="t('webServer.actions')" style="width: 460px" frozen>
+                <template #body="{ data }">
+                  <div class="row-actions">
+                    <FpButton
+                      variant="ghost"
+                      :disabled="data.status === 'running'"
+                      @click="handleStart(data.id)"
+                      >{{ t('webServer.start') }}</FpButton
+                    >
+                    <FpButton
+                      variant="ghost"
+                      :disabled="data.status !== 'running'"
+                      @click="handleStop(data.id)"
+                      >{{ t('webServer.stop') }}</FpButton
+                    >
+                    <FpButton variant="ghost" @click="handleRestart(data.id)">{{
+                      t('webServer.restart')
+                    }}</FpButton>
+                    <FpButton variant="ghost" @click="handleReload(data.id)">{{
+                      t('webServer.reload')
+                    }}</FpButton>
+                    <FpButton variant="ghost" @click="handleConfigtest(data.id)">{{
+                      t('webServer.configtest')
+                    }}</FpButton>
+                    <FpButton variant="ghost" @click="openPreset(data)">{{
+                      t('webServer.preset')
+                    }}</FpButton>
+                    <FpButton variant="ghost" @click="openSwitch(data)">{{
+                      t('webServer.switchEngine')
+                    }}</FpButton>
+                    <FpButton variant="danger" @click="confirmDelete(data)">{{
+                      t('webServer.uninstall')
+                    }}</FpButton>
+                  </div>
+                </template>
+              </Column>
+            </FpTable>
+            <Paginator
+              v-if="total > pageSize"
+              :first="(currentPage - 1) * pageSize"
+              :rows="pageSize"
+              :total-records="total"
+              :rows-per-page-options="[20, 50, 100]"
+              @update:first="(f) => goPage(f)"
             />
           </div>
-          <el-table
-            v-loading="detecting"
-            :empty-text="t('common.noData')"
-            :data="nativeList"
-            stripe
-            class="full-width mt-2"
-          >
-            <el-table-column prop="engine" :label="t('webServer.engine')" width="130" />
-            <el-table-column :label="t('webServer.status')" width="110">
-              <template #default="{ row }">
-                <el-tag :type="row.installed ? 'success' : 'info'" size="small">
-                  {{
-                    row.installed
-                      ? t('webServer.nativeInstalled')
-                      : t('webServer.nativeNotInstalled')
-                  }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="version" :label="t('webServer.nativeVersion')" width="100">
-              <template #default="{ row }">{{ row.version || '—' }}</template>
-            </el-table-column>
-            <el-table-column :label="t('webServer.nativeRunning')" width="90">
-              <template #default="{ row }">
-                <el-tag :type="row.running ? 'success' : 'info'" size="small" effect="plain">
-                  {{ row.running ? t('webServer.nativeRunning') : t('webServer.nativeStopped') }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column :label="t('webServer.nativeAutostart')" width="110">
-              <template #default="{ row }">
-                <el-switch
-                  :model-value="row.enabled"
-                  :disabled="!row.installed"
-                  @change="(val: string | number | boolean) => handleNativeAutostart(row, Boolean(val))"
-                />
-              </template>
-            </el-table-column>
-            <el-table-column :label="t('webServer.nativeListenPorts')" width="140">
-              <template #default="{ row }">
-                <el-tag
-                  v-for="p in row.listening_ports"
-                  :key="p"
-                  size="small"
-                  class="mr-1"
-                  effect="plain"
-                  >{{ p }}</el-tag
-                >
-                <span v-if="!row.listening_ports || !row.listening_ports.length">—</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              prop="binary_path"
-              :label="t('webServer.nativePath')"
-              min-width="160"
-              show-overflow-tooltip
+        </TabPanel>
+
+        <TabPanel value="native">
+          <div class="panel">
+            <div class="native-toolbar">
+              <FpButton variant="primary" icon="oi oi-refresh" :loading="detecting" @click="fetchNative">
+                {{ t('webServer.nativeDetect') }}
+              </FpButton>
+              <InlineMessage severity="info" class="native-hint">
+                {{ t('webServer.nativeHint') }}
+              </InlineMessage>
+            </div>
+            <FpTable
+              :rows="nativeList"
+              :loading="detecting"
+              :empty-text="t('common.noData')"
+              striped-rows
+              class="mt-2"
             >
-              <template #default="{ row }">{{ row.binary_path || '—' }}</template>
-            </el-table-column>
-            <el-table-column :label="t('webServer.actions')" width="180" fixed="right">
-              <template #default="{ row }">
-                <el-popconfirm
-                  v-if="!row.installed"
-                  :title="t('webServer.nativeInstallConfirm', { name: row.engine })"
-                  @confirm="handleNativeInstall(row.engine)"
-                >
-                  <template #reference>
-                    <el-button size="small" type="primary">{{
-                      t('webServer.nativeInstallBtn')
-                    }}</el-button>
+              <Column field="engine" :header="t('webServer.engine')" style="width: 130px" />
+              <Column :header="t('webServer.status')" style="width: 110px">
+                <template #body="{ data }">
+                  <FpTag :severity="data.installed ? 'success' : 'info'">
+                    {{
+                      data.installed
+                        ? t('webServer.nativeInstalled')
+                        : t('webServer.nativeNotInstalled')
+                    }}
+                  </FpTag>
+                </template>
+              </Column>
+              <Column :header="t('webServer.nativeVersion')" style="width: 100px">
+                <template #body="{ data }">{{ data.version || '—' }}</template>
+              </Column>
+              <Column :header="t('webServer.nativeRunning')" style="width: 90px">
+                <template #body="{ data }">
+                  <FpTag :severity="data.running ? 'success' : 'info'">
+                    {{ data.running ? t('webServer.nativeRunning') : t('webServer.nativeStopped') }}
+                  </FpTag>
+                </template>
+              </Column>
+              <Column :header="t('webServer.nativeAutostart')" style="width: 110px">
+                <template #body="{ data }">
+                  <ToggleSwitch
+                    :model-value="data.enabled"
+                    :disabled="!data.installed"
+                    @update:model-value="(v) => handleNativeAutostart(data, Boolean(v))"
+                  />
+                </template>
+              </Column>
+              <Column :header="t('webServer.nativeListenPorts')" style="width: 140px">
+                <template #body="{ data }">
+                  <template v-if="data.listening_ports && data.listening_ports.length">
+                    <FpTag v-for="p in data.listening_ports" :key="p" class="mr-1">{{ p }}</FpTag>
                   </template>
-                </el-popconfirm>
-                <el-popconfirm
-                  v-else
-                  :title="t('webServer.nativeUninstallConfirm', { name: row.engine })"
-                  @confirm="handleNativeUninstall(row.engine)"
-                >
-                  <template #reference>
-                    <el-button size="small" type="danger">{{
+                  <span v-else>—</span>
+                </template>
+              </Column>
+              <Column :header="t('webServer.nativePath')" style="min-width: 160px">
+                <template #body="{ data }">
+                  <span v-if="data.binary_path" v-tooltip="data.binary_path" class="cell-truncate">{{
+                    data.binary_path
+                  }}</span>
+                  <span v-else>—</span>
+                </template>
+              </Column>
+              <Column :header="t('webServer.actions')" style="width: 180px" frozen>
+                <template #body="{ data }">
+                  <div class="row-actions">
+                    <FpButton
+                      v-if="!data.installed"
+                      variant="primary"
+                      @click="confirmNativeInstall(data)"
+                      >{{ t('webServer.nativeInstallBtn') }}</FpButton
+                    >
+                    <FpButton v-else variant="danger" @click="confirmNativeUninstall(data)">{{
                       t('webServer.nativeUninstallBtn')
-                    }}</el-button>
-                  </template>
-                </el-popconfirm>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-tab-pane>
-    </el-tabs>
+                    }}</FpButton>
+                  </div>
+                </template>
+              </Column>
+            </FpTable>
+          </div>
+        </TabPanel>
+      </TabPanels>
+    </Tabs>
 
-
-    <el-dialog v-model="showInstall" :title="t('webServer.installTitle')" width="500px">
-      <el-form :model="form" label-width="120px">
-        <el-form-item :label="t('webServer.engine')" required>
-          <el-select v-model="form.engine" class="full-width">
-            <el-option v-for="e in engines" :key="e.name" :label="e.name" :value="e.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('webServer.version')">
-          <el-input v-model="form.version" :placeholder="t('webServer.versionPlaceholder')" />
-        </el-form-item>
-        <el-form-item :label="t('webServer.configPath')">
-          <el-input
-            v-model="form.config_path"
-            :placeholder="t('webServer.configPathPlaceholder')"
-          />
-        </el-form-item>
-        <el-form-item :label="t('webServer.binaryPath')">
-          <el-input
-            v-model="form.binary_path"
-            :placeholder="t('webServer.binaryPathPlaceholder')"
-          />
-        </el-form-item>
-        <el-form-item :label="t('webServer.port')">
-          <el-input-number v-model="form.port" :min="1" :max="65535" class="full-width" />
-        </el-form-item>
-      </el-form>
+    <FpModal v-model="showInstall" :header="t('webServer.installTitle')" style="width: 500px">
+      <div class="modal-form">
+        <FpSelect
+          v-model="form.engine"
+          :label="t('webServer.engine')"
+          :options="engines"
+          option-label="name"
+          option-value="name"
+          :invalid="!form.engine"
+        />
+        <FpInput
+          v-model="form.version"
+          :label="t('webServer.version')"
+          :placeholder="t('webServer.versionPlaceholder')"
+        />
+        <FpInput
+          v-model="form.config_path"
+          :label="t('webServer.configPath')"
+          :placeholder="t('webServer.configPathPlaceholder')"
+        />
+        <FpInput
+          v-model="form.binary_path"
+          :label="t('webServer.binaryPath')"
+          :placeholder="t('webServer.binaryPathPlaceholder')"
+        />
+        <div class="field-col">
+          <label class="field-label">{{ t('webServer.port') }}</label>
+          <InputNumber v-model="form.port" :min="1" :max="65535" class="w-full" />
+        </div>
+      </div>
       <template #footer>
-        <el-button @click="showInstall = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleInstall">{{
-          t('common.install')
-        }}</el-button>
+        <FpButton variant="ghost" @click="showInstall = false">{{ t('common.cancel') }}</FpButton>
+        <FpButton variant="primary" :loading="submitting" @click="handleInstall">
+          {{ t('common.install') }}
+        </FpButton>
       </template>
-    </el-dialog>
+    </FpModal>
 
-    <el-dialog v-model="showPreset" :title="t('webServer.preset')" width="520px">
-      <el-alert
-        :title="t('webServer.presetRecommend')"
-        type="info"
-        :closable="false"
-        class="preset-alert"
-      />
-      <el-radio-group v-model="selectedPreset" class="preset-group">
-        <el-radio v-for="p in presets" :key="p.name" :label="p.name" class="preset-radio">
-          {{ p.description }} <el-tag v-if="p.recommended" size="small" type="success">推荐</el-tag>
-        </el-radio>
-      </el-radio-group>
+    <FpModal v-model="showPreset" :header="t('webServer.preset')" style="width: 520px">
+      <div class="modal-form">
+        <InlineMessage severity="info" class="preset-alert">{{ t('webServer.presetRecommend') }}</InlineMessage>
+        <RadioButtonGroup v-model="selectedPreset" class="preset-group">
+          <div v-for="p in presets" :key="p.name" class="preset-radio">
+            <RadioButton :value="p.name" :input-id="`preset-${p.name}`" />
+            <label :for="`preset-${p.name}`" class="preset-label">
+              {{ p.description }}
+              <FpTag v-if="p.recommended" severity="success" value="推荐" />
+            </label>
+          </div>
+        </RadioButtonGroup>
+      </div>
       <template #footer>
-        <el-button @click="showPreset = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleApplyPreset">{{
-          t('common.confirm')
-        }}</el-button>
+        <FpButton variant="ghost" @click="showPreset = false">{{ t('common.cancel') }}</FpButton>
+        <FpButton variant="primary" :loading="submitting" @click="handleApplyPreset">
+          {{ t('common.confirm') }}
+        </FpButton>
       </template>
-    </el-dialog>
+    </FpModal>
 
-    <el-dialog v-model="showSwitch" :title="t('webServer.switchEngine')" width="480px">
-      <el-form label-width="120px">
-        <el-form-item :label="t('webServer.engine')" required>
-          <el-select v-model="switchEngine" class="full-width">
-            <el-option v-for="e in engines" :key="e.name" :label="e.name" :value="e.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <span class="switch-tip">{{ t('webServer.switchTip') }}</span>
-        </el-form-item>
-      </el-form>
+    <FpModal v-model="showSwitch" :header="t('webServer.switchEngine')" style="width: 480px">
+      <div class="modal-form">
+        <FpSelect
+          v-model="switchEngine"
+          :label="t('webServer.engine')"
+          :options="engines"
+          option-label="name"
+          option-value="name"
+        />
+        <span class="switch-tip">{{ t('webServer.switchTip') }}</span>
+      </div>
       <template #footer>
-        <el-button @click="showSwitch = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSwitchEngine">{{
-          t('common.confirm')
-        }}</el-button>
+        <FpButton variant="ghost" @click="showSwitch = false">{{ t('common.cancel') }}</FpButton>
+        <FpButton variant="primary" :loading="submitting" @click="handleSwitchEngine">
+          {{ t('common.confirm') }}
+        </FpButton>
       </template>
-    </el-dialog>
+    </FpModal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import Tabs from 'openvue/tabs'
+import TabList from 'openvue/tablist'
+import Tab from 'openvue/tab'
+import TabPanels from 'openvue/tabpanels'
+import TabPanel from 'openvue/tabpanel'
+import Column from 'openvue/column'
+import Paginator from 'openvue/paginator'
+import InputNumber from 'openvue/inputnumber'
+import ToggleSwitch from 'openvue/toggleswitch'
+import InlineMessage from 'openvue/inlinemessage'
+import RadioButtonGroup from 'openvue/radiobuttongroup'
+import RadioButton from 'openvue/radiobutton'
 import {
   listEngines,
   listWebServers,
@@ -290,8 +294,19 @@ import type {
   PerformancePresetInfo,
   NativeWebServerInfo,
 } from '@/types'
+import FpTable from '@/components/ui/FpTable.vue'
+import FpModal from '@/components/ui/FpModal.vue'
+import FpInput from '@/components/ui/FpInput.vue'
+import FpSelect from '@/components/ui/FpSelect.vue'
+import FpButton from '@/components/ui/FpButton.vue'
+import FpTag from '@/components/ui/FpTag.vue'
+import { useFpToast } from '@/components/ui/FpToast'
+import { useFpConfirm } from '@/components/ui/FpConfirm'
 
 const { t } = useI18n()
+const toast = useFpToast()
+const { confirmAction } = useFpConfirm()
+
 const activeTab = ref('instances')
 const instances = ref<WebServerResponse[]>([])
 const engines = ref<EngineInfo[]>([])
@@ -314,15 +329,20 @@ async function fetch() {
     total.value = inst.data.total
     engines.value = eng.data
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     loading.value = false
   }
 }
 
+function goPage(first: number) {
+  currentPage.value = first / pageSize.value + 1
+  fetch()
+}
+
 async function handleInstall() {
   if (!form.value.engine) {
-    ElMessage.warning(t('common.required'))
+    toast.warning(t('common.required'))
     return
   }
   submitting.value = true
@@ -339,12 +359,12 @@ async function handleInstall() {
     if (form.value.binary_path) data.binary_path = form.value.binary_path
     if (form.value.port) data.port = form.value.port
     await createWebServer(data)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     showInstall.value = false
     form.value = { engine: '', version: '', config_path: '', binary_path: '', port: 80 }
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     submitting.value = false
   }
@@ -353,55 +373,62 @@ async function handleInstall() {
 async function handleStart(id: number) {
   try {
     await startWebServer(id)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   }
 }
 async function handleStop(id: number) {
   try {
     await stopWebServer(id)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   }
 }
 async function handleRestart(id: number) {
   try {
     await restartWebServer(id)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   }
 }
 async function handleReload(id: number) {
   try {
     await reloadWebServer(id)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   }
 }
 async function handleConfigtest(id: number) {
   try {
     await configtestWebServer(id)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   }
 }
-async function handleDelete(id: number) {
-  try {
-    await deleteWebServer(id)
-    ElMessage.success(t('common.success'))
-    await fetch()
-  } catch {
-    ElMessage.error(t('common.failed'))
-  }
+
+function confirmDelete(row: WebServerResponse) {
+  confirmAction({
+    message: t('webServer.deleteConfirm', { name: `${row.engine}-${row.id}` }),
+    header: t('common.confirmAction'),
+    accept: async () => {
+      try {
+        await deleteWebServer(row.id)
+        toast.success(t('common.success'))
+        await fetch()
+      } catch {
+        toast.error(t('common.failed'))
+      }
+    },
+  })
 }
 
 const showPreset = ref(false)
@@ -420,7 +447,7 @@ async function openPreset(row: WebServerResponse) {
     selectedPreset.value = recommended ? recommended.name : 'medium'
     showPreset.value = true
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   }
 }
 
@@ -429,11 +456,11 @@ async function handleApplyPreset() {
   submitting.value = true
   try {
     await applyWebServerPreset(targetServerId, selectedPreset.value)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     showPreset.value = false
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     submitting.value = false
   }
@@ -450,11 +477,11 @@ async function handleSwitchEngine() {
   submitting.value = true
   try {
     await switchWebServerEngine(targetServerId, switchEngine.value)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     showSwitch.value = false
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     submitting.value = false
   }
@@ -471,49 +498,61 @@ async function fetchNative() {
     const res = await detectNativeWebServers()
     nativeList.value = res.data
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     detecting.value = false
   }
 }
 
-async function handleNativeInstall(engine: string) {
-  if (nativeBusy.value) return
-  nativeBusy.value = true
-  try {
-    await nativeInstallWebServer(engine)
-    ElMessage.success(t('common.success'))
-    await fetchNative()
-    await fetch()
-  } catch {
-    ElMessage.error(t('common.failed'))
-  } finally {
-    nativeBusy.value = false
-  }
+function confirmNativeInstall(row: NativeWebServerInfo) {
+  confirmAction({
+    message: t('webServer.nativeInstallConfirm', { name: row.engine }),
+    header: t('common.confirmAction'),
+    accept: async () => {
+      if (nativeBusy.value) return
+      nativeBusy.value = true
+      try {
+        await nativeInstallWebServer(row.engine)
+        toast.success(t('common.success'))
+        await fetchNative()
+        await fetch()
+      } catch {
+        toast.error(t('common.failed'))
+      } finally {
+        nativeBusy.value = false
+      }
+    },
+  })
 }
 
-async function handleNativeUninstall(engine: string) {
-  if (nativeBusy.value) return
-  nativeBusy.value = true
-  try {
-    await nativeUninstallWebServer(engine)
-    ElMessage.success(t('common.success'))
-    await fetchNative()
-    await fetch()
-  } catch {
-    ElMessage.error(t('common.failed'))
-  } finally {
-    nativeBusy.value = false
-  }
+function confirmNativeUninstall(row: NativeWebServerInfo) {
+  confirmAction({
+    message: t('webServer.nativeUninstallConfirm', { name: row.engine }),
+    header: t('common.confirmAction'),
+    accept: async () => {
+      if (nativeBusy.value) return
+      nativeBusy.value = true
+      try {
+        await nativeUninstallWebServer(row.engine)
+        toast.success(t('common.success'))
+        await fetchNative()
+        await fetch()
+      } catch {
+        toast.error(t('common.failed'))
+      } finally {
+        nativeBusy.value = false
+      }
+    },
+  })
 }
 
 async function handleNativeAutostart(row: NativeWebServerInfo, enabled: boolean) {
   try {
     await nativeAutostartWebServer(row.engine, enabled)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     await fetchNative()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   }
 }
 
@@ -524,20 +563,86 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.servers-tabs {
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius-md);
+  padding: var(--fp-space-4);
+}
+.page-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--fp-space-4);
+}
+.panel {
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+}
 .native-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--fp-space-3);
   flex-wrap: wrap;
+  margin-bottom: var(--fp-space-4);
 }
 .native-hint {
   flex: 1;
   min-width: 260px;
 }
+.row-actions {
+  display: flex;
+  gap: var(--fp-space-1);
+  flex-wrap: wrap;
+}
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-4);
+}
+.field-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field-label {
+  font-size: 13px;
+  color: var(--fp-text-secondary);
+}
+.cell-truncate {
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .mr-1 {
   margin-right: 4px;
 }
-.mt-2 {
-  margin-top: 8px;
+.preset-alert {
+  width: 100%;
+}
+.preset-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-2);
+}
+.preset-radio {
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-2);
+}
+.preset-label {
+  font-size: 13px;
+  color: var(--fp-text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-2);
+  cursor: pointer;
+}
+.switch-tip {
+  font-size: 13px;
+  color: var(--fp-text-secondary);
 }
 </style>

@@ -75,7 +75,7 @@ cd agent && PANEL_URL=http://127.0.0.1:8080 AUTH_TOKEN=dev-token cargo run
 | 数据库 | SQLite（sqlx 0.9）+ InMemory 双模式 |
 | 认证 | jsonwebtoken 9 + bcrypt |
 | WASM | wasmtime 29 |
-| 前端 | Vue 3.5 + TypeScript 6.0 + Element Plus + Vite 8 |
+| 前端 | Vue 3.5 + TypeScript 6.0 + OpenVue 0.7 + Vite 8 |
 | 状态/路由 | Pinia 3 + Vue Router 5 |
 | 国际化 | vue-i18n 10（zh-CN / en-US / ja-JP） |
 | 终端 | xterm.js 5.5 + @xterm/addon-fit |

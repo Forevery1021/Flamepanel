@@ -483,6 +483,42 @@ pub fn default_settings() -> Vec<PanelSetting> {
             description: "备份保留份数".into(),
             updated_at: Utc::now(),
         },
+        PanelSetting {
+            key: "open_menu_tabs".into(),
+            value: "true".into(),
+            description: "是否开启多页签".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "menu_accordion".into(),
+            value: "false".into(),
+            description: "侧边栏手风琴模式（同时只展开一个分组）".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "menu_collapsed".into(),
+            value: "false".into(),
+            description: "侧边栏折叠状态（多端同步）".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "hide_menu".into(),
+            value: "[]".into(),
+            description: "隐藏的侧边栏菜单分组 key（JSON 数组）".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "app_background".into(),
+            value: "".into(),
+            description: "主界面自定义背景（data URL 或空）".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "login_background".into(),
+            value: "".into(),
+            description: "登录页自定义背景（data URL 或空）".into(),
+            updated_at: Utc::now(),
+        },
     ]
 }
 

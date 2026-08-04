@@ -1,58 +1,60 @@
 <template>
-  <div class="view-container">
-    <div class="card-header-title">
-      <el-button type="primary" :loading="creating" @click="onCreate">
+  <LayoutContent :title="t('backup.title')" reload @reload="fetch">
+    <template #toolbar>
+      <FpButton variant="primary" icon="oi oi-plus" :loading="creating" @click="onCreate">
         {{ t('backup.create') }}
-      </el-button>
-    </div>
+      </FpButton>
+    </template>
 
-    <el-card shadow="hover">
-      <el-table
-        v-loading="loading"
-        :empty-text="t('common.noData')"
-        :data="backups"
-        border
-        stripe
-        max-height="620px"
-      >
-        <el-table-column prop="filename" :label="t('backup.filename')" min-width="260" />
-        <el-table-column :label="t('backup.size')" width="120">
-          <template #default="{ row }">
-            {{ formatSize(row.size) }}
+    <div class="panel">
+      <FpTable :rows="backups" :loading="loading" :paginator="false" :empty-text="t('common.noData')">
+        <Column field="filename" :header="t('backup.filename')" style="min-width: 260px" />
+        <Column :header="t('backup.size')" style="width: 120px">
+          <template #body="{ data }">
+            {{ formatSize(data.size) }}
           </template>
-        </el-table-column>
-        <el-table-column prop="created_at" :label="t('backup.createdAt')" width="180" />
-        <el-table-column :label="t('common.colActions')" width="240" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" @click="onDownload(row.filename)">
-              {{ t('backup.download') }}
-            </el-button>
-            <el-button
-              size="small"
-              type="warning"
-              plain
-              @click="onRestore(row.filename)"
-            >
-              {{ t('backup.restore') }}
-            </el-button>
-            <el-button size="small" type="danger" @click="onDelete(row.filename)">
-              {{ t('backup.delete') }}
-            </el-button>
+        </Column>
+        <Column field="created_at" :header="t('backup.createdAt')" style="width: 180px">
+          <template #body="{ data }">
+            <span class="mono">{{ data.created_at }}</span>
           </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-  </div>
+        </Column>
+        <Column :header="t('common.colActions')" style="width: 240px" frozen>
+          <template #body="{ data }">
+            <div class="row-actions">
+              <FpButton variant="primary" @click="onDownload(data.filename)">
+                {{ t('backup.download') }}
+              </FpButton>
+              <FpButton variant="warning" @click="onRestore(data.filename)">
+                {{ t('backup.restore') }}
+              </FpButton>
+              <FpButton variant="danger" @click="onDelete(data.filename)">
+                {{ t('backup.delete') }}
+              </FpButton>
+            </div>
+          </template>
+        </Column>
+      </FpTable>
+    </div>
+  </LayoutContent>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import Column from 'openvue/column'
+import FpTable from '@/components/ui/FpTable.vue'
+import FpButton from '@/components/ui/FpButton.vue'
+import LayoutContent from '@/components/ui/LayoutContent.vue'
+import { useFpToast } from '@/components/ui/FpToast'
+import { useFpConfirm } from '@/components/ui/FpConfirm'
 import { listBackups, createBackup, downloadBackup, restoreBackup, deleteBackup } from '@/api/backups'
 import type { BackupEntry } from '@/api/backups'
 
 const { t } = useI18n()
+const toast = useFpToast()
+const { confirmAction } = useFpConfirm()
+
 const backups = ref<BackupEntry[]>([])
 const loading = ref(false)
 const creating = ref(false)
@@ -77,10 +79,10 @@ async function onCreate() {
   creating.value = true
   try {
     await createBackup()
-    ElMessage.success(t('backup.createSuccess'))
+    toast.success(t('backup.createSuccess'))
     await fetch()
-  } catch {
-    ElMessage.error(t('common.failed'))
+  } catch (err) {
+    toast.error(err, t('common.failed'))
   } finally {
     creating.value = false
   }
@@ -89,39 +91,58 @@ async function onCreate() {
 async function onDownload(filename: string) {
   try {
     await downloadBackup(filename)
-  } catch {
-    ElMessage.error(t('common.failed'))
+  } catch (err) {
+    toast.error(err, t('common.failed'))
   }
 }
 
-async function onRestore(filename: string) {
-  try {
-    await ElMessageBox.confirm(t('backup.restoreConfirm', { name: filename }), t('common.confirm'), {
-      type: 'warning',
-      confirmButtonText: t('backup.restore'),
-      cancelButtonText: t('common.cancel'),
-    })
-    await restoreBackup(filename)
-    ElMessage.success(t('backup.restoreSuccess'))
-  } catch {
-    // cancelled
-  }
+function onRestore(filename: string) {
+  confirmAction({
+    message: t('backup.restoreConfirm', { name: filename }),
+    header: t('common.confirm'),
+    acceptLabel: t('backup.restore'),
+    rejectLabel: t('common.cancel'),
+    accept: async () => {
+      try {
+        await restoreBackup(filename)
+        toast.success(t('backup.restoreSuccess'))
+      } catch (err) {
+        toast.error(err, t('common.failed'))
+      }
+    },
+  })
 }
 
-async function onDelete(filename: string) {
-  try {
-    await ElMessageBox.confirm(t('backup.deleteConfirm', { name: filename }), t('common.confirm'), {
-      type: 'warning',
-      confirmButtonText: t('backup.delete'),
-      cancelButtonText: t('common.cancel'),
-    })
-    await deleteBackup(filename)
-    ElMessage.success(t('common.success'))
-    await fetch()
-  } catch {
-    // cancelled
-  }
+function onDelete(filename: string) {
+  confirmAction({
+    message: t('backup.deleteConfirm', { name: filename }),
+    header: t('common.confirm'),
+    acceptLabel: t('backup.delete'),
+    rejectLabel: t('common.cancel'),
+    accept: async () => {
+      try {
+        await deleteBackup(filename)
+        toast.success(t('common.success'))
+        await fetch()
+      } catch (err) {
+        toast.error(err, t('common.failed'))
+      }
+    },
+  })
 }
 
 onMounted(fetch)
 </script>
+
+<style scoped>
+.panel {
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+}
+.row-actions {
+  display: flex;
+  gap: var(--fp-space-2);
+}
+</style>

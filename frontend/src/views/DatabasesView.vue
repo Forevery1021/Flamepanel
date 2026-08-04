@@ -1,129 +1,123 @@
 <template>
-  <div class="view-container">
-    <div class="card-header-title">
-      <div>
-        <el-button type="primary" @click="showInstallMysql = true">{{
-          t('database.installMysql')
-        }}</el-button>
-        <el-button type="warning" @click="showInstallRedis = true">{{
-          t('database.installRedis')
-        }}</el-button>
-      </div>
+  <LayoutContent :title="t('database.title')" reload @reload="fetch">
+    <template #toolbar>
+      <FpButton variant="primary" @click="showInstallMysql = true">{{
+        t('database.installMysql')
+      }}</FpButton>
+      <FpButton variant="warning" @click="showInstallRedis = true">{{
+        t('database.installRedis')
+      }}</FpButton>
+    </template>
+
+    <div class="panel">
+      <FpTable
+        :rows="instances"
+        :loading="loading"
+        :first="(currentPage - 1) * pageSize"
+        :empty-text="t('common.noData')"
+        striped-rows
+      >
+        <Column field="name" :header="t('database.name')" />
+        <Column field="db_type" :header="t('database.type')" style="width: 100px" />
+        <Column field="version" :header="t('database.version')" style="width: 140px" />
+        <Column field="port" :header="t('database.port')" style="width: 80px" />
+        <Column :header="t('database.status')" style="width: 100px">
+          <template #body="{ data }">
+            <FpTag
+              :severity="data.status === 'running' ? 'success' : 'danger'"
+              :value="data.status === 'running' ? t('database.running') : t('database.stopped')"
+              dot
+            />
+          </template>
+        </Column>
+        <Column field="data_dir" :header="t('database.dataDir')" />
+        <Column :header="t('database.actions')" style="width: 280px" frozen>
+          <template #body="{ data }">
+            <div class="row-actions">
+              <FpButton variant="primary" :disabled="data.status === 'running'" @click="handleStart(data.id)">
+                {{ t('database.start') }}
+              </FpButton>
+              <FpButton variant="warning" :disabled="data.status !== 'running'" @click="handleStop(data.id)">
+                {{ t('database.stop') }}
+              </FpButton>
+              <FpButton variant="ghost" @click="handleRestart(data.id)">
+                {{ t('database.restart') }}
+              </FpButton>
+              <FpButton variant="danger" @click="handleUninstall(data.id)">
+                {{ t('database.uninstall') }}
+              </FpButton>
+            </div>
+          </template>
+        </Column>
+      </FpTable>
+      <Paginator
+        v-if="total > pageSize"
+        :first="(currentPage - 1) * pageSize"
+        :rows="pageSize"
+        :total-records="total"
+        :rows-per-page-options="[20, 50, 100]"
+        @update:first="(f) => goPage(f)"
+      />
     </div>
 
-    <el-card shadow="hover">
-      <el-table
-        v-loading="loading"
-        :empty-text="t('common.noData')"
-        :data="instances"
-        stripe
-        class="full-width"
-      >
-        <el-table-column prop="name" :label="t('database.name')" />
-        <el-table-column prop="db_type" :label="t('database.type')" width="100" />
-        <el-table-column prop="version" :label="t('database.version')" width="140" />
-        <el-table-column prop="port" :label="t('database.port')" width="80" />
-        <el-table-column :label="t('database.status')" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'running' ? 'success' : 'danger'" size="small">{{
-              row.status === 'running' ? t('database.running') : t('database.stopped')
-            }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="data_dir" :label="t('database.dataDir')" />
-        <el-table-column :label="t('database.actions')" width="280">
-          <template #default="{ row }">
-            <el-button
-              size="small"
-              :disabled="row.status === 'running'"
-              @click="handleStart(row.id)"
-              >{{ t('database.start') }}</el-button
-            >
-            <el-button
-              size="small"
-              :disabled="row.status !== 'running'"
-              @click="handleStop(row.id)"
-              >{{ t('database.stop') }}</el-button
-            >
-            <el-button size="small" @click="handleRestart(row.id)">{{
-              t('database.restart')
-            }}</el-button>
-            <el-button size="small" type="danger" @click="handleUninstall(row.id)">{{
-              t('database.uninstall')
-            }}</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-pagination
-        v-if="total > pageSize"
-        v-model:current-page="currentPage"
-        :page-size="pageSize"
-        :total="total"
-        layout="prev, pager, next, total"
-        background
-        small
-        class="table-pagination"
-        @current-change="fetch"
-      />
-    </el-card>
-
-    <el-dialog v-model="showInstallMysql" :title="t('database.installMysql')" width="500">
-      <el-form :model="mysqlForm" :label="t('database.name')">
-        <el-form-item :label="t('database.name')">
-          <el-input v-model="mysqlForm.name" :placeholder="t('common.placeholder')" />
-        </el-form-item>
-        <el-form-item :label="t('database.version')">
-          <el-input v-model="mysqlForm.version" :placeholder="t('database.versionPlaceholder')" />
-        </el-form-item>
-        <el-form-item :label="t('database.port')">
-          <el-input-number v-model="mysqlForm.port" :min="1024" :max="65535" />
-        </el-form-item>
-        <el-form-item :label="t('database.rootPassword')">
-          <el-input v-model="mysqlForm.root_password" type="password" show-password />
-        </el-form-item>
-      </el-form>
+    <FpModal v-model="showInstallMysql" :header="t('database.installMysql')">
+      <div class="modal-form">
+        <FpInput v-model="mysqlForm.name" :label="t('database.name')" :placeholder="t('common.placeholder')" />
+        <FpInput v-model="mysqlForm.version" :label="t('database.version')" :placeholder="t('database.versionPlaceholder')" />
+        <div class="field-col">
+          <label class="field-label">{{ t('database.port') }}</label>
+          <InputNumber v-model="mysqlForm.port" :min="1024" :max="65535" class="w-full" />
+        </div>
+        <FpInput v-model="mysqlForm.root_password" :label="t('database.rootPassword')" type="password" toggle-mask />
+      </div>
       <template #footer>
-        <el-button @click="showInstallMysql = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="installing" @click="handleInstallMysql">{{
-          t('common.install')
-        }}</el-button>
+        <FpButton variant="ghost" @click="showInstallMysql = false">{{ t('common.cancel') }}</FpButton>
+        <FpButton variant="primary" :loading="installing" @click="handleInstallMysql">
+          {{ t('common.install') }}
+        </FpButton>
       </template>
-    </el-dialog>
+    </FpModal>
 
-    <el-dialog v-model="showInstallRedis" :title="t('database.installRedis')" width="500">
-      <el-form :model="redisForm" label-width="140">
-        <el-form-item :label="t('database.name')">
-          <el-input v-model="redisForm.name" :placeholder="t('common.placeholder')" />
-        </el-form-item>
-        <el-form-item :label="t('database.version')">
-          <el-input v-model="redisForm.version" :placeholder="t('database.versionPlaceholder')" />
-        </el-form-item>
-        <el-form-item :label="t('database.port')">
-          <el-input-number v-model="redisForm.port" :min="1024" :max="65535" />
-        </el-form-item>
-        <el-form-item :label="t('database.password')">
-          <el-input
-            v-model="redisForm.password"
-            type="password"
-            show-password
-            :placeholder="t('database.optional')"
-          />
-        </el-form-item>
-      </el-form>
+    <FpModal v-model="showInstallRedis" :header="t('database.installRedis')">
+      <div class="modal-form">
+        <FpInput v-model="redisForm.name" :label="t('database.name')" :placeholder="t('common.placeholder')" />
+        <FpInput v-model="redisForm.version" :label="t('database.version')" :placeholder="t('database.versionPlaceholder')" />
+        <div class="field-col">
+          <label class="field-label">{{ t('database.port') }}</label>
+          <InputNumber v-model="redisForm.port" :min="1024" :max="65535" class="w-full" />
+        </div>
+        <FpInput
+          v-model="redisForm.password"
+          :label="t('database.password')"
+          type="password"
+          toggle-mask
+          :placeholder="t('database.optional')"
+        />
+      </div>
       <template #footer>
-        <el-button @click="showInstallRedis = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="installing" @click="handleInstallRedis">{{
-          t('common.install')
-        }}</el-button>
+        <FpButton variant="ghost" @click="showInstallRedis = false">{{ t('common.cancel') }}</FpButton>
+        <FpButton variant="primary" :loading="installing" @click="handleInstallRedis">
+          {{ t('common.install') }}
+        </FpButton>
       </template>
-    </el-dialog>
-  </div>
+    </FpModal>
+  </LayoutContent>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import Column from 'openvue/column'
+import Paginator from 'openvue/paginator'
+import InputNumber from 'openvue/inputnumber'
+import LayoutContent from '@/components/ui/LayoutContent.vue'
+import FpTable from '@/components/ui/FpTable.vue'
+import FpModal from '@/components/ui/FpModal.vue'
+import FpInput from '@/components/ui/FpInput.vue'
+import FpButton from '@/components/ui/FpButton.vue'
+import FpTag from '@/components/ui/FpTag.vue'
+import { useFpToast } from '@/components/ui/FpToast'
+import { useFpConfirm } from '@/components/ui/FpConfirm'
 import {
   listDatabases,
   installMysql,
@@ -136,6 +130,9 @@ import {
 import type { DatabaseInstance } from '@/types'
 
 const { t } = useI18n()
+const toast = useFpToast()
+const { confirmAction } = useFpConfirm()
+
 const instances = ref<DatabaseInstance[]>([])
 const loading = ref(false)
 const currentPage = ref(1)
@@ -162,15 +159,20 @@ async function fetch() {
   }
 }
 
+function goPage(first: number) {
+  currentPage.value = first / pageSize.value + 1
+  fetch()
+}
+
 async function handleInstallMysql() {
   installing.value = true
   try {
     await installMysql(mysqlForm.value)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     showInstallMysql.value = false
     await fetch()
-  } catch {
-    ElMessage.error(t('common.failed'))
+  } catch (err) {
+    toast.error(err, t('common.failed'))
   } finally {
     installing.value = false
   }
@@ -180,11 +182,11 @@ async function handleInstallRedis() {
   installing.value = true
   try {
     await installRedis(redisForm.value)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     showInstallRedis.value = false
     await fetch()
-  } catch {
-    ElMessage.error(t('common.failed'))
+  } catch (err) {
+    toast.error(err, t('common.failed'))
   } finally {
     installing.value = false
   }
@@ -193,49 +195,75 @@ async function handleInstallRedis() {
 async function handleStart(id: number) {
   try {
     await startDatabase(id)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     await fetch()
-  } catch {
-    ElMessage.error(t('common.failed'))
+  } catch (err) {
+    toast.error(err, t('common.failed'))
   }
 }
 
 async function handleStop(id: number) {
   try {
     await stopDatabase(id)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     await fetch()
-  } catch {
-    ElMessage.error(t('common.failed'))
+  } catch (err) {
+    toast.error(err, t('common.failed'))
   }
 }
 
 async function handleRestart(id: number) {
   try {
     await restartDatabase(id)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     await fetch()
-  } catch {
-    ElMessage.error(t('common.failed'))
+  } catch (err) {
+    toast.error(err, t('common.failed'))
   }
 }
 
-async function handleUninstall(id: number) {
-  try {
-    await ElMessageBox.confirm(t('common.confirmAction'), t('common.confirm'))
-    await uninstallDatabase(id)
-    ElMessage.success(t('common.success'))
-    await fetch()
-  } catch {
-    /* cancelled or failed */
-  }
+function handleUninstall(id: number) {
+  confirmAction({
+    message: t('common.confirmAction'),
+    header: t('common.confirm'),
+    accept: async () => {
+      try {
+        await uninstallDatabase(id)
+        toast.success(t('common.success'))
+        await fetch()
+      } catch (err) {
+        toast.error(err, t('common.failed'))
+      }
+    },
+  })
 }
 
 onMounted(fetch)
 </script>
 
 <style scoped>
-h2 {
-  margin: 0;
+.panel {
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+}
+.row-actions {
+  display: flex;
+  gap: var(--fp-space-2);
+}
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-4);
+}
+.field-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field-label {
+  font-size: 13px;
+  color: var(--fp-text-secondary);
 }
 </style>

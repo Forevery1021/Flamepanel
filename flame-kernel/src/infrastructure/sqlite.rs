@@ -847,6 +847,23 @@ impl SqliteSettingsRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
+
+    /// 启动时 upsert 默认设置，保证 SQLite 模式与 InMemory 模式行为一致。
+    pub async fn ensure_defaults(&self) -> Result<(), AppError> {
+        for setting in crate::domain::entity::default_settings() {
+            sqlx::query(
+                "INSERT INTO panel_settings (key, value, description, updated_at) VALUES (?, ?, ?, datetime('now'))
+                 ON CONFLICT(key) DO UPDATE SET description = excluded.description",
+            )
+            .bind(&setting.key)
+            .bind(&setting.value)
+            .bind(&setting.description)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]

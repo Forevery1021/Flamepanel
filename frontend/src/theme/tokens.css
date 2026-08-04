@@ -1,0 +1,82 @@
+/* ═══════════ FlamePanel Design Tokens · OKLCH ═══════════ */
+
+:root {
+  /* ── Brand · Flame Orange ── */
+  --fp-brand: oklch(0.65 0.19 35);
+  --fp-brand-strong: oklch(0.55 0.19 35);
+  --fp-brand-soft: oklch(0.65 0.19 35 / 0.12);
+
+  /* ── Surfaces (Light) ── */
+  --fp-bg-app: oklch(0.97 0.005 250);
+  --fp-bg-elevated: oklch(1 0 0);
+  --fp-bg-hover: oklch(0.95 0.006 250);
+  --fp-bg-sidebar: oklch(0.16 0.02 250);
+  --fp-border: oklch(0.91 0.006 250);
+  --fp-border-strong: oklch(0.85 0.01 250);
+
+  /* ── Text (Light) ── */
+  --fp-text-primary: oklch(0.25 0.02 250);
+  --fp-text-secondary: oklch(0.48 0.02 250);
+  --fp-text-muted: oklch(0.62 0.01 250);
+  --fp-text-invert: oklch(0.98 0 0);
+
+  /* ── Semantic ── */
+  --fp-success: oklch(0.62 0.16 155);
+  --fp-warning: oklch(0.75 0.15 75);
+  --fp-danger: oklch(0.6 0.21 25);
+  --fp-info: oklch(0.55 0.12 250);
+  --fp-success-soft: oklch(0.62 0.16 155 / 0.12);
+  --fp-warning-soft: oklch(0.75 0.15 75 / 0.14);
+  --fp-danger-soft: oklch(0.6 0.21 25 / 0.12);
+  --fp-info-soft: oklch(0.55 0.12 250 / 0.12);
+
+  /* ── Typography ── */
+  --fp-font-sans: 'Geist Variable', 'Inter', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
+  --fp-font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+
+  /* ── Spacing Scale ── */
+  --fp-space-1: 4px;
+  --fp-space-2: 8px;
+  --fp-space-3: 12px;
+  --fp-space-4: 16px;
+  --fp-space-5: 20px;
+  --fp-space-6: 24px;
+  --fp-space-8: 32px;
+  --fp-space-10: 40px;
+
+  /* ── Radius ── */
+  --fp-radius-sm: 8px;
+  --fp-radius-md: 12px;
+  --fp-radius-lg: 16px;
+
+  /* ── Glass ── */
+  --fp-glass-blur: 12px;
+
+  /* ── Layout ── */
+  --fp-header-height: 56px;
+  --fp-sidebar-width: 220px;
+  --fp-sidebar-width-collapsed: 64px;
+
+  /* ── Motion ── */
+  --fp-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --fp-transition-fast: 150ms var(--fp-ease-out);
+  --fp-transition-base: 300ms var(--fp-ease-out);
+}
+
+/* ═══════════ Dark ═══════════ */
+.dark {
+  --fp-bg-app: oklch(0.16 0.012 250);
+  --fp-bg-elevated: oklch(0.2 0.014 250);
+  --fp-bg-hover: oklch(0.24 0.016 250);
+  --fp-bg-sidebar: oklch(0.14 0.012 250);
+  --fp-border: oklch(0.28 0.016 250);
+  --fp-border-strong: oklch(0.36 0.02 250);
+
+  --fp-text-primary: oklch(0.93 0.008 250);
+  --fp-text-secondary: oklch(0.72 0.015 250);
+  --fp-text-muted: oklch(0.55 0.015 250);
+
+  --fp-brand: oklch(0.72 0.18 35);
+  --fp-brand-strong: oklch(0.8 0.16 35);
+  --fp-brand-soft: oklch(0.72 0.18 35 / 0.16);
+}

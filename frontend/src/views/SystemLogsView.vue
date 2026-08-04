@@ -1,55 +1,61 @@
 <template>
-  <div class="view-container">
-    <div class="card-header-title">
-      <div class="row-gap">
-        <el-tag :type="wsConnected ? 'success' : 'danger'" size="small">
-          {{ wsConnected ? t('log.wsConnected') : t('log.wsDisconnected') }}
-        </el-tag>
-        <span class="text-xs text-muted">{{ logs.length }} {{ t('log.entries') }}</span>
-      </div>
-    </div>
+  <LayoutContent :title="t('log.title')">
+    <template #toolbar>
+      <FpTag
+        :severity="wsConnected ? 'success' : 'danger'"
+        :value="wsConnected ? t('log.wsConnected') : t('log.wsDisconnected')"
+        dot
+      />
+      <span class="text-xs text-muted">{{ logs.length }} {{ t('log.entries') }}</span>
+    </template>
 
-    <el-card shadow="hover">
-      <div class="mb-3">
-        <el-select v-model="levelFilter" class="w-150">
-          <el-option :label="t('log.all')" value="" />
-          <el-option :label="t('log.info')" value="info" />
-          <el-option :label="t('log.warn')" value="warn" />
-          <el-option :label="t('log.error')" value="error" />
-          <el-option :label="t('log.critical')" value="critical" />
-        </el-select>
-      </div>
-      <el-table
-        ref="tableRef"
-        :data="filteredLogs"
-        border
-        stripe
-        max-height="620px"
-        :empty-text="t('common.noData')"
-        @scroll="handleScroll"
-      >
-        <el-table-column prop="id" :label="t('log.id')" width="60" />
-        <el-table-column prop="source" :label="t('log.source')" width="120" />
-        <el-table-column :label="t('log.level')" width="90">
-          <template #default="{ row }">
-            <el-tag size="small" :type="levelType(row.level)">{{ row.level }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="message"
-          :label="t('log.message')"
-          min-width="300"
-          show-overflow-tooltip
+    <div class="panel">
+      <div class="log-filter">
+        <FpSelect
+          v-model="levelFilter"
+          :options="levelOptions"
+          option-label="label"
+          option-value="value"
         />
-        <el-table-column prop="created_at" :label="t('log.time')" width="180" />
-      </el-table>
-    </el-card>
-  </div>
+      </div>
+      <FpTable
+        :rows="filteredLogs"
+        :paginator="false"
+        :empty-text="t('common.noData')"
+        striped-rows
+        scrollable
+        scroll-height="620px"
+      >
+        <Column field="id" :header="t('log.id')" style="width: 60px" />
+        <Column field="source" :header="t('log.source')" style="width: 120px" />
+        <Column :header="t('log.level')" style="width: 90px">
+          <template #body="{ data }">
+            <FpTag :severity="levelSeverity(data.level)" :value="data.level" />
+          </template>
+        </Column>
+        <Column :header="t('log.message')" style="min-width: 300px">
+          <template #body="{ data }">
+            <span v-tooltip="data.message" class="log-message">{{ data.message }}</span>
+          </template>
+        </Column>
+        <Column field="created_at" :header="t('log.time')" style="width: 180px">
+          <template #body="{ data }">
+            <span class="mono">{{ data.created_at }}</span>
+          </template>
+        </Column>
+      </FpTable>
+    </div>
+  </LayoutContent>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import Column from 'openvue/column'
+import LayoutContent from '@/components/ui/LayoutContent.vue'
+import FpTable from '@/components/ui/FpTable.vue'
+import FpSelect from '@/components/ui/FpSelect.vue'
+import FpTag from '@/components/ui/FpTag.vue'
 import { connectWithRetry } from '@/utils/ws'
 import type { LogEntry } from '@/types'
 
@@ -57,28 +63,28 @@ const { t } = useI18n()
 const logs = ref<LogEntry[]>([])
 const levelFilter = ref('')
 const wsConnected = ref(false)
-const tableRef = ref<HTMLElement>()
 let wsConn: ReturnType<typeof connectWithRetry> | null = null
+
+const levelOptions = computed(() => [
+  { label: t('log.all'), value: '' },
+  { label: t('log.info'), value: 'info' },
+  { label: t('log.warn'), value: 'warn' },
+  { label: t('log.error'), value: 'error' },
+  { label: t('log.critical'), value: 'critical' },
+])
 
 const filteredLogs = computed(() =>
   levelFilter.value ? logs.value.filter((l) => l.level === levelFilter.value) : logs.value,
 )
 
-function levelType(lv: string): 'info' | 'primary' | 'success' | 'warning' | 'danger' {
-  const map: Record<string, 'info' | 'primary' | 'success' | 'warning' | 'danger'> = {
+function levelSeverity(lv: string): 'success' | 'warning' | 'danger' | 'info' | 'neutral' {
+  const map: Record<string, 'success' | 'warning' | 'danger' | 'info' | 'neutral'> = {
     info: 'info',
     warn: 'warning',
     error: 'danger',
     critical: 'danger',
   }
   return map[lv] || 'info'
-}
-
-function handleScroll(e: Event) {
-  const el = e.target as HTMLElement
-  if (el) {
-    /* scroll tracking available if needed */
-  }
 }
 
 onMounted(() => {
@@ -100,3 +106,22 @@ onMounted(() => {
 
 onUnmounted(() => wsConn?.close())
 </script>
+
+<style scoped>
+.panel {
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+}
+.log-filter {
+  width: 180px;
+  margin-bottom: var(--fp-space-3);
+}
+.log-message {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>

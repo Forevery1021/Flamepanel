@@ -1,117 +1,97 @@
 <template>
-  <div class="view-container">
-    <div class="card-header-title">
-      <el-button type="primary" @click="dialogVisible = true">{{ t('user.createUser') }}</el-button>
+  <LayoutContent :title="t('user.title')" reload @reload="fetch">
+    <template #toolbar>
+      <FpButton variant="primary" icon="oi oi-plus" @click="openCreate">
+        {{ t('user.createUser') }}
+      </FpButton>
+    </template>
+
+    <div class="panel">
+      <FpTable :rows="users" :loading="loading" :first="(currentPage - 1) * pageSize">
+        <Column field="id" :header="t('user.id')" style="width: 80px" />
+        <Column field="username" :header="t('user.username')" />
+        <Column :header="t('user.role')" style="width: 140px">
+          <template #body="{ data }">
+            <FpTag :severity="roleSeverity(data.role)" :value="roleLabel(data.role)" />
+          </template>
+        </Column>
+        <Column field="created_at" :header="t('user.createdAt')" style="width: 190px">
+          <template #body="{ data }">
+            <span class="mono">{{ data.created_at }}</span>
+          </template>
+        </Column>
+        <Column :header="t('common.operation')" style="width: 160px" frozen>
+          <template #body="{ data }">
+            <div class="row-actions">
+              <FpButton variant="link" @click="handleEdit(data)">{{ t('common.edit') }}</FpButton>
+              <FpButton variant="link" @click="confirmDelete(data)">{{ t('common.delete') }}</FpButton>
+            </div>
+          </template>
+        </Column>
+      </FpTable>
+      <Paginator
+        v-if="total > pageSize"
+        :first="(currentPage - 1) * pageSize"
+        :rows="pageSize"
+        :total-records="total"
+        :rows-per-page-options="[20, 50, 100]"
+        @update:first="(f) => goPage(f)"
+      />
     </div>
 
-    <el-card shadow="hover">
-      <el-table v-loading="loading" :empty-text="t('common.noData')" :data="users" border stripe>
-        <el-table-column prop="id" :label="t('user.id')" width="80" />
-        <el-table-column prop="username" :label="t('user.username')" />
-        <el-table-column :label="t('user.role')" width="120">
-          <template #default="{ row }">
-            <el-tag
-              :type="row.role === 'admin' ? 'danger' : row.role === 'operator' ? 'warning' : 'info'"
-              size="small"
-            >
-              {{ roleLabel(row.role) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" :label="t('user.createdAt')" width="180" />
-        <el-table-column :label="t('common.operation')" width="200" fixed="right">
-          <template #default="{ row }">
-            <el-button type="primary" size="small" text @click="handleEdit(row)">{{
-              t('common.edit')
-            }}</el-button>
-            <el-popconfirm
-              :title="t('user.deleteConfirm', { name: row.username })"
-              @confirm="handleDelete(row.id)"
-            >
-              <template #reference>
-                <el-button type="danger" size="small" text>{{ t('common.delete') }}</el-button>
-              </template>
-            </el-popconfirm>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-pagination
-        v-if="total > pageSize"
-        v-model:current-page="currentPage"
-        :page-size="pageSize"
-        :total="total"
-        layout="prev, pager, next, total"
-        background
-        small
-        class="table-pagination"
-        @current-change="fetch"
-      />
-    </el-card>
-
-    <el-dialog v-model="dialogVisible" :title="t('user.createUser')" width="400px">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-        <el-form-item :label="t('user.username')" prop="username">
-          <el-input v-model="form.username" />
-        </el-form-item>
-        <el-form-item :label="t('user.password')" prop="password">
-          <el-input v-model="form.password" type="password" show-password />
-        </el-form-item>
-        <el-form-item :label="t('user.role')" prop="role">
-          <el-select v-model="form.role" class="full-width">
-            <el-option :label="t('user.admin')" value="admin" />
-            <el-option :label="t('user.operator')" value="operator" />
-            <el-option :label="t('user.viewer')" value="viewer" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+    <!-- 创建 -->
+    <FpModal v-model="dialogVisible" :header="t('user.createUser')">
+      <div class="modal-form">
+        <FpInput v-model="form.username" :label="t('user.username')" :error="formErrors.username" />
+        <FpInput v-model="form.password" :label="t('user.password')" type="password" toggle-mask :error="formErrors.password" />
+        <FpSelect v-model="form.role" :label="t('user.role')" :options="roleOptions" option-label="label" option-value="value" />
+      </div>
       <template #footer>
-        <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleCreate">{{
-          t('common.confirm')
-        }}</el-button>
+        <FpButton variant="ghost" @click="dialogVisible = false">{{ t('common.cancel') }}</FpButton>
+        <FpButton variant="primary" :loading="submitting" @click="handleCreate">
+          {{ t('common.confirm') }}
+        </FpButton>
       </template>
-    </el-dialog>
+    </FpModal>
 
-    <el-dialog v-model="editVisible" :title="t('user.editUser')" width="400px">
-      <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-width="100px">
-        <el-form-item :label="t('user.username')" prop="username">
-          <el-input v-model="editForm.username" />
-        </el-form-item>
-        <el-form-item :label="t('user.password')" prop="password">
-          <el-input
-            v-model="editForm.password"
-            type="password"
-            show-password
-            :placeholder="t('user.passwordOptional')"
-          />
-        </el-form-item>
-        <el-form-item :label="t('user.role')" prop="role">
-          <el-select v-model="editForm.role" class="full-width">
-            <el-option :label="t('user.admin')" value="admin" />
-            <el-option :label="t('user.operator')" value="operator" />
-            <el-option :label="t('user.viewer')" value="viewer" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+    <!-- 编辑 -->
+    <FpModal v-model="editVisible" :header="t('user.editUser')">
+      <div class="modal-form">
+        <FpInput v-model="editForm.username" :label="t('user.username')" :error="formErrors.username" />
+        <FpInput v-model="editForm.password" :label="t('user.password')" type="password" toggle-mask :placeholder="t('user.passwordOptional')" />
+        <FpSelect v-model="editForm.role" :label="t('user.role')" :options="roleOptions" option-label="label" option-value="value" />
+      </div>
       <template #footer>
-        <el-button @click="editVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSave">{{
-          t('common.confirm')
-        }}</el-button>
+        <FpButton variant="ghost" @click="editVisible = false">{{ t('common.cancel') }}</FpButton>
+        <FpButton variant="primary" :loading="submitting" @click="handleSave">
+          {{ t('common.confirm') }}
+        </FpButton>
       </template>
-    </el-dialog>
-  </div>
+    </FpModal>
+  </LayoutContent>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { reactive, ref, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import Column from 'openvue/column'
+import Paginator from 'openvue/paginator'
 import { listUsers, createUser, updateUser, deleteUser } from '@/api/users'
-import { ElMessage } from 'element-plus'
-import type { FormInstance, FormRules } from 'element-plus'
+import LayoutContent from '@/components/ui/LayoutContent.vue'
+import FpTable from '@/components/ui/FpTable.vue'
+import FpModal from '@/components/ui/FpModal.vue'
+import FpInput from '@/components/ui/FpInput.vue'
+import FpSelect from '@/components/ui/FpSelect.vue'
+import FpButton from '@/components/ui/FpButton.vue'
+import FpTag from '@/components/ui/FpTag.vue'
+import { useFpToast } from '@/components/ui/FpToast'
+import { useFpConfirm } from '@/components/ui/FpConfirm'
 import type { User } from '@/types'
 
 const { t } = useI18n()
+const toast = useFpToast()
+const { confirmAction } = useFpConfirm()
+
 const users = ref<User[]>([])
 const loading = ref(false)
 const currentPage = ref(1)
@@ -120,21 +100,17 @@ const total = ref(0)
 const dialogVisible = ref(false)
 const editVisible = ref(false)
 const submitting = ref(false)
-const formRef = ref<FormInstance>()
-const editFormRef = ref<FormInstance>()
 const editingId = ref(0)
 
 const form = reactive({ username: '', password: '', role: 'viewer' })
 const editForm = reactive({ username: '', password: '', role: 'viewer' })
-const rules: FormRules = {
-  username: [{ required: true, message: t('user.usernameRequired'), trigger: 'blur' }],
-  password: [{ required: true, message: t('user.passwordRequired'), trigger: 'blur' }],
-  role: [{ required: true, message: t('user.roleRequired'), trigger: 'change' }],
-}
-const editRules: FormRules = {
-  username: [{ required: true, message: t('user.usernameRequired'), trigger: 'blur' }],
-  role: [{ required: true, message: t('user.roleRequired'), trigger: 'change' }],
-}
+const formErrors = reactive({ username: '', password: '' })
+
+const roleOptions = computed(() => [
+  { label: t('user.admin'), value: 'admin' },
+  { label: t('user.operator'), value: 'operator' },
+  { label: t('user.viewer'), value: 'viewer' },
+])
 
 function roleLabel(role: string) {
   const map: Record<string, string> = {
@@ -143,6 +119,10 @@ function roleLabel(role: string) {
     viewer: t('user.viewer'),
   }
   return map[role] || role
+}
+
+function roleSeverity(role: string) {
+  return role === 'admin' ? 'danger' : role === 'operator' ? 'warning' : 'info'
 }
 
 async function fetch() {
@@ -156,20 +136,36 @@ async function fetch() {
   }
 }
 
+function goPage(first: number) {
+  currentPage.value = first / pageSize.value + 1
+  fetch()
+}
+
+function openCreate() {
+  form.username = ''
+  form.password = ''
+  form.role = 'viewer'
+  formErrors.username = ''
+  formErrors.password = ''
+  dialogVisible.value = true
+}
+
+function validateForm(): boolean {
+  formErrors.username = form.username ? '' : t('user.usernameRequired')
+  formErrors.password = form.password ? '' : t('user.passwordRequired')
+  return !formErrors.username && !formErrors.password
+}
+
 async function handleCreate() {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
+  if (!validateForm()) return
   submitting.value = true
   try {
     await createUser(form.username, form.password, form.role)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     dialogVisible.value = false
-    form.username = ''
-    form.password = ''
-    form.role = 'viewer'
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     submitting.value = false
   }
@@ -180,12 +176,16 @@ function handleEdit(row: User) {
   editForm.username = row.username
   editForm.password = ''
   editForm.role = row.role
+  formErrors.username = ''
+  formErrors.password = ''
   editVisible.value = true
 }
 
 async function handleSave() {
-  const valid = await editFormRef.value?.validate().catch(() => false)
-  if (!valid) return
+  if (!editForm.username) {
+    formErrors.username = t('user.usernameRequired')
+    return
+  }
   submitting.value = true
   try {
     await updateUser(editingId.value, {
@@ -193,25 +193,49 @@ async function handleSave() {
       role: editForm.role,
       ...(editForm.password ? { password_hash: editForm.password } : {}),
     })
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     editVisible.value = false
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
   } finally {
     submitting.value = false
   }
 }
 
-async function handleDelete(id: number) {
-  try {
-    await deleteUser(id)
-    ElMessage.success(t('common.success'))
-    await fetch()
-  } catch {
-    ElMessage.error(t('common.failed'))
-  }
+function confirmDelete(row: User) {
+  confirmAction({
+    message: t('user.deleteConfirm', { name: row.username }),
+    header: t('common.confirmAction'),
+    accept: async () => {
+      try {
+        await deleteUser(row.id)
+        toast.success(t('common.success'))
+        await fetch()
+      } catch {
+        toast.error(t('common.failed'))
+      }
+    },
+  })
 }
 
 onMounted(fetch)
 </script>
+
+<style scoped>
+.panel {
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+}
+.row-actions {
+  display: flex;
+  gap: var(--fp-space-2);
+}
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-4);
+}
+</style>

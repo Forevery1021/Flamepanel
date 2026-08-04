@@ -1,113 +1,119 @@
 <template>
-  <div class="view-container">
-    <div class="card-header-title">
-      <el-button type="primary" @click="openCreate">{{ t('scheduledTask.create') }}</el-button>
-    </div>
+  <LayoutContent :title="t('scheduledTask.title')" reload @reload="fetch">
+    <template #toolbar>
+      <FpButton variant="primary" icon="oi oi-plus" @click="openCreate">
+        {{ t('scheduledTask.create') }}
+      </FpButton>
+    </template>
 
-    <el-card shadow="hover">
-      <el-table
-        v-loading="loading"
+    <div class="panel">
+      <FpTable
+        :rows="tasks"
+        :loading="loading"
+        :first="(currentPage - 1) * pageSize"
         :empty-text="t('common.noData')"
-        :data="tasks"
-        border
-        stripe
-        max-height="620px"
       >
-        <el-table-column prop="name" :label="t('scheduledTask.name')" width="160" />
-        <el-table-column prop="command" :label="t('scheduledTask.command')" min-width="220">
-          <template #default="{ row }">
-            <code class="command-cell">{{ row.command }}</code>
+        <Column field="name" :header="t('scheduledTask.name')" style="width: 160px" />
+        <Column :header="t('scheduledTask.command')">
+          <template #body="{ data }">
+            <code class="command-cell">{{ data.command }}</code>
           </template>
-        </el-table-column>
-        <el-table-column prop="schedule" :label="t('scheduledTask.schedule')" width="130">
-          <template #default="{ row }">
-            <el-tag size="small" type="info">{{ row.schedule }}</el-tag>
+        </Column>
+        <Column :header="t('scheduledTask.schedule')" style="width: 130px">
+          <template #body="{ data }">
+            <FpTag severity="info" :value="data.schedule" />
           </template>
-        </el-table-column>
-        <el-table-column :label="t('scheduledTask.enabled')" width="80">
-          <template #default="{ row }">
-            <el-switch
-              :model-value="row.enabled"
-              @change="(val: string | number | boolean) => onToggle(row, Boolean(val))"
+        </Column>
+        <Column :header="t('scheduledTask.enabled')" style="width: 80px">
+          <template #body="{ data }">
+            <ToggleSwitch
+              :model-value="data.enabled"
+              @update:model-value="(v: boolean) => onToggle(data, v)"
             />
           </template>
-        </el-table-column>
-        <el-table-column :label="t('scheduledTask.lastStatus')" width="100">
-          <template #default="{ row }">
-            <el-tag size="small" :type="statusTag(row.last_status)">
-              {{ statusLabel(row.last_status) }}
-            </el-tag>
+        </Column>
+        <Column :header="t('scheduledTask.lastStatus')" style="width: 100px">
+          <template #body="{ data }">
+            <FpTag :severity="statusTag(data.last_status)" :value="statusLabel(data.last_status)" />
           </template>
-        </el-table-column>
-        <el-table-column :label="t('scheduledTask.nextRun')" width="160">
-          <template #default="{ row }">{{ row.next_run_at || '-' }}</template>
-        </el-table-column>
-        <el-table-column :label="t('scheduledTask.lastRun')" width="160">
-          <template #default="{ row }">{{ row.last_run_at || '-' }}</template>
-        </el-table-column>
-        <el-table-column :label="t('common.colActions')" width="200" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" plain @click="onRun(row)">
-              {{ t('scheduledTask.run') }}
-            </el-button>
-            <el-button size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
-            <el-button size="small" type="danger" @click="onDelete(row)">
-              {{ t('common.delete') }}
-            </el-button>
+        </Column>
+        <Column :header="t('scheduledTask.nextRun')" style="width: 160px">
+          <template #body="{ data }">{{ data.next_run_at || '-' }}</template>
+        </Column>
+        <Column :header="t('scheduledTask.lastRun')" style="width: 160px">
+          <template #body="{ data }">{{ data.last_run_at || '-' }}</template>
+        </Column>
+        <Column :header="t('common.colActions')" style="width: 200px" frozen>
+          <template #body="{ data }">
+            <div class="row-actions">
+              <FpButton variant="ghost" icon="oi oi-play-circle" @click="onRun(data)">
+                {{ t('scheduledTask.run') }}
+              </FpButton>
+              <FpButton variant="link" @click="openEdit(data)">{{ t('common.edit') }}</FpButton>
+              <FpButton variant="link" @click="onDelete(data)">{{ t('common.delete') }}</FpButton>
+            </div>
           </template>
-        </el-table-column>
-      </el-table>
-      <el-pagination
+        </Column>
+      </FpTable>
+      <Paginator
         v-if="total > pageSize"
-        v-model:current-page="currentPage"
-        :page-size="pageSize"
-        :total="total"
-        layout="prev, pager, next, total"
-        background
-        small
-        class="table-pagination"
-        @current-change="fetch"
+        :first="(currentPage - 1) * pageSize"
+        :rows="pageSize"
+        :total-records="total"
+        :rows-per-page-options="[20, 50, 100]"
+        @update:first="(f) => goPage(f)"
       />
-    </el-card>
+    </div>
 
-    <el-dialog
+    <FpModal
       v-model="dialogVisible"
-      :title="editingId ? t('scheduledTask.edit') : t('scheduledTask.create')"
-      width="520px"
+      :header="editingId ? t('scheduledTask.edit') : t('scheduledTask.create')"
+      style="width: 520px"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
-        <el-form-item :label="t('scheduledTask.name')" prop="name">
-          <el-input v-model="form.name" />
-        </el-form-item>
-        <el-form-item :label="t('scheduledTask.command')" prop="command">
-          <el-input v-model="form.command" type="textarea" :rows="3" />
-        </el-form-item>
-        <el-form-item :label="t('scheduledTask.schedule')" prop="schedule">
-          <el-input v-model="form.schedule" placeholder="*/5 * * * *" />
-        </el-form-item>
-        <el-form-item :label="t('scheduledTask.enabled')">
-          <el-switch v-model="form.enabled" />
-        </el-form-item>
-      </el-form>
+      <div class="modal-form">
+        <FpInput v-model="form.name" :label="t('scheduledTask.name')" :error="formErrors.name" />
+        <div class="field-col">
+          <label class="field-label">{{ t('scheduledTask.command') }}</label>
+          <Textarea
+            v-model="form.command"
+            :rows="3"
+            :invalid="!!formErrors.command"
+            class="w-full"
+          />
+          <small v-if="formErrors.command" class="field-error">{{ formErrors.command }}</small>
+        </div>
+        <FpInput
+          v-model="form.schedule"
+          :label="t('scheduledTask.schedule')"
+          placeholder="*/5 * * * *"
+          :error="formErrors.schedule"
+        />
+        <div class="field-row">
+          <span class="field-label">{{ t('scheduledTask.enabled') }}</span>
+          <ToggleSwitch v-model="form.enabled" />
+        </div>
+      </div>
       <template #footer>
-        <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSave">
+        <FpButton variant="ghost" @click="dialogVisible = false">{{ t('common.cancel') }}</FpButton>
+        <FpButton variant="primary" :loading="submitting" @click="handleSave">
           {{ t('common.save') }}
-        </el-button>
+        </FpButton>
       </template>
-    </el-dialog>
+    </FpModal>
 
-    <el-dialog v-model="outputVisible" :title="t('scheduledTask.lastOutput')" width="560px">
+    <FpModal v-model="outputVisible" :header="t('scheduledTask.lastOutput')" style="width: 560px">
       <pre class="output-box">{{ selectedOutput || '-' }}</pre>
-    </el-dialog>
-  </div>
+    </FpModal>
+  </LayoutContent>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import type { FormInstance, FormRules } from 'element-plus'
+import Column from 'openvue/column'
+import Paginator from 'openvue/paginator'
+import Textarea from 'openvue/textarea'
+import ToggleSwitch from 'openvue/toggleswitch'
 import {
   listScheduledTasks,
   createScheduledTask,
@@ -117,8 +123,21 @@ import {
   toggleScheduledTask,
 } from '@/api/scheduledTasks'
 import type { ScheduledTask } from '@/api/scheduledTasks'
+import FpTable from '@/components/ui/FpTable.vue'
+import FpModal from '@/components/ui/FpModal.vue'
+import FpInput from '@/components/ui/FpInput.vue'
+import FpButton from '@/components/ui/FpButton.vue'
+import FpTag from '@/components/ui/FpTag.vue'
+import LayoutContent from '@/components/ui/LayoutContent.vue'
+import { useFpToast } from '@/components/ui/FpToast'
+import { useFpConfirm } from '@/components/ui/FpConfirm'
+
+type TagSeverity = 'success' | 'warning' | 'danger' | 'info' | 'neutral'
 
 const { t } = useI18n()
+const toast = useFpToast()
+const { confirmAction } = useFpConfirm()
+
 const tasks = ref<ScheduledTask[]>([])
 const loading = ref(false)
 const currentPage = ref(1)
@@ -127,18 +146,13 @@ const total = ref(0)
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const editingId = ref(0)
-const formRef = ref<FormInstance>()
 const outputVisible = ref(false)
 const selectedOutput = ref('')
 
 const form = reactive({ name: '', command: '', schedule: '* * * * *', enabled: true })
-const rules: FormRules = {
-  name: [{ required: true, message: t('scheduledTask.nameRequired'), trigger: 'blur' }],
-  command: [{ required: true, message: t('scheduledTask.commandRequired'), trigger: 'blur' }],
-  schedule: [{ required: true, message: t('scheduledTask.scheduleRequired'), trigger: 'blur' }],
-}
+const formErrors = reactive({ name: '', command: '', schedule: '' })
 
-function statusTag(status: string) {
+function statusTag(status: string): TagSeverity {
   if (status === 'success') return 'success'
   if (status === 'failed') return 'danger'
   return 'info'
@@ -161,12 +175,20 @@ async function fetch() {
   }
 }
 
+function goPage(first: number) {
+  currentPage.value = first / pageSize.value + 1
+  fetch()
+}
+
 function openCreate() {
   editingId.value = 0
   form.name = ''
   form.command = ''
   form.schedule = '* * * * *'
   form.enabled = true
+  formErrors.name = ''
+  formErrors.command = ''
+  formErrors.schedule = ''
   dialogVisible.value = true
 }
 
@@ -176,12 +198,21 @@ function openEdit(row: ScheduledTask) {
   form.command = row.command
   form.schedule = row.schedule
   form.enabled = row.enabled
+  formErrors.name = ''
+  formErrors.command = ''
+  formErrors.schedule = ''
   dialogVisible.value = true
 }
 
+function validateForm(): boolean {
+  formErrors.name = form.name ? '' : t('scheduledTask.nameRequired')
+  formErrors.command = form.command ? '' : t('scheduledTask.commandRequired')
+  formErrors.schedule = form.schedule ? '' : t('scheduledTask.scheduleRequired')
+  return !formErrors.name && !formErrors.command && !formErrors.schedule
+}
+
 async function handleSave() {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
+  if (!validateForm()) return
   submitting.value = true
   try {
     if (editingId.value) {
@@ -199,67 +230,102 @@ async function handleSave() {
         enabled: form.enabled,
       })
     }
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     dialogVisible.value = false
     await fetch()
   } catch (e: unknown) {
-    const msg = (e as { message?: string })?.message
-    ElMessage.error(msg || t('common.failed'))
+    toast.error(e, t('common.failed'))
   } finally {
     submitting.value = false
   }
 }
 
-async function onRun(row: ScheduledTask) {
-  try {
-    await ElMessageBox.confirm(
-      t('scheduledTask.runConfirm', { name: row.name }),
-      t('common.confirm'),
-      { type: 'warning' },
-    )
-    const res = await runScheduledTask(row.id)
-    selectedOutput.value = res.data.last_output
-    outputVisible.value = true
-    await fetch()
-  } catch {
-    // cancelled
-  }
+function onRun(row: ScheduledTask) {
+  confirmAction({
+    message: t('scheduledTask.runConfirm', { name: row.name }),
+    header: t('common.confirm'),
+    accept: async () => {
+      try {
+        const res = await runScheduledTask(row.id)
+        selectedOutput.value = res.data.last_output
+        outputVisible.value = true
+        await fetch()
+      } catch {
+        // cancelled
+      }
+    },
+  })
 }
 
 async function onToggle(row: ScheduledTask, enabled: boolean) {
   try {
     await toggleScheduledTask(row.id, enabled)
-    ElMessage.success(t('common.success'))
+    toast.success(t('common.success'))
     await fetch()
   } catch {
-    ElMessage.error(t('common.failed'))
+    toast.error(t('common.failed'))
     await fetch()
   }
 }
 
-async function onDelete(row: ScheduledTask) {
-  try {
-    await ElMessageBox.confirm(
-      t('scheduledTask.deleteConfirm', { name: row.name }),
-      t('common.confirm'),
-      { type: 'warning' },
-    )
-    await deleteScheduledTask(row.id)
-    ElMessage.success(t('common.success'))
-    await fetch()
-  } catch {
-    // cancelled
-  }
+function onDelete(row: ScheduledTask) {
+  confirmAction({
+    message: t('scheduledTask.deleteConfirm', { name: row.name }),
+    header: t('common.confirm'),
+    accept: async () => {
+      try {
+        await deleteScheduledTask(row.id)
+        toast.success(t('common.success'))
+        await fetch()
+      } catch {
+        // cancelled
+      }
+    },
+  })
 }
 
 onMounted(fetch)
 </script>
 
 <style scoped>
-.command-cell {
-  font-family: var(--font-mono, monospace);
+.panel {
+  padding: var(--fp-space-4);
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-bg-elevated);
+  border: 1px solid var(--fp-border);
+}
+.row-actions {
+  display: flex;
+  gap: var(--fp-space-2);
+}
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-4);
+}
+.field-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-3);
+}
+.field-label {
+  font-size: 13px;
+  color: var(--fp-text-secondary);
+}
+.field-error {
   font-size: 12px;
-  background: var(--bg-hover, #f5f5f5);
+  line-height: 1.4;
+  color: var(--fp-danger);
+}
+.command-cell {
+  font-family: var(--fp-font-mono);
+  font-size: 12px;
+  background: var(--fp-bg-hover);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -272,6 +338,6 @@ onMounted(fetch)
   background: #0f172a;
   color: #e2e8f0;
   padding: 12px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--fp-radius-sm);
 }
 </style>
