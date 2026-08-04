@@ -5,20 +5,46 @@
     </div>
 
     <el-card shadow="hover">
+      <div class="toolbar">
+        <span class="text-muted text-xs">{{ t('node.liveHint') }}</span>
+      </div>
       <el-table v-loading="loading" :empty-text="t('common.noData')" :data="nodes" border stripe>
-        <el-table-column prop="id" :label="t('node.id')" width="80" />
-        <el-table-column prop="name" :label="t('node.name')" />
-        <el-table-column prop="hostname" :label="t('node.hostname')" />
-        <el-table-column prop="ip_address" :label="t('node.ip')" />
-        <el-table-column :label="t('node.status')" width="100">
+        <el-table-column prop="id" :label="t('node.id')" width="70" />
+        <el-table-column prop="name" :label="t('node.name')" min-width="110" />
+        <el-table-column prop="hostname" :label="t('node.hostname')" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="ip_address" :label="t('node.ip')" min-width="120" />
+        <el-table-column :label="t('node.status')" width="110">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'online' ? 'success' : 'danger'" size="small">
-              {{ row.status === 'online' ? t('dashboard.online') : t('dashboard.offline') }}
+            <el-tag :type="row.online ? 'success' : 'danger'" size="small" effect="light">
+              {{ row.online ? t('dashboard.online') : t('dashboard.offline') }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" :label="t('node.createdAt')" width="180" />
-        <el-table-column :label="t('common.operation')" width="200" fixed="right">
+        <el-table-column :label="t('node.metrics')" min-width="240">
+          <template #default="{ row }">
+            <div v-if="row.metrics" class="metrics-row">
+              <el-progress
+                :percentage="Math.round(row.metrics.cpu_usage ?? 0)"
+                :stroke-width="6"
+                :color="percentColor(row.metrics.cpu_usage ?? 0)"
+                class="metrics-bar"
+              />
+              <span class="text-xs text-muted"
+                >CPU {{ (row.metrics.cpu_usage ?? 0).toFixed(1) }}% · MEM
+                {{ (row.metrics.memory_usage_percent ?? 0).toFixed(1) }}% · DISK
+                {{ (row.metrics.disk_usage_percent ?? 0).toFixed(1) }}%</span
+              >
+            </div>
+            <span v-else class="text-muted text-xs">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('node.lastHeartbeat')" width="150">
+          <template #default="{ row }">
+            <span v-if="row.last_heartbeat_at" class="text-xs">{{ row.last_heartbeat_at }}</span>
+            <span v-else class="text-muted text-xs">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('common.operation')" width="160" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" size="small" text @click="handleEdit(row)">{{
               t('common.edit')
@@ -102,12 +128,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { listNodes, createNode, updateNode, deleteNode } from '@/api/nodes'
+import { listNodes, createNode, updateNode, deleteNode, nodeStatus, nodeMetrics } from '@/api/nodes'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import type { ServerNode } from '@/types'
+import type { ServerNode, NodeMetrics } from '@/types'
 
 const { t } = useI18n()
 const nodes = ref<ServerNode[]>([])
@@ -122,6 +148,10 @@ const formRef = ref<FormInstance>()
 const editFormRef = ref<FormInstance>()
 const editingId = ref(0)
 
+// 轮询句柄（页面隐藏时暂停）
+let pollTimer: number | null = null
+let lastVisible = document.visibilityState === 'visible'
+
 const form = reactive({ name: '', hostname: '', ip_address: '', status: 'online' })
 const editForm = reactive({ name: '', hostname: '', ip_address: '', status: 'online' })
 const rules: FormRules = {
@@ -130,15 +160,76 @@ const rules: FormRules = {
   ip_address: [{ required: true, message: t('node.ipRequired'), trigger: 'blur' }],
 }
 
+function percentColor(p: number) {
+  return p > 80 ? '#f56c6c' : p > 50 ? '#e6a23c' : '#67c23a'
+}
+
+function enrichNode(node: ServerNode) {
+  let metrics: NodeMetrics | null = null
+  if (node.metrics_json) {
+    try {
+      metrics = JSON.parse(node.metrics_json)
+    } catch {
+      metrics = null
+    }
+  }
+  return { ...node, metrics, online: false }
+}
+
+async function refreshStatus() {
+  if (!nodes.value.length) return
+  // 逐节点查在线状态 + 指标（并发）
+  const updated = await Promise.all(
+    nodes.value.map(async (node) => {
+      try {
+        const [st, mt] = await Promise.all([nodeStatus(node.id), nodeMetrics(node.id)])
+        return {
+          ...node,
+          online: st.data.status === 'online',
+          metrics: mt.data as NodeMetrics,
+        }
+      } catch {
+        return { ...node, online: false }
+      }
+    }),
+  )
+  nodes.value = updated
+}
+
 async function fetch() {
   loading.value = true
   try {
     const res = await listNodes(currentPage.value, pageSize.value)
-    nodes.value = res.data.data
+    nodes.value = res.data.data.map(enrichNode)
     total.value = res.data.total
+    await refreshStatus()
   } finally {
     loading.value = false
   }
+}
+
+function startPolling() {
+  stopPolling()
+  pollTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      refreshStatus()
+    }
+  }, 10000)
+}
+
+function stopPolling() {
+  if (pollTimer !== null) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+function onVisibility() {
+  const visible = document.visibilityState === 'visible'
+  if (visible && !lastVisible) {
+    refreshStatus()
+  }
+  lastVisible = visible
 }
 
 async function handleCreate() {
@@ -210,5 +301,30 @@ async function handleDelete(id: number) {
   }
 }
 
-onMounted(fetch)
+onMounted(() => {
+  fetch()
+  startPolling()
+  document.addEventListener('visibilitychange', onVisibility)
+})
+
+onUnmounted(() => {
+  stopPolling()
+  document.removeEventListener('visibilitychange', onVisibility)
+})
 </script>
+
+<style scoped>
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.metrics-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.metrics-bar {
+  max-width: 200px;
+}
+</style>

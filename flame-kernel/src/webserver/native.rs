@@ -200,11 +200,19 @@ impl WebServerNativeManager {
     }
 
     async fn is_service_enabled(service: &str) -> bool {
-        let out = tokio::process::Command::new("systemctl")
-            .args(["is-enabled", service])
-            .output()
-            .await;
-        match out {
+        // 免密码 systemctl：root 直接执行；非 root 用 sudo -n（不弹密码框）
+        let output = if crate::infrastructure::os::is_root_process() {
+            tokio::process::Command::new("systemctl")
+                .args(["is-enabled", service])
+                .output()
+                .await
+        } else {
+            tokio::process::Command::new("sudo")
+                .args(["-n", "systemctl", "is-enabled", service])
+                .output()
+                .await
+        };
+        match output {
             Ok(o) => {
                 let s = String::from_utf8_lossy(&o.stdout);
                 o.status.success() && (s.contains("enabled") || s.contains("static"))

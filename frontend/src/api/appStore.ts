@@ -44,6 +44,7 @@ export interface AppMetadata {
   min_memory_mb?: number
   architectures: string[]
   readme?: string
+  recommended?: boolean
 }
 
 export interface InstalledApp {
@@ -60,6 +61,7 @@ export interface InstalledApp {
   params_json?: string
   created_at: string
   updated_at: string
+  launch_count?: number
 }
 
 export interface AppStoreListResponse {
@@ -100,6 +102,10 @@ export function importPackage(path: string) {
 
 export function listInstalledApps() {
   return api.get<InstalledApp[]>('/app-store/installed')
+}
+
+export function launchApp(id: number) {
+  return api.post<InstalledApp>(`/app-store/installed/${id}/launch`)
 }
 
 export function getInstalledApp(id: number) {

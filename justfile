@@ -42,6 +42,21 @@ lint:
 typecheck:
     cd frontend && npx vue-tsc --noEmit
 
+# 全量验证（发版前跑）：测试 + lint + 类型检查 + 构建
+check-full: test lint typecheck build
+
+# 打包发行资产（release-assets/，自动读取版本号）
+release:
+    ./scripts/package-release.sh release-assets
+
+# 指定版本打包发行资产
+release-v VERSION:
+    ./scripts/package-release.sh release-assets {{VERSION}}
+
+# 校验发行资产（SHA256 一致性）
+release-verify:
+    cd release-assets && sha256sum -c flamepanel-*-checksums.txt
+
 # Docker 构建
 docker-build:
     docker compose build --no-cache

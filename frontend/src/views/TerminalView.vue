@@ -30,6 +30,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { connectWithRetry } from '@/utils/ws'
 import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -43,8 +44,7 @@ const reconnecting = ref(false)
 
 let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
-let ws: WebSocket | null = null
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let wsConn: ReturnType<typeof connectWithRetry> | null = null
 
 function initTerminal() {
   if (!terminalContainer.value) return
@@ -84,67 +84,41 @@ function initTerminal() {
   term.open(terminalContainer.value)
 
   term.onData((data: string) => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'input', data }))
-    }
+    wsConn?.send(JSON.stringify({ type: 'input', data }))
   })
 
   nextTick(() => fitAddon?.fit())
 }
 
 function connect() {
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  ws = new WebSocket(`${protocol}//${location.host}/ws/terminal`)
-
-  ws.onopen = () => {
-    connected.value = true
-    term?.focus()
-  }
-
-  ws.onclose = () => {
-    connected.value = false
-    if (reconnectTimer) clearTimeout(reconnectTimer)
-    reconnectTimer = setTimeout(() => {
-      if (!connected.value) connect()
-    }, 3000)
-  }
-
-  ws.onerror = () => {
-    connected.value = false
-  }
-
-  ws.onmessage = (ev: MessageEvent) => {
-    try {
-      const msg = JSON.parse(ev.data)
+  wsConn = connectWithRetry('/ws/terminal', {
+    onStatus: (connectedFlag) => {
+      connected.value = connectedFlag
+      if (connectedFlag) term?.focus()
+    },
+    onMessage: (data) => {
+      const msg = data as { type: string; data: string }
       if (msg.type === 'output' && msg.data && term) {
         term.write(msg.data)
       }
-    } catch {
-      // ignore
-    }
-  }
+    },
+  })
 }
 
 function reconnect() {
   reconnecting.value = true
-  ws?.close()
-  if (reconnectTimer) clearTimeout(reconnectTimer)
+  wsConn?.reconnectNow()
   setTimeout(() => {
-    connect()
     reconnecting.value = false
   }, 500)
 }
 
 function sendEof() {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'input', data: '\x04' }))
-  }
+  wsConn?.send(JSON.stringify({ type: 'input', data: '\x04' }))
 }
 
 function sendInterrupt() {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'input', data: '\x03' }))
-  }
+  wsConn?.send(JSON.stringify({ type: 'input', data: '\x03' }))
 }
 
 function handleClear() {
@@ -163,8 +137,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
-  ws?.close()
-  if (reconnectTimer) clearTimeout(reconnectTimer)
+  wsConn?.close()
   term?.dispose()
 })
 </script>

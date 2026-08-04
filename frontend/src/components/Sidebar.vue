@@ -101,6 +101,10 @@
         <el-icon><Timer /></el-icon>
         <span>{{ t('nav.scheduledTasks') }}</span>
       </el-menu-item>
+      <el-menu-item index="/memos">
+        <el-icon><Notebook /></el-icon>
+        <span>{{ t('nav.memos') }}</span>
+      </el-menu-item>
     </el-sub-menu>
 
     <!-- 系统 -->
@@ -151,6 +155,7 @@ import {
   Monitor,
   MagicStick,
   OfficeBuilding,
+  Notebook,
   Lightning,
 } from '@element-plus/icons-vue'
 

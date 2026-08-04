@@ -6,12 +6,28 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize, Default)]
+pub struct LogListQuery {
+    pub page: Option<i64>,
+    pub page_size: Option<i64>,
+    /// 按 action 前缀过滤（如 `action=LOGIN` 匹配 LOGIN_SUCCESS/LOGIN_FAILED）
+    pub action: Option<String>,
+}
 
 pub async fn list(
     State(state): State<AppState>,
-    Query(params): Query<PaginationParams>,
+    Query(query): Query<LogListQuery>,
 ) -> Result<Json<PaginatedResponse<OperationLog>>, AppError> {
-    let result = state.operation_log_service.list_paginated(&params).await?;
+    let params = PaginationParams {
+        page: query.page,
+        page_size: query.page_size,
+    };
+    let result = state
+        .operation_log_service
+        .list_paginated(&params, query.action.as_deref())
+        .await?;
     Ok(Json(result))
 }
 

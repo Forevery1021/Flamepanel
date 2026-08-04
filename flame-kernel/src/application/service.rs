@@ -50,6 +50,13 @@ impl UserService {
         self.user_repo.update_password(id, new_hash).await
     }
 
+    /// 设置/清除强制改密标志
+    pub async fn set_must_change_password(&self, id: i64, must: bool) -> Result<(), AppError> {
+        let mut user = self.get_user(id).await?;
+        user.must_change_password = must;
+        self.user_repo.update(&user).await
+    }
+
     pub async fn list_users(&self) -> Result<Vec<User>, AppError> {
         self.user_repo.list().await
     }
@@ -148,6 +155,59 @@ impl NodeService {
             .await?
             .ok_or_else(|| AppError::NotFound(format!("Node {} not found", id)))?;
         self.node_repo.delete(id).await
+    }
+
+    /// 记录节点心跳：更新 last_heartbeat_at 与指标快照
+    pub async fn record_heartbeat(
+        &self,
+        id: i64,
+        metrics: &serde_json::Value,
+    ) -> Result<ServerNode, AppError> {
+        let metrics_json = serde_json::to_string(metrics)
+            .map_err(|e| AppError::internal(format!("Failed to serialize metrics: {}", e)))?;
+        self.node_repo.update_heartbeat(id, &metrics_json).await?;
+        let node = self.get_node(id).await?;
+        let _ = self
+            .event_bus
+            .publish(DomainEvent::NodeHeartbeat {
+                node_id: node.id,
+                node_name: node.name.clone(),
+            })
+            .await;
+        Ok(node)
+    }
+
+    /// 节点在线状态：距上次心跳 > timeout_secs 判定 offline（惰性）
+    pub async fn node_status(&self, id: i64, timeout_secs: i64) -> Result<String, AppError> {
+        let node = self.get_node(id).await?;
+        Ok(if node.is_online(chrono::Utc::now(), timeout_secs) {
+            "online".into()
+        } else {
+            "offline".into()
+        })
+    }
+
+    /// 节点最近指标快照（解析 metrics_json）
+    pub async fn node_metrics(&self, id: i64) -> Result<serde_json::Value, AppError> {
+        let node = self.get_node(id).await?;
+        match node.metrics_json {
+            Some(json) => serde_json::from_str(&json)
+                .map_err(|e| AppError::internal(format!("Failed to parse metrics: {}", e))),
+            None => Ok(serde_json::json!({})),
+        }
+    }
+
+    /// 校验 Agent 心跳令牌：库中 auth_token 存在且与请求一致才通过；
+    /// 库中无 token（旧 Agent）时放行并告警（兼容）
+    pub async fn verify_agent_token(&self, id: i64, provided: Option<&str>) -> Result<bool, AppError> {
+        let node = self.get_node(id).await?;
+        match node.auth_token {
+            Some(stored) => Ok(Some(stored.as_str()) == provided),
+            None => {
+                tracing::warn!("Node {} has no auth_token recorded; heartbeat token check skipped", id);
+                Ok(true)
+            }
+        }
     }
 }
 
@@ -1029,6 +1089,62 @@ impl DatabaseService {
     }
 }
 
+pub struct MemoService {
+    pub repo: Arc<dyn MemoRepository>,
+}
+
+impl MemoService {
+    pub fn new(repo: Arc<dyn MemoRepository>) -> Self {
+        Self { repo }
+    }
+
+    pub async fn list(
+        &self,
+        kind: Option<&str>,
+        done: Option<bool>,
+    ) -> Result<Vec<Memo>, AppError> {
+        self.repo.list(kind, done).await
+    }
+
+    pub async fn create(&self, content: &str, kind: &str) -> Result<Memo, AppError> {
+        let kind = if kind == "todo" { "todo" } else { "memo" };
+        if content.trim().is_empty() {
+            return Err(AppError::BadRequest("内容不能为空".into()));
+        }
+        let id = self.repo.create(content, kind).await?;
+        self.repo
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| AppError::internal("Memo created but not found"))
+    }
+
+    pub async fn update(&self, id: i64, content: Option<&str>, done: Option<bool>) -> Result<Memo, AppError> {
+        let mut memo = self
+            .repo
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Memo {} not found", id)))?;
+        if let Some(c) = content {
+            if c.trim().is_empty() {
+                return Err(AppError::BadRequest("内容不能为空".into()));
+            }
+            memo.content = c.to_string();
+        }
+        if let Some(d) = done {
+            memo.done = d;
+        }
+        self.repo.update(&memo).await?;
+        self.repo
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| AppError::internal("Memo updated but not found"))
+    }
+
+    pub async fn delete(&self, id: i64) -> Result<(), AppError> {
+        self.repo.delete(id).await
+    }
+}
+
 pub struct OperationLogService {
     pub log_repo: Arc<dyn OperationLogRepository>,
 }
@@ -1055,10 +1171,18 @@ impl OperationLogService {
     pub async fn list_paginated(
         &self,
         params: &PaginationParams,
+        action_filter: Option<&str>,
     ) -> Result<PaginatedResponse<OperationLog>, AppError> {
         let logs = self.log_repo.list().await?;
-        let total = logs.len() as i64;
-        let data = paginate_slice(&logs, params);
+        let filtered: Vec<OperationLog> = match action_filter {
+            Some(prefix) if !prefix.is_empty() => logs
+                .into_iter()
+                .filter(|l| l.action.starts_with(prefix))
+                .collect(),
+            _ => logs,
+        };
+        let total = filtered.len() as i64;
+        let data = paginate_slice(&filtered, params);
         Ok(PaginatedResponse::new(data, total, params))
     }
 
@@ -1469,8 +1593,16 @@ impl FirewallManager {
                 Ok(())
             }
             FirewallBackend::Firewalld => {
-                tokio::process::Command::new("systemctl")
-                    .args(["start", "firewalld"])
+                // 免密码 systemctl（非 root 自动 sudo -n，不弹密码框）
+                let mut cmd = if crate::infrastructure::os::is_root_process() {
+                    tokio::process::Command::new("systemctl")
+                } else {
+                    let mut c = tokio::process::Command::new("sudo");
+                    c.arg("-n").arg("systemctl");
+                    c
+                };
+                cmd.arg("start")
+                    .arg("firewalld")
                     .output()
                     .await
                     .map_err(|e| AppError::internal(format!("firewalld start failed: {}", e)))?;
@@ -1495,8 +1627,16 @@ impl FirewallManager {
                 Ok(())
             }
             FirewallBackend::Firewalld => {
-                tokio::process::Command::new("systemctl")
-                    .args(["stop", "firewalld"])
+                // 免密码 systemctl（非 root 自动 sudo -n，不弹密码框）
+                let mut cmd = if crate::infrastructure::os::is_root_process() {
+                    tokio::process::Command::new("systemctl")
+                } else {
+                    let mut c = tokio::process::Command::new("sudo");
+                    c.arg("-n").arg("systemctl");
+                    c
+                };
+                cmd.arg("stop")
+                    .arg("firewalld")
                     .output()
                     .await
                     .map_err(|e| AppError::internal(format!("firewalld stop failed: {}", e)))?;

@@ -44,23 +44,25 @@ impl RateLimiter {
     }
 }
 
-static GLOBAL_LIMITER: OnceLock<RateLimiter> = OnceLock::new();
+static GLOBAL_LIMITER: OnceLock<Mutex<RateLimiter>> = OnceLock::new();
 
 pub fn init_global_limiter(max_requests: u64, window_secs: u64) {
-    let _ = GLOBAL_LIMITER.set(RateLimiter::new(max_requests, window_secs));
+    let limiter = GLOBAL_LIMITER.get_or_init(|| Mutex::new(RateLimiter::new(120, 60)));
+    // 覆盖（测试可调高阈值；生产 init 调用一次后不覆盖）
+    *limiter.lock().unwrap() = RateLimiter::new(max_requests, window_secs);
 }
 
 pub async fn rate_limit_middleware<B>(
     req: Request<B>,
     next: Next<B>,
 ) -> Result<Response, StatusCode> {
-    let limiter = GLOBAL_LIMITER.get_or_init(|| RateLimiter::new(120, 60));
+    let limiter = GLOBAL_LIMITER.get_or_init(|| Mutex::new(RateLimiter::new(120, 60)));
     let ip = req
         .headers()
         .get("X-Forwarded-For")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
-    if !limiter.check(ip) {
+    if !limiter.lock().unwrap().check(ip) {
         return Ok(StatusCode::TOO_MANY_REQUESTS.into_response());
     }
     Ok(next.run(req).await)

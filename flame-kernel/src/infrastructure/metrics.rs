@@ -90,6 +90,18 @@ pub fn spawn_metrics_collector(
                 0.0
             };
 
+            // 网络 IO：Networks::refresh(true) 返回自上次刷新的差值，换算 MB/s
+            let mut networks = sysinfo::Networks::new();
+            networks.refresh(true);
+            let (network_rx_mbps, network_tx_mbps): (f64, f64) = networks
+                .iter()
+                .fold((0.0, 0.0), |(rx, tx), (_, data)| {
+                    (
+                        rx + data.received() as f64 / 1024.0 / 1024.0,
+                        tx + data.transmitted() as f64 / 1024.0 / 1024.0,
+                    )
+                });
+
             let load = System::load_average();
 
             let snapshot = MetricsSnapshot {
@@ -105,6 +117,8 @@ pub fn spawn_metrics_collector(
                 load_one: clamp_f64(load.one),
                 load_five: clamp_f64(load.five),
                 load_fifteen: clamp_f64(load.fifteen),
+                network_rx_mbps: clamp_f64(network_rx_mbps),
+                network_tx_mbps: clamp_f64(network_tx_mbps),
             };
 
             history.lock().await.push(snapshot.clone());

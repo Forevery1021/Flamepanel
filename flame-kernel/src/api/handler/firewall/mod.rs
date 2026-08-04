@@ -182,7 +182,13 @@ pub async fn toggle(
 }
 
 pub async fn apply_all(State(state): State<AppState>) -> Result<Json<&'static str>, AppError> {
+    let rules = state.firewall_service.list_rules().await?;
+    let rule_count = rules.len();
     state.firewall_service.apply_all_rules().await?;
+    let _ = state
+        .event_bus
+        .publish(crate::domain::entity::DomainEvent::FirewallRulesApplied { rule_count })
+        .await;
     Ok(Json("applied"))
 }
 

@@ -19,6 +19,29 @@
 
     <el-tabs v-model="activeTab">
       <el-tab-pane :label="t('appStore.tabStore')" name="store">
+        <!-- 推荐安装 -->
+        <div v-if="recommendedPackages.length" class="recommend-section">
+          <div class="recommend-title">{{ t('appStore.recommended') }}</div>
+          <div class="recommend-list">
+            <div
+              v-for="pkg in recommendedPackages"
+              :key="pkg.key"
+              class="recommend-card"
+              @click="openInstall(pkg)"
+            >
+              <div class="recommend-logo"><el-icon><Box /></el-icon></div>
+              <div class="recommend-info">
+                <div class="recommend-name">{{ pkg.name }}</div>
+                <div class="recommend-desc">{{ pkg.short_desc_zh }}</div>
+                <el-tag size="small" type="warning" effect="plain">{{ t('appStore.recommended') }}</el-tag>
+              </div>
+              <el-button size="small" type="primary" @click.stop="openInstall(pkg)">
+                {{ installedKeys.has(pkg.key) ? t('appStore.installed') : t('appStore.install') }}
+              </el-button>
+            </div>
+          </div>
+        </div>
+
         <el-row v-loading="loading" :gutter="16">
           <el-col v-for="pkg in filteredPackages" :key="pkg.key" :xs="24" :sm="12" :md="8" :lg="6" class="app-card-col">
             <el-card shadow="hover" class="app-card">
@@ -35,8 +58,12 @@
                   </div>
                 </div>
                 <div class="app-actions">
-                  <el-button size="small" type="primary" @click="openInstall(pkg)">
-                    {{ t('appStore.install') }}
+                  <el-button
+                    size="small"
+                    :type="installedKeys.has(pkg.key) ? 'success' : 'primary'"
+                    @click="openInstall(pkg)"
+                  >
+                    {{ installedKeys.has(pkg.key) ? t('appStore.installed') : t('appStore.install') }}
                   </el-button>
                 </div>
               </div>
@@ -241,6 +268,13 @@ const logsVisible = ref(false)
 const currentLogs = ref('')
 const showImportDialog = ref(false)
 const importPath = ref('')
+
+// 推荐安装（后端 recommended 标记）
+const recommendedPackages = computed(() =>
+  packages.value.filter((p) => p.recommended),
+)
+// 已安装应用 key 集合（角标/按钮状态）
+const installedKeys = computed(() => new Set(installedApps.value.map((a) => a.package_key)))
 
 const switchValues = reactive<Record<string, boolean>>({})
 const numberValues = reactive<Record<string, number>>({})
@@ -542,5 +576,67 @@ onMounted(() => {
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* 推荐安装 */
+.recommend-section {
+  margin-bottom: 16px;
+}
+.recommend-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.recommend-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+.recommend-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 6%, transparent), transparent);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+.recommend-card:hover {
+  border-color: var(--el-color-primary);
+  box-shadow: var(--card-shadow-hover);
+}
+.recommend-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.recommend-info {
+  flex: 1;
+  min-width: 0;
+}
+.recommend-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.recommend-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 2px 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

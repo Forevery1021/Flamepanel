@@ -35,5 +35,9 @@ flame-kernel/data/
 .env
 .env.local
 
+# AI 开发指导与计划（本地保留，不推送）
+.opencode/
+plan.md
+
 # Logs
 *.log

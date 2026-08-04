@@ -26,6 +26,8 @@ pub trait NodeRepository: Send + Sync {
     async fn update(&self, node: &ServerNode) -> Result<(), AppError>;
     async fn list_all(&self) -> Result<Vec<ServerNode>, AppError>;
     async fn delete(&self, id: i64) -> Result<(), AppError>;
+    /// 记录心跳：更新 last_heartbeat_at 与指标快照
+    async fn update_heartbeat(&self, id: i64, metrics_json: &str) -> Result<(), AppError>;
 }
 
 #[async_trait]
@@ -232,4 +234,13 @@ pub trait PluginRepository: Send + Sync {
     async fn list(&self) -> Result<Vec<Plugin>, AppError>;
     async fn find_by_id(&self, id: &str) -> Result<Option<Plugin>, AppError>;
     async fn delete(&self, id: &str) -> Result<(), AppError>;
+}
+
+#[async_trait]
+pub trait MemoRepository: Send + Sync {
+    async fn list(&self, kind: Option<&str>, done: Option<bool>) -> Result<Vec<Memo>, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<Memo>, AppError>;
+    async fn create(&self, content: &str, kind: &str) -> Result<i64, AppError>;
+    async fn update(&self, memo: &Memo) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
 }

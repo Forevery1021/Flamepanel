@@ -50,6 +50,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { connectWithRetry } from '@/utils/ws'
 import type { LogEntry } from '@/types'
 
 const { t } = useI18n()
@@ -57,7 +58,7 @@ const logs = ref<LogEntry[]>([])
 const levelFilter = ref('')
 const wsConnected = ref(false)
 const tableRef = ref<HTMLElement>()
-let ws: WebSocket | null = null
+let wsConn: ReturnType<typeof connectWithRetry> | null = null
 
 const filteredLogs = computed(() =>
   levelFilter.value ? logs.value.filter((l) => l.level === levelFilter.value) : logs.value,
@@ -81,24 +82,21 @@ function handleScroll(e: Event) {
 }
 
 onMounted(() => {
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  ws = new WebSocket(`${protocol}//${location.host}/ws/logs`)
-  ws.onopen = () => {
-    wsConnected.value = true
-  }
-  ws.onclose = () => {
-    wsConnected.value = false
-  }
-  ws.onmessage = (ev: MessageEvent) => {
-    const msg = JSON.parse(ev.data)
-    if (msg.type === 'init') {
-      logs.value = msg.data
-    } else if (msg.type === 'tick') {
-      logs.value.unshift(msg.data)
-      if (logs.value.length > 500) logs.value.length = 500
-    }
-  }
+  wsConn = connectWithRetry('/ws/logs', {
+    onStatus: (connected) => {
+      wsConnected.value = connected
+    },
+    onMessage: (data) => {
+      const msg = data as { type: string; data: LogEntry }
+      if (msg.type === 'init') {
+        logs.value = msg.data as unknown as LogEntry[]
+      } else if (msg.type === 'tick') {
+        logs.value.unshift(msg.data)
+        if (logs.value.length > 500) logs.value.length = 500
+      }
+    },
+  })
 })
 
-onUnmounted(() => ws?.close())
+onUnmounted(() => wsConn?.close())
 </script>

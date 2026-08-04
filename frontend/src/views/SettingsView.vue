@@ -151,6 +151,41 @@
 
     <el-card shadow="hover" class="mt-4">
       <template #header
+        ><span class="font-semibold">{{ t('settings.backupSettings') }}</span></template
+      >
+      <el-form :label-width="labelWidth" class="backup-form">
+        <el-form-item :label="t('settings.autoBackup')">
+          <el-switch v-model="backupForm.enabled" />
+          <span class="ml-2 text-xs text-muted">{{ t('settings.autoBackupHint') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('settings.backupInterval')">
+          <el-input-number
+            v-model="backupForm.intervalHours"
+            :min="1"
+            :max="168"
+            class="backup-input"
+          />
+          <span class="ml-2 text-xs text-muted">{{ t('settings.hoursUnit') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('settings.backupRetention')">
+          <el-input-number
+            v-model="backupForm.retention"
+            :min="1"
+            :max="100"
+            class="backup-input"
+          />
+          <span class="ml-2 text-xs text-muted">{{ t('settings.backupRetentionHint') }}</span>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="backupSaving" @click="handleSaveBackupSettings">{{
+            t('common.save')
+          }}</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <el-card shadow="hover" class="mt-4">
+      <template #header
         ><span class="font-semibold">JWT {{ t('settings.jwtSecret') }}</span></template
       >
       <el-descriptions :column="1" border>
@@ -202,6 +237,10 @@ const settingsForm = reactive({
   two_factor_enabled_bool: false,
 })
 
+// 备份设置
+const backupSaving = ref(false)
+const backupForm = reactive({ enabled: false, intervalHours: 24, retention: 7 })
+
 const pwFormRef = ref<FormInstance>()
 const pwForm = ref({ old_password: '', new_password: '', confirm: '' })
 const pwRules: FormRules = {
@@ -239,10 +278,28 @@ async function fetchSettings() {
     settingsForm.log_level = map['log_level'] || 'info'
     settingsForm.log_retention_num = parseInt(map['log_retention_days'] || '30')
     settingsForm.two_factor_enabled_bool = map['two_factor_enabled'] === 'true'
+    backupForm.enabled = map['auto_backup_enabled'] === 'true'
+    backupForm.intervalHours = parseInt(map['auto_backup_interval_hours'] || '24')
+    backupForm.retention = parseInt(map['backup_retention'] || '7')
   } catch {
     ElMessage.error(t('common.failed'))
   } finally {
     loading.value = false
+  }
+}
+
+async function handleSaveBackupSettings() {
+  backupSaving.value = true
+  try {
+    await updateSetting('auto_backup_enabled', backupForm.enabled ? 'true' : 'false')
+    await updateSetting('auto_backup_interval_hours', String(backupForm.intervalHours))
+    await updateSetting('backup_retention', String(backupForm.retention))
+    ElMessage.success(t('common.success'))
+    await fetchSettings()
+  } catch {
+    ElMessage.error(t('common.failed'))
+  } finally {
+    backupSaving.value = false
   }
 }
 
@@ -326,5 +383,11 @@ onMounted(fetchSettings)
 .status-ok {
   color: #67c23a;
   font-weight: 600;
+}
+.backup-form {
+  max-width: 480px;
+}
+.backup-input {
+  width: 160px;
 }
 </style>

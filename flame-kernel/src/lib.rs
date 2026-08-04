@@ -25,6 +25,7 @@ use application::backup_service::{db_path_from_url, BackupService};
 use application::scheduled_task_service::ScheduledTaskService;
 use application::service::*;
 use config::AppConfig;
+use domain::entity::DomainEvent;
 use domain::entity::LogEntry;
 use domain::entity::MetricsSnapshot;
 use event::{handler::EventHandler, EventBus};
@@ -81,6 +82,7 @@ impl FlameKernel {
             plugin_registry.clone(),
             plugin_repo.clone(),
             AppStoreService::default_apps_dir(),
+            event_bus.clone(),
         ));
 
         Services {
@@ -93,6 +95,7 @@ impl FlameKernel {
             operation_log_service: Arc::new(OperationLogService::new(
                 factory.create_operation_log_repo(),
             )),
+            memo_service: Arc::new(MemoService::new(factory.create_memo_repo())),
             log_service: Arc::new(LogService::new(factory.create_log_repo())),
             plugin_sandbox,
             plugin_registry,
@@ -133,10 +136,90 @@ impl FlameKernel {
             }
         });
 
+        // 自动备份（settings 驱动：enabled / interval_hours / retention）
+        let backup_service = services.backup_service.clone();
+        let settings_service = services.settings_service.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let enabled = settings_service
+                    .get("auto_backup_enabled")
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|v| v == "true")
+                    .unwrap_or(false);
+                if !enabled {
+                    continue;
+                }
+                let interval_hours: u64 = settings_service
+                    .get("auto_backup_interval_hours")
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(24);
+                let retention: usize = settings_service
+                    .get("backup_retention")
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(7);
+
+                match backup_service.last_backup_age_secs().await {
+                    Ok(Some(age)) if age < interval_hours * 3600 => {}
+                    _ => {
+                        if let Err(e) = backup_service.create_backup().await {
+                            tracing::warn!("Auto backup failed: {}", e);
+                        } else {
+                            tracing::info!("Auto backup created (interval {}h)", interval_hours);
+                            if let Err(e) = backup_service.enforce_retention(retention).await {
+                                tracing::warn!("Backup retention cleanup failed: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
         let metrics_history = Arc::new(Mutex::new(MetricsHistory::new(60)));
         let (metrics_tx, _) = tokio::sync::broadcast::channel::<MetricsSnapshot>(16);
         let (log_tx, _) = tokio::sync::broadcast::channel::<LogEntry>(256);
         spawn_metrics_collector(metrics_history.clone(), metrics_tx.clone());
+
+        // 节点下线告警：扫描心跳超时（>30s）的节点，发布 NodeOffline（去重，仅告警一次）
+        let node_service_for_offline = services.node_service.clone();
+        let event_bus_for_offline = services.event_bus.clone();
+        tokio::spawn(async move {
+            use std::collections::HashSet;
+            let mut alerted: HashSet<i64> = HashSet::new();
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                let nodes = match node_service_for_offline.list_nodes().await {
+                    Ok(n) => n,
+                    Err(_) => continue,
+                };
+                for node in nodes {
+                    let offline = !node.is_online(chrono::Utc::now(), 30);
+                    if offline {
+                        if alerted.insert(node.id) {
+                            tracing::warn!("Node {} offline detected", node.name);
+                            let _ = event_bus_for_offline
+                                .publish(DomainEvent::NodeOffline {
+                                    node_id: node.id,
+                                    node_name: node.name.clone(),
+                                })
+                                .await;
+                        }
+                    } else {
+                        alerted.remove(&node.id);
+                    }
+                }
+            }
+        });
 
         let terminal_manager = TerminalManager::new();
 
@@ -180,9 +263,15 @@ impl FlameKernel {
         if users.is_empty() {
             let admin_password = &self.config.admin_password;
             let hash = crate::utils::password::PasswordUtils::hash(admin_password)?;
-            self.app_state
+            let admin = self
+                .app_state
                 .user_service
                 .create_user("admin", &hash, "admin")
+                .await?;
+            // 新装面板：种子 admin 首次登录强制改密
+            self.app_state
+                .user_service
+                .set_must_change_password(admin.id, true)
                 .await?;
             tracing::info!("Seeded admin user (password from config)");
         }

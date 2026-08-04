@@ -21,7 +21,7 @@
       <el-col :xs="24" :sm="12" :lg="6">
         <el-card shadow="hover" class="stat-card">
           <div class="stat">
-            <div class="stat-icon icon-mem"><el-icon :size="26"><Memo /></el-icon></div>
+            <div class="stat-icon icon-mem"><el-icon :size="26"><MemoIcon /></el-icon></div>
             <div class="stat-body">
               <div class="stat-label">{{ t('dashboard.memory') }}</div>
               <div class="stat-value">{{ snap.memory_usage_percent.toFixed(1) }}%</div>
@@ -75,7 +75,7 @@
     </el-row>
 
     <el-row :gutter="16" class="chart-row">
-      <el-col :xs="24" :lg="16">
+      <el-col :xs="24" :lg="12">
         <el-card shadow="hover">
           <template #header>
             <div class="card-header">
@@ -85,7 +85,27 @@
           <div ref="chartRef" class="chart-box" />
         </el-card>
       </el-col>
-      <el-col :xs="24" :lg="8">
+      <el-col :xs="24" :lg="6">
+        <el-card shadow="hover">
+          <template #header>
+            <div class="card-header">
+              <span>{{ t('dashboard.network') }}</span>
+            </div>
+          </template>
+          <div ref="netChartRef" class="chart-box chart-box-sm" />
+          <div class="net-values">
+            <span class="net-val">
+              <span class="net-dot down" />{{ t('dashboard.rx') }}
+              {{ snap.network_rx_mbps.toFixed(2) }} MB/s
+            </span>
+            <span class="net-val">
+              <span class="net-dot up" />{{ t('dashboard.tx') }}
+              {{ snap.network_tx_mbps.toFixed(2) }} MB/s
+            </span>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :lg="6">
         <el-card shadow="hover">
           <template #header>
             <div class="card-header">
@@ -107,6 +127,73 @@
             <span>{{ t('dashboard.lastUpdate') }}</span
             ><span>{{ lastUpdate || '—' }}</span>
           </div>
+          <el-divider />
+          <div class="load-chart-title">{{ t('dashboard.load') }}</div>
+          <div ref="loadChartRef" class="load-chart" />
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="16" class="chart-row">
+      <el-col :xs="24" :lg="10">
+        <el-card shadow="hover">
+          <template #header>
+            <div class="card-header">
+              <span>{{ t('dashboard.processTop') }}</span>
+            </div>
+          </template>
+          <el-table :data="topProcesses" size="small" :empty-text="t('common.noData')">
+            <el-table-column prop="name" :label="t('dashboard.processName')" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="cpu" :label="t('dashboard.processCpu')" width="70">
+              <template #default="{ row }">{{ row.cpu.toFixed(1) }}%</template>
+            </el-table-column>
+            <el-table-column prop="memory_mb" :label="t('dashboard.processMem')" width="80">
+              <template #default="{ row }">{{ row.memory_mb }} MB</template>
+            </el-table-column>
+            <el-table-column prop="pid" :label="t('dashboard.processPid')" width="60" />
+          </el-table>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :lg="8">
+        <el-card shadow="hover">
+          <template #header>
+            <div class="card-header">
+              <span>{{ t('dashboard.todayTodos') }}</span>
+              <el-button text size="small" @click="$router.push('/memos')">{{ t('dashboard.more') }}</el-button>
+            </div>
+          </template>
+          <div v-loading="todosLoading" class="todo-list">
+            <div v-for="td in todayTodos" :key="td.id" class="todo-item" :class="{ done: td.done }">
+              <el-checkbox
+                :model-value="td.done"
+                @change="(val: string | number | boolean) => toggleTodo(td, Boolean(val))"
+              />
+              <span class="todo-content">{{ td.content }}</span>
+            </div>
+            <div v-if="!todayTodos.length" class="todo-empty">{{ t('dashboard.noTodos') }}</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :lg="6">
+        <el-card shadow="hover">
+          <template #header>
+            <div class="card-header">
+              <span>{{ t('dashboard.commonApps') }}</span>
+            </div>
+          </template>
+          <div v-if="commonApps.length" class="common-apps">
+            <div
+              v-for="a in commonApps"
+              :key="a.id"
+              class="common-app"
+              @click="openApp(a)"
+            >
+              <el-icon><Box /></el-icon>
+              <span class="common-app-name">{{ a.name }}</span>
+              <span class="common-app-count">{{ a.launch_count ?? 0 }}</span>
+            </div>
+          </div>
+          <div v-else class="todo-empty">{{ t('dashboard.noCommonApps') }}</div>
         </el-card>
       </el-col>
     </el-row>
@@ -117,14 +204,19 @@
 import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { init, use } from 'echarts/core'
-import { LineChart } from 'echarts/charts'
+import { LineChart, GaugeChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { Cpu, Memo, Coin, TrendCharts } from '@element-plus/icons-vue'
-import type { MetricsSnapshot } from '@/types'
+import { Cpu, Memo as MemoIcon, Coin, TrendCharts, Box } from '@element-plus/icons-vue'
+import { connectWithRetry } from '@/utils/ws'
+import { listTopProcesses } from '@/api/metrics'
+import { listMemos, updateMemo } from '@/api/memos'
+import { listInstalledApps, launchApp } from '@/api/appStore'
+import type { MetricsSnapshot, ProcessEntry, Memo } from '@/types'
+import type { InstalledApp } from '@/api/appStore'
 import type { ECharts } from 'echarts/core'
 
-use([LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+use([LineChart, GaugeChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const { t } = useI18n()
 
@@ -141,14 +233,73 @@ const snap = reactive<MetricsSnapshot>({
   load_one: 0,
   load_five: 0,
   load_fifteen: 0,
+  network_rx_mbps: 0,
+  network_tx_mbps: 0,
 })
 
 const history = ref<MetricsSnapshot[]>([])
 const chartRef = ref<HTMLElement>()
+const netChartRef = ref<HTMLElement>()
+const loadChartRef = ref<HTMLElement>()
 const wsConnected = ref(false)
 const lastUpdate = ref('')
 let chart: ECharts | null = null
-let ws: WebSocket | null = null
+let netChart: ECharts | null = null
+let loadChart: ECharts | null = null
+let wsConn: ReturnType<typeof connectWithRetry> | null = null
+
+// ── 进程 TOP ──
+const topProcesses = ref<ProcessEntry[]>([])
+let procTimer: number | null = null
+async function refreshProcesses() {
+  try {
+    const res = await listTopProcesses()
+    topProcesses.value = res.data
+  } catch {
+    topProcesses.value = []
+  }
+}
+
+// ── 今日 TODO ──
+const todayTodos = ref<Memo[]>([])
+const todosLoading = ref(false)
+async function refreshTodos() {
+  todosLoading.value = true
+  try {
+    const res = await listMemos('todo', false)
+    todayTodos.value = res.data.slice(0, 6)
+  } catch {
+    todayTodos.value = []
+  } finally {
+    todosLoading.value = false
+  }
+}
+async function toggleTodo(m: Memo, done: boolean) {
+  try {
+    await updateMemo(m.id, { done })
+    m.done = done
+    refreshTodos()
+  } catch {
+    // ignore
+  }
+}
+
+// ── 常用应用 ──
+const commonApps = ref<InstalledApp[]>([])
+async function refreshCommonApps() {
+  try {
+    const res = await listInstalledApps()
+    commonApps.value = [...res.data]
+      .sort((a, b) => (b.launch_count ?? 0) - (a.launch_count ?? 0))
+      .slice(0, 6)
+  } catch {
+    commonApps.value = []
+  }
+}
+function openApp(a: InstalledApp) {
+  launchApp(a.id).catch(() => {})
+  if (a.access_url) window.open(a.access_url, '_blank')
+}
 
 function cpuColor(p: number) {
   return p > 80 ? '#f56c6c' : p > 50 ? '#e6a23c' : '#67c23a'
@@ -237,33 +388,114 @@ function updateChart() {
   })
 }
 
+// ── 网络 IO 双曲线 ──
+function initNetChart() {
+  if (!netChartRef.value) return
+  netChart = init(netChartRef.value)
+  const { axisLabel, gridLine } = chartPalette()
+  netChart.setOption({
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['RX', 'TX'], bottom: 0, textStyle: { color: axisLabel } },
+    grid: { left: 44, right: 12, top: 16, bottom: 36 },
+    xAxis: {
+      type: 'time',
+      axisLabel: { fontSize: 10, color: axisLabel },
+      splitLine: { lineStyle: { color: gridLine } },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { fontSize: 10, color: axisLabel },
+      splitLine: { lineStyle: { color: gridLine } },
+    },
+    series: [
+      { name: 'RX', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 1.5, color: '#3b82f6' }, itemStyle: { color: '#3b82f6' }, data: [] },
+      { name: 'TX', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 1.5, color: '#10b981' }, itemStyle: { color: '#10b981' }, data: [] },
+    ],
+  })
+}
+
+function updateNetChart() {
+  if (!netChart || history.value.length < 2) return
+  netChart.setOption({
+    xAxis: { data: history.value.map((s) => new Date(s.timestamp * 1000)) },
+    series: [
+      { data: history.value.map((s) => +(s.network_rx_mbps ?? 0).toFixed(3)) },
+      { data: history.value.map((s) => +(s.network_tx_mbps ?? 0).toFixed(3)) },
+    ],
+  })
+}
+
+// ── 负载迷你图 ──
+function initLoadChart() {
+  if (!loadChartRef.value) return
+  loadChart = init(loadChartRef.value)
+  const { axisLabel } = chartPalette()
+  loadChart.setOption({
+    tooltip: { trigger: 'item' },
+    series: [
+      {
+        type: 'gauge',
+        startAngle: 210,
+        endAngle: -30,
+        min: 0,
+        max: 10,
+        radius: '95%',
+        axisLine: { lineStyle: { width: 8, color: [[0.3, '#67c23a'], [0.7, '#e6a23c'], [1, '#f56c6c']] } },
+        pointer: { itemStyle: { color: 'auto' }, length: '55%', width: 4 },
+        axisTick: { distance: -8, length: 4, lineStyle: { color: '#fff', width: 1 } },
+        splitLine: { distance: -8, length: 8, lineStyle: { color: '#fff', width: 2 } },
+        axisLabel: { color: axisLabel, distance: 14, fontSize: 9 },
+        detail: { valueAnimation: true, formatter: '{value}', color: axisLabel, fontSize: 16, offsetCenter: [0, '55%'] },
+        data: [{ value: 0 }],
+      },
+    ],
+  })
+}
+
+function updateLoadChart() {
+  if (!loadChart) return
+  loadChart.setOption({ series: [{ data: [{ value: +snap.load_one.toFixed(2) }] }] })
+}
+
 onMounted(() => {
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  ws = new WebSocket(`${protocol}//${location.host}/ws/metrics`)
-  ws.onopen = () => {
-    wsConnected.value = true
-  }
-  ws.onclose = () => {
-    wsConnected.value = false
-  }
-  ws.onmessage = (ev: MessageEvent) => {
-    const msg = JSON.parse(ev.data)
-    if (msg.type === 'init') {
-      history.value = msg.data
-    } else if (msg.type === 'tick') {
-      history.value.push(msg.data)
-      if (history.value.length > 60) history.value.shift()
-      Object.assign(snap, msg.data)
-      lastUpdate.value = new Date().toLocaleString()
-    }
-    nextTick(updateChart)
-  }
-  nextTick(initChart)
+  wsConn = connectWithRetry('/ws/metrics', {
+    onStatus: (connected) => {
+      wsConnected.value = connected
+    },
+    onMessage: (data) => {
+      const msg = data as { type: string; data: MetricsSnapshot }
+      if (msg.type === 'init') {
+        history.value = msg.data as unknown as MetricsSnapshot[]
+      } else if (msg.type === 'tick') {
+        history.value.push(msg.data)
+        if (history.value.length > 120) history.value.shift()
+        Object.assign(snap, msg.data)
+        lastUpdate.value = new Date().toLocaleString()
+      }
+      nextTick(() => {
+        updateChart()
+        updateNetChart()
+        updateLoadChart()
+      })
+    },
+  })
+  nextTick(() => {
+    initChart()
+    initNetChart()
+    initLoadChart()
+  })
+  refreshProcesses()
+  refreshTodos()
+  refreshCommonApps()
+  procTimer = window.setInterval(refreshProcesses, 10000)
 })
 
 onUnmounted(() => {
-  ws?.close()
+  wsConn?.close()
   chart?.dispose()
+  netChart?.dispose()
+  loadChart?.dispose()
+  if (procTimer !== null) clearInterval(procTimer)
 })
 </script>
 
@@ -338,5 +570,96 @@ onUnmounted(() => {
   padding: 6px 0;
   font-size: 13px;
   color: var(--text-secondary);
+}
+.chart-box-sm {
+  height: 200px;
+}
+.net-values {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+.net-val {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.net-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.net-dot.down {
+  background: #3b82f6;
+}
+.net-dot.up {
+  background: #10b981;
+}
+.load-chart-title {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.load-chart {
+  height: 120px;
+}
+.todo-list {
+  min-height: 140px;
+}
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  font-size: 13px;
+}
+.todo-item.done .todo-content {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+.todo-content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.todo-empty {
+  padding: 30px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.common-apps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.common-app {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.common-app:hover {
+  background: var(--bg-hover);
+}
+.common-app-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.common-app-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  border-radius: 8px;
+  padding: 1px 8px;
 }
 </style>

@@ -22,6 +22,7 @@ const router = createRouter({
         { path: 'users', name: 'Users', component: () => import('@/views/UsersView.vue') },
         { path: 'nodes', name: 'Nodes', component: () => import('@/views/NodesView.vue') },
         { path: 'files', name: 'Files', component: () => import('@/views/FilesView.vue') },
+        { path: 'memos', name: 'Memos', component: () => import('@/views/MemosView.vue') },
         {
           path: 'databases',
           name: 'Databases',

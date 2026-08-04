@@ -37,6 +37,7 @@ pub struct AppStoreService {
     pub service_manager: ServiceManager,
     pub mysql_manager: MySqlManager,
     pub redis_manager: RedisManager,
+    pub event_bus: crate::event::EventBus,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -64,6 +65,7 @@ impl AppStoreService {
         plugin_registry: Arc<PluginRegistry>,
         plugin_repo: Arc<dyn PluginRepository>,
         apps_dir: PathBuf,
+        event_bus: crate::event::EventBus,
     ) -> Self {
         Self {
             package_repo,
@@ -79,6 +81,7 @@ impl AppStoreService {
             service_manager: ServiceManager,
             mysql_manager: MySqlManager::new(),
             redis_manager: RedisManager::new(),
+            event_bus,
         }
     }
 
@@ -253,6 +256,14 @@ impl AppStoreService {
             InstallMode::Native => self.install_native(req, &version).await?,
             InstallMode::Wasm => self.install_wasm(req, &version).await?,
         };
+        let _ = self
+            .event_bus
+            .publish(DomainEvent::AppInstalled {
+                app_key: app.package_key.clone(),
+                app_name: app.name.clone(),
+                version: app.version.clone(),
+            })
+            .await;
         Ok(app)
     }
 
@@ -340,6 +351,7 @@ impl AppStoreService {
             params_json: serde_json::to_string(&req.values).unwrap_or_default(),
             created_at: now,
             updated_at: now,
+        launch_count: 0,
         };
         let id = self.installed_repo.create(&app).await?;
         Ok(self.installed_repo.find_by_id(id).await?.unwrap_or(app))
@@ -385,7 +397,7 @@ impl AppStoreService {
                     port: Some(req.port.unwrap_or(3306)),
                     params_json: serde_json::to_string(&req.values).unwrap_or_default(),
                     created_at: Utc::now(),
-                    updated_at: Utc::now(),
+                    updated_at: Utc::now(),                launch_count: 0,
                 };
                 let id = self.installed_repo.create(&app).await?;
                 return self
@@ -417,7 +429,7 @@ impl AppStoreService {
                     port: Some(req.port.unwrap_or(6379)),
                     params_json: serde_json::to_string(&req.values).unwrap_or_default(),
                     created_at: Utc::now(),
-                    updated_at: Utc::now(),
+                    updated_at: Utc::now(),                launch_count: 0,
                 };
                 let id = self.installed_repo.create(&app).await?;
                 return self
@@ -458,7 +470,7 @@ impl AppStoreService {
                     port: Some(req.port.unwrap_or(engine.default_port() as i32)),
                     params_json: serde_json::to_string(&req.values).unwrap_or_default(),
                     created_at: Utc::now(),
-                    updated_at: Utc::now(),
+                    updated_at: Utc::now(),                launch_count: 0,
                 };
                 let id = self.installed_repo.create(&app).await?;
                 return self
@@ -503,7 +515,7 @@ impl AppStoreService {
                     port: req.port,
                     params_json: serde_json::to_string(&req.values).unwrap_or_default(),
                     created_at: Utc::now(),
-                    updated_at: Utc::now(),
+                    updated_at: Utc::now(),                launch_count: 0,
                 };
                 let id = self.installed_repo.create(&app).await?;
                 return self
@@ -594,6 +606,7 @@ impl AppStoreService {
             params_json: serde_json::to_string(&req.values).unwrap_or_default(),
             created_at: now,
             updated_at: now,
+        launch_count: 0,
         };
         let id = self.installed_repo.create(&app).await?;
         Ok(self.installed_repo.find_by_id(id).await?.unwrap_or(app))
@@ -610,6 +623,14 @@ impl AppStoreService {
             .find_by_id(id)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("已安装应用 {} 不存在", id)))
+    }
+
+    /// 记录启动次数（常用应用排序）
+    pub async fn record_launch(&self, id: i64) -> Result<InstalledApp, AppError> {
+        let mut app = self.get_installed(id).await?;
+        app.launch_count += 1;
+        self.installed_repo.update(&app).await?;
+        self.get_installed(id).await
     }
 
     pub async fn uninstall(&self, id: i64) -> Result<(), AppError> {
@@ -646,7 +667,15 @@ impl AppStoreService {
         if path.is_dir() {
             let _ = std::fs::remove_dir_all(path);
         }
-        self.installed_repo.delete(id).await
+        self.installed_repo.delete(id).await?;
+        let _ = self
+            .event_bus
+            .publish(DomainEvent::AppUninstalled {
+                app_key: app.package_key.clone(),
+                app_name: app.name.clone(),
+            })
+            .await;
+        Ok(())
     }
 
     pub async fn upgrade(&self, id: i64, target_version: &str) -> Result<InstalledApp, AppError> {
@@ -763,6 +792,7 @@ impl AppStoreService {
             min_memory_mb: None,
             architectures: vec![],
             readme: None,
+        recommended: false,
         }]
     }
 
@@ -979,6 +1009,7 @@ mod tests {
             registry,
             plugin_repo,
             dir,
+            crate::event::EventBus::new(16),
         )
     }
 

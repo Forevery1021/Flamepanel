@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ─── 版本 ──────────────────────────────────────────────────────────────────────
-VERSION="1.1"
+VERSION="1.2"
 
 # ─── 颜色 ──────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -164,8 +164,8 @@ if [[ "$NON_INTERACTIVE" == false ]]; then
                 echo -e "${YELLOW}已自动生成密码: ${GREEN}$PANEL_PASSWORD${NC}"
                 break
             fi
-            if [[ ${#input_password} -lt 6 ]]; then
-                echo -e "${RED}密码长度不能少于 6 位${NC}"
+            if [[ ${#input_password} -lt 8 ]]; then
+                echo -e "${RED}密码长度不能少于 8 位${NC}"
                 continue
             fi
             read -s -p "确认密码: " confirm_password
@@ -489,5 +489,5 @@ echo -e "    sudo ./uninstall.sh                    # 卸载（保留数据）"
 echo -e "    sudo ./uninstall.sh -p                 # 完全卸载（删除数据）"
 echo ""
 echo -e "  ${YELLOW}请妥善保管以上登录信息！${NC}"
-echo -e "  ${YELLOW}建议首次登录后立即修改密码。${NC}"
+echo -e "  ${YELLOW}首次登录需修改初始密码（面板强制改密机制，v0.6.0+）。${NC}"
 echo ""

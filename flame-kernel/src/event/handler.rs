@@ -53,6 +53,60 @@ impl EventHandler {
                     )
                     .await?;
             }
+            DomainEvent::AppInstalled { app_name, version, .. } => {
+                notifier
+                    .send(
+                        "admin@flamepanel.local",
+                        &format!("App Installed: {}", app_name),
+                        &format!("{} v{} installed successfully.", app_name, version),
+                    )
+                    .await?;
+            }
+            DomainEvent::AppUninstalled { app_name, .. } => {
+                notifier
+                    .send(
+                        "admin@flamepanel.local",
+                        &format!("App Uninstalled: {}", app_name),
+                        &format!("{} has been uninstalled.", app_name),
+                    )
+                    .await?;
+            }
+            DomainEvent::AppUpgraded { app_name, from, to, .. } => {
+                notifier
+                    .send(
+                        "admin@flamepanel.local",
+                        &format!("App Upgraded: {}", app_name),
+                        &format!("{} upgraded from {} to {}.", app_name, from, to),
+                    )
+                    .await?;
+            }
+            DomainEvent::BackupCreated { filename } => {
+                notifier
+                    .send(
+                        "admin@flamepanel.local",
+                        "Backup Created",
+                        &format!("Database backup created: {}", filename),
+                    )
+                    .await?;
+            }
+            DomainEvent::FirewallRulesApplied { rule_count } => {
+                notifier
+                    .send(
+                        "admin@flamepanel.local",
+                        "Firewall Rules Applied",
+                        &format!("{} firewall rules applied.", rule_count),
+                    )
+                    .await?;
+            }
+            DomainEvent::NodeOffline { node_name, .. } => {
+                notifier
+                    .send(
+                        "admin@flamepanel.local",
+                        &format!("Node Offline: {}", node_name),
+                        &format!("Node {} has gone offline (heartbeat timeout).", node_name),
+                    )
+                    .await?;
+            }
             _ => {} // quiet other events for now
         }
         Ok(())

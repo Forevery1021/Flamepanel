@@ -115,6 +115,15 @@ pub async fn get_installed(
     Ok(Json(InstalledAppResponse { app, logs: None }))
 }
 
+/// 记录应用启动次数（常用应用排序）
+pub async fn launch(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<InstalledApp>, AppError> {
+    let app = state.app_store_service.record_launch(id).await?;
+    Ok(Json(app))
+}
+
 pub async fn uninstall(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -191,6 +200,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/app-store/installed/:id/uninstall",
             axum::routing::post(uninstall),
+        )
+        .route(
+            "/api/app-store/installed/:id/launch",
+            axum::routing::post(launch),
         )
         .route(
             "/api/app-store/installed/:id/logs",

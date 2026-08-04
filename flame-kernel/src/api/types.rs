@@ -22,6 +22,7 @@ pub struct AppState {
     pub role_service: Arc<RoleService>,
     pub permission_service: Arc<PermissionService>,
     pub operation_log_service: Arc<OperationLogService>,
+    pub memo_service: Arc<MemoService>,
     pub log_service: Arc<LogService>,
     pub backup_service: BackupServiceRef,
     pub metrics_history: Arc<Mutex<MetricsHistory>>,
@@ -37,6 +38,10 @@ pub struct AppState {
     pub firewall_service: Arc<FirewallService>,
     pub scheduled_task_service: Arc<ScheduledTaskService>,
     pub terminal_manager: Arc<TerminalManager>,
+    /// 登录失败锁定存储（进程内）
+    pub login_attempts: Arc<crate::api::login_attempt::LoginAttemptStore>,
+    /// 事件总线（handler 层发布业务事件）
+    pub event_bus: crate::event::EventBus,
 }
 
 #[derive(serde::Deserialize)]
@@ -53,9 +58,43 @@ pub struct UpdateUserRequest {
     pub role: String,
 }
 
-#[derive(serde::Deserialize)]
+/// 节点注册请求：兼容两种格式
+/// - 面板/测试：`{"node": {name, hostname, ip_address, status, ...}}`
+/// - Agent 平铺：`{name, host, agent_port, auth_token}`
+#[derive(Debug, Deserialize)]
 pub struct CreateNodeRequest {
-    pub node: crate::domain::entity::ServerNode,
+    #[serde(default)]
+    pub node: Option<crate::domain::entity::ServerNode>,
+    // 平铺字段（Agent 格式：{name, host, agent_port, auth_token}）
+    #[serde(default)]
+    pub name: String,
+    #[serde(default, alias = "host")]
+    pub hostname: String,
+    #[serde(default)]
+    pub ip_address: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub auth_token: Option<String>,
+}
+
+impl CreateNodeRequest {
+    pub fn to_node(&self) -> crate::domain::entity::ServerNode {
+        if let Some(node) = &self.node {
+            return node.clone();
+        }
+        crate::domain::entity::ServerNode {
+            id: 0,
+            name: if self.name.is_empty() { self.hostname.clone() } else { self.name.clone() },
+            hostname: self.hostname.clone(),
+            ip_address: self.ip_address.clone(),
+            status: if self.status.is_empty() { "unknown".into() } else { self.status.clone() },
+            created_at: chrono::Utc::now(),
+            last_heartbeat_at: None,
+            metrics_json: None,
+            auth_token: self.auth_token.clone(),
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -118,6 +157,7 @@ pub struct Services {
     pub role_service: Arc<RoleService>,
     pub permission_service: Arc<PermissionService>,
     pub operation_log_service: Arc<OperationLogService>,
+    pub memo_service: Arc<MemoService>,
     pub log_service: Arc<LogService>,
     pub plugin_sandbox: Arc<PluginSandbox>,
     pub plugin_registry: Arc<PluginRegistry>,
@@ -150,6 +190,7 @@ impl AppState {
             role_service: services.role_service,
             permission_service: services.permission_service,
             operation_log_service: services.operation_log_service,
+            memo_service: services.memo_service,
             log_service: services.log_service,
             metrics_history,
             metrics_tx,
@@ -165,6 +206,8 @@ impl AppState {
             scheduled_task_service: services.scheduled_task_service,
             backup_service: services.backup_service,
             terminal_manager: Arc::new(terminal_manager),
+            login_attempts: Arc::new(crate::api::login_attempt::LoginAttemptStore::new()),
+            event_bus: services.event_bus.clone(),
         }
     }
 }
@@ -184,6 +227,7 @@ pub fn route_permission(
         ("DELETE", p) if p.starts_with("/api/users/") => Some(("user", "delete")),
         ("GET", "/api/nodes") => Some(("node", "read")),
         ("POST", "/api/nodes") => Some(("node", "create")),
+        ("GET", p) if p.starts_with("/api/nodes/") => Some(("node", "read")),
         ("PUT", p) if p.starts_with("/api/nodes/") => Some(("node", "update")),
         ("DELETE", p) if p.starts_with("/api/nodes/") => Some(("node", "delete")),
         ("GET", "/api/websites") => Some(("website", "read")),
@@ -436,6 +480,9 @@ pub fn route_permission(
         ("POST", p) if p.starts_with("/api/app-store/installed/") && p.ends_with("/upgrade") => {
             Some(("app_store", "update"))
         }
+        ("POST", p) if p.starts_with("/api/app-store/installed/") && p.ends_with("/launch") => {
+            Some(("app_store", "read"))
+        }
         ("POST", p) if p.starts_with("/api/app-store/installed/") && p.ends_with("/uninstall") => {
             Some(("app_store", "delete"))
         }
@@ -461,6 +508,10 @@ pub fn route_permission(
         ("POST", "/api/firewall/enable") => Some(("firewall", "enable")),
         ("POST", "/api/firewall/disable") => Some(("firewall", "enable")),
         ("POST", "/api/firewall/reorder") => Some(("firewall", "update")),
+        ("GET", "/api/memos") => Some(("memo", "read")),
+        ("POST", "/api/memos") => Some(("memo", "create")),
+        ("PUT", p) if p.starts_with("/api/memos/") => Some(("memo", "update")),
+        ("DELETE", p) if p.starts_with("/api/memos/") => Some(("memo", "delete")),
         ("GET", "/api/operation-logs") => Some(("operation_log", "read")),
         ("DELETE", p) if p.starts_with("/api/operation-logs/") => Some(("operation_log", "delete")),
         ("GET", "/api/logs") => Some(("log", "read")),

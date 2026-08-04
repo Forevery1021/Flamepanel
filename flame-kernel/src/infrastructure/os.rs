@@ -65,58 +65,99 @@ impl OsInfo {
 
 pub struct ServiceManager;
 
+/// 当前进程是否以 root 运行（供各模块免密码 systemctl 判断）
+pub fn is_root_process() -> bool {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|s| {
+            s.lines().find_map(|l| {
+                let l = l.trim();
+                l.strip_prefix("Uid:").and_then(|v| {
+                    v.split_whitespace().next().and_then(|id| id.parse::<u32>().ok())
+                })
+            })
+        })
+        .map(|uid| uid == 0)
+        .unwrap_or(false)
+}
+
 impl ServiceManager {
-    async fn exec(args: &[&str]) -> Result<String, AppError> {
-        let out = tokio::process::Command::new(args[0])
-            .args(&args[1..])
+    /// 构造 systemctl 命令（免密码）：
+    /// - root 直接执行
+    /// - 非 root 使用 `sudo -n`（non-interactive，绝不触发密码框/polkit 认证）
+    /// - sudo 不存在时回退直接调用（会失败并返回清晰错误）
+    fn systemctl_cmd(action: &str, name: &str) -> tokio::process::Command {
+        let mut cmd = if is_root_process() {
+            tokio::process::Command::new("systemctl")
+        } else {
+            let mut c = tokio::process::Command::new("sudo");
+            c.arg("-n").arg("systemctl");
+            c
+        };
+        cmd.arg(action).arg(name);
+        cmd
+    }
+
+    /// 服务状态变更（start/stop/restart/enable/disable）：免密码 systemctl
+    async fn control(action: &str, name: &str) -> Result<(), AppError> {
+        let output = Self::systemctl_cmd(action, name)
             .output()
             .await
-            .map_err(|e| AppError::internal(format!("Command failed: {}", e)))?;
-        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        if !out.status.success() {
-            return Err(AppError::internal(format!(
-                "{}: {}",
-                args.join(" "),
-                stderr
-            )));
+            .map_err(|e| AppError::internal(format!("systemctl {} failed: {}", action, e)))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let hint = if is_root_process() {
+                format!("systemctl {} {}: {}", action, name, stderr)
+            } else {
+                format!(
+                    "systemctl {} {} failed (panel runs as non-root; configure passwordless sudo or run panel as root): {}",
+                    action, name, stderr
+                )
+            };
+            return Err(AppError::internal(hint));
         }
-        Ok(if stdout.is_empty() { stderr } else { stdout })
+        Ok(())
     }
 
     pub async fn start(name: &str) -> Result<(), AppError> {
-        Self::exec(&["systemctl", "start", name]).await.map(|_| ())
+        Self::control("start", name).await
     }
 
     pub async fn stop(name: &str) -> Result<(), AppError> {
-        Self::exec(&["systemctl", "stop", name]).await.map(|_| ())
+        Self::control("stop", name).await
     }
 
     pub async fn restart(name: &str) -> Result<(), AppError> {
-        Self::exec(&["systemctl", "restart", name])
-            .await
-            .map(|_| ())
+        Self::control("restart", name).await
     }
 
     pub async fn enable(name: &str) -> Result<(), AppError> {
-        Self::exec(&["systemctl", "enable", name]).await.map(|_| ())
+        Self::control("enable", name).await
     }
 
     pub async fn disable(name: &str) -> Result<(), AppError> {
-        Self::exec(&["systemctl", "disable", name])
-            .await
-            .map(|_| ())
+        Self::control("disable", name).await
     }
 
     pub async fn is_running(name: &str) -> Result<bool, AppError> {
-        let out = tokio::process::Command::new("systemctl")
-            .args(["is-active", name])
-            .output()
-            .await;
-        match out {
-            Ok(o) => Ok(o.status.success()),
+        let output = Self::systemctl_cmd("is-active", name).output().await;
+        match output {
+            Ok(o) => {
+                if o.status.success() {
+                    Ok(true)
+                } else {
+                    // systemctl 失败（无权限/未安装）时回退 pgrep 探测
+                    let out = tokio::process::Command::new("pgrep")
+                        .arg("-x")
+                        .arg(name)
+                        .output()
+                        .await;
+                    Ok(out.map(|o| o.status.success()).unwrap_or(false))
+                }
+            }
             Err(_) => {
                 let out = tokio::process::Command::new("pgrep")
+                    .arg("-x")
                     .arg(name)
                     .output()
                     .await;

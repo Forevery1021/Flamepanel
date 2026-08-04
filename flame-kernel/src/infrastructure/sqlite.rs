@@ -4,6 +4,32 @@ use crate::domain::repository::*;
 use async_trait::async_trait;
 use sqlx::{Row, SqlitePool};
 
+/// 幂等迁移：若表中不存在指定列则 ALTER TABLE 添加（SQLite 无 ADD COLUMN IF NOT EXISTS）
+async fn add_column_if_missing(
+    pool: &SqlitePool,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<(), AppError> {
+    let exists: bool = sqlx::query("PRAGMA table_info(? )")
+        .bind(table)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Migration check error: {}", e)))?
+        .iter()
+        .any(|row| row.get::<String, _>("name") == column);
+    if exists {
+        return Ok(());
+    }
+    // 列名与定义均为硬编码常量（非用户输入），经 AssertSqlSafe 审计包装
+    let sql: String = format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition);
+    sqlx::query(sqlx::AssertSqlSafe(sql))
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+    Ok(())
+}
+
 pub struct SqliteUserRepository {
     pool: SqlitePool,
 }
@@ -18,7 +44,7 @@ impl SqliteUserRepository {
 impl UserRepository for SqliteUserRepository {
     async fn find_by_id(&self, id: i64) -> Result<Option<User>, AppError> {
         let user = sqlx::query_as::<_, User>(
-            "SELECT id, username, password_hash, role, created_at FROM users WHERE id = ?",
+            "SELECT id, username, password_hash, role, created_at, must_change_password FROM users WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -29,7 +55,7 @@ impl UserRepository for SqliteUserRepository {
 
     async fn find_by_username(&self, username: &str) -> Result<Option<User>, AppError> {
         let user = sqlx::query_as::<_, User>(
-            "SELECT id, username, password_hash, role, created_at FROM users WHERE username = ?",
+            "SELECT id, username, password_hash, role, created_at, must_change_password FROM users WHERE username = ?",
         )
         .bind(username)
         .fetch_optional(&self.pool)
@@ -57,10 +83,13 @@ impl UserRepository for SqliteUserRepository {
 
     async fn update(&self, user: &User) -> Result<(), AppError> {
         let result =
-            sqlx::query("UPDATE users SET username = ?, password_hash = ?, role = ? WHERE id = ?")
+            sqlx::query(
+                "UPDATE users SET username = ?, password_hash = ?, role = ?, must_change_password = ? WHERE id = ?",
+            )
                 .bind(&user.username)
                 .bind(&user.password_hash)
                 .bind(&user.role)
+                .bind(user.must_change_password)
                 .bind(user.id)
                 .execute(&self.pool)
                 .await
@@ -73,7 +102,7 @@ impl UserRepository for SqliteUserRepository {
 
     async fn list(&self) -> Result<Vec<User>, AppError> {
         let users = sqlx::query_as::<_, User>(
-            "SELECT id, username, password_hash, role, created_at FROM users ORDER BY id",
+            "SELECT id, username, password_hash, role, created_at, must_change_password FROM users ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
@@ -82,7 +111,7 @@ impl UserRepository for SqliteUserRepository {
     }
 
     async fn update_password(&self, id: i64, new_password_hash: &str) -> Result<(), AppError> {
-        sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+        sqlx::query("UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?")
             .bind(new_password_hash)
             .bind(id)
             .execute(&self.pool)
@@ -115,7 +144,7 @@ impl SqliteNodeRepository {
 impl NodeRepository for SqliteNodeRepository {
     async fn find_by_id(&self, id: i64) -> Result<Option<ServerNode>, AppError> {
         let node = sqlx::query_as::<_, ServerNode>(
-            "SELECT id, name, hostname, ip_address, status, created_at FROM nodes WHERE id = ?",
+            "SELECT id, name, hostname, ip_address, status, created_at, last_heartbeat_at, metrics_json, auth_token FROM nodes WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -126,7 +155,7 @@ impl NodeRepository for SqliteNodeRepository {
 
     async fn find_by_hostname(&self, hostname: &str) -> Result<Option<ServerNode>, AppError> {
         let node = sqlx::query_as::<_, ServerNode>(
-            "SELECT id, name, hostname, ip_address, status, created_at FROM nodes WHERE hostname = ?",
+            "SELECT id, name, hostname, ip_address, status, created_at, last_heartbeat_at, metrics_json, auth_token FROM nodes WHERE hostname = ?",
         )
         .bind(hostname)
         .fetch_optional(&self.pool)
@@ -137,12 +166,13 @@ impl NodeRepository for SqliteNodeRepository {
 
     async fn create(&self, node: &ServerNode) -> Result<i64, AppError> {
         let id = sqlx::query(
-            "INSERT INTO nodes (name, hostname, ip_address, status) VALUES (?, ?, ?, ?)",
+            "INSERT INTO nodes (name, hostname, ip_address, status, auth_token) VALUES (?, ?, ?, ?, ?)",
         )
         .bind(&node.name)
         .bind(&node.hostname)
         .bind(&node.ip_address)
         .bind(&node.status)
+        .bind(&node.auth_token)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
@@ -170,7 +200,7 @@ impl NodeRepository for SqliteNodeRepository {
 
     async fn list_all(&self) -> Result<Vec<ServerNode>, AppError> {
         let nodes = sqlx::query_as::<_, ServerNode>(
-            "SELECT id, name, hostname, ip_address, status, created_at FROM nodes ORDER BY id",
+            "SELECT id, name, hostname, ip_address, status, created_at, last_heartbeat_at, metrics_json, auth_token FROM nodes ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
@@ -184,6 +214,21 @@ impl NodeRepository for SqliteNodeRepository {
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(())
+    }
+
+    async fn update_heartbeat(&self, id: i64, metrics_json: &str) -> Result<(), AppError> {
+        let result = sqlx::query(
+            "UPDATE nodes SET last_heartbeat_at = datetime('now'), metrics_json = ? WHERE id = ?",
+        )
+        .bind(metrics_json)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound("Node not found".into()));
+        }
         Ok(())
     }
 }
@@ -382,6 +427,9 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .await
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
+    // 幂等迁移：users 表补充强制改密列（旧库升级）
+    add_column_if_missing(pool, "users", "must_change_password", "INTEGER NOT NULL DEFAULT 0").await?;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS nodes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -395,6 +443,11 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .execute(pool)
     .await
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+
+    // 幂等迁移：为 nodes 表补充心跳/指标/令牌列（旧库升级）
+    add_column_if_missing(pool, "nodes", "last_heartbeat_at", "TEXT").await?;
+    add_column_if_missing(pool, "nodes", "metrics_json", "TEXT").await?;
+    add_column_if_missing(pool, "nodes", "auth_token", "TEXT").await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS websites (
@@ -629,6 +682,21 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .await
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
+    // 备忘录 / TODO（v0.7.0）
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS memos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'memo',
+            done INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled)",
     )
@@ -636,6 +704,8 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .await
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
+    // 幂等迁移：installed_apps 补 launch_count（v0.7.0 常用应用）
+    add_column_if_missing(pool, "installed_apps", "launch_count", "INTEGER NOT NULL DEFAULT 0").await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_installed_apps_key ON installed_apps(package_key)")
         .execute(pool)
         .await
@@ -1356,7 +1426,7 @@ impl SqliteInstalledAppRepository {
 impl InstalledAppRepository for SqliteInstalledAppRepository {
     async fn list_all(&self) -> Result<Vec<InstalledApp>, AppError> {
         let rows = sqlx::query_as::<_, InstalledApp>(
-            "SELECT id, package_key, name, version, mode, status, access_url, install_path, container_name, port, params_json, created_at, updated_at FROM installed_apps ORDER BY id",
+            "SELECT id, package_key, name, version, mode, status, access_url, install_path, container_name, port, params_json, created_at, updated_at, launch_count FROM installed_apps ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
@@ -1366,7 +1436,7 @@ impl InstalledAppRepository for SqliteInstalledAppRepository {
 
     async fn find_by_id(&self, id: i64) -> Result<Option<InstalledApp>, AppError> {
         let row = sqlx::query_as::<_, InstalledApp>(
-            "SELECT id, package_key, name, version, mode, status, access_url, install_path, container_name, port, params_json, created_at, updated_at FROM installed_apps WHERE id = ?",
+            "SELECT id, package_key, name, version, mode, status, access_url, install_path, container_name, port, params_json, created_at, updated_at, launch_count FROM installed_apps WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -1397,7 +1467,7 @@ impl InstalledAppRepository for SqliteInstalledAppRepository {
 
     async fn update(&self, app: &InstalledApp) -> Result<(), AppError> {
         sqlx::query(
-            "UPDATE installed_apps SET version=?, status=?, access_url=?, install_path=?, container_name=?, port=?, params_json=?, updated_at=datetime('now') WHERE id=?",
+            "UPDATE installed_apps SET version=?, status=?, access_url=?, install_path=?, container_name=?, port=?, params_json=?, launch_count=?, updated_at=datetime('now') WHERE id=?",
         )
         .bind(&app.version)
         .bind(&app.status)
@@ -1406,6 +1476,7 @@ impl InstalledAppRepository for SqliteInstalledAppRepository {
         .bind(&app.container_name)
         .bind(app.port)
         .bind(&app.params_json)
+        .bind(app.launch_count)
         .bind(app.id)
         .execute(&self.pool)
         .await
@@ -1608,6 +1679,93 @@ impl ScheduledTaskRepository for SqliteScheduledTaskRepository {
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(())
+    }
+}
+
+pub struct SqliteMemoRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteMemoRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl MemoRepository for SqliteMemoRepository {
+    async fn list(&self, kind: Option<&str>, done: Option<bool>) -> Result<Vec<Memo>, AppError> {
+        let mut sql = "SELECT id, content, kind, done, created_at, updated_at FROM memos".to_string();
+        let mut conds: Vec<String> = Vec::new();
+        if let Some(k) = kind {
+            if !k.is_empty() {
+                conds.push(format!("kind = '{}'", k.replace('\'', "''")));
+            }
+        }
+        if let Some(d) = done {
+            conds.push(format!("done = {}", if d { 1 } else { 0 }));
+        }
+        if !conds.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conds.join(" AND "));
+        }
+        sql.push_str(" ORDER BY done ASC, id DESC");
+        let memos = sqlx::query_as::<_, Memo>(sqlx::AssertSqlSafe(sql))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(memos)
+    }
+
+    async fn find_by_id(&self, id: i64) -> Result<Option<Memo>, AppError> {
+        let memo = sqlx::query_as::<_, Memo>(
+            "SELECT id, content, kind, done, created_at, updated_at FROM memos WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(memo)
+    }
+
+    async fn create(&self, content: &str, kind: &str) -> Result<i64, AppError> {
+        let id = sqlx::query("INSERT INTO memos (content, kind) VALUES (?, ?)")
+            .bind(content)
+            .bind(kind)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+            .last_insert_rowid();
+        Ok(id)
+    }
+
+    async fn update(&self, memo: &Memo) -> Result<(), AppError> {
+        let result = sqlx::query(
+            "UPDATE memos SET content = ?, kind = ?, done = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(&memo.content)
+        .bind(&memo.kind)
+        .bind(memo.done)
+        .bind(memo.id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound("Memo not found".into()));
+        }
+        Ok(())
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        let result = sqlx::query("DELETE FROM memos WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound("Memo not found".into()));
+        }
         Ok(())
     }
 }

@@ -13,6 +13,16 @@ export interface ServerNode {
   ip_address: string
   status: string
   created_at: string
+  last_heartbeat_at?: string | null
+  metrics_json?: string | null
+  auth_token?: string | null
+}
+
+export interface NodeMetrics {
+  cpu_usage?: number
+  memory_usage_percent?: number
+  disk_usage_percent?: number
+  load_one?: number
 }
 
 export interface Website {
@@ -141,12 +151,43 @@ export interface MetricsSnapshot {
   load_one: number
   load_five: number
   load_fifteen: number
+  network_rx_mbps: number
+  network_tx_mbps: number
+}
+
+export interface Memo {
+  id: number
+  content: string
+  kind: string
+  done: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ProcessEntry {
+  pid: number
+  name: string
+  cpu: number
+  memory_mb: number
+  status: string
+}
+
+export interface HealthDetail {
+  status: string
+  version: string
+  uptime_secs: number
+  checks: {
+    database: { status: string; detail: string | null }
+    docker: { status: string; detail: string | null }
+    disk: { status: string; detail: string | null }
+  }
 }
 
 export interface LoginResponse {
   token: string
   username: string
   role: string
+  must_change_password: boolean
 }
 
 export interface FileInfo {

@@ -113,6 +113,7 @@ impl AppPackageAdapter for BaotaAdapter {
             min_memory_mb: None,
             architectures: vec![],
             readme: None,
+        recommended: false,
         })
     }
 

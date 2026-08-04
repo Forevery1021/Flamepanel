@@ -31,6 +31,8 @@ struct FlameAppJson {
     #[serde(rename = "form_fields")]
     form_fields: Option<Vec<FlameFormField>>,
     readme: Option<String>,
+    #[serde(default)]
+    recommended: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,6 +95,10 @@ impl FlameAdapter {
             min_memory_mb: None,
             architectures: vec![],
             readme: None,
+            recommended: matches!(
+                manifest.key.as_str(),
+                "wordpress" | "portainer" | "uptime-kuma"
+            ),
         }
     }
 
@@ -199,6 +205,7 @@ impl AppPackageAdapter for FlameAdapter {
             min_memory_mb: None,
             architectures: vec![],
             readme: json.readme,
+            recommended: json.recommended.unwrap_or(false),
         })
     }
 

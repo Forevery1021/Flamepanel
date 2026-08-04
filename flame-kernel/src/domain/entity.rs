@@ -10,6 +10,8 @@ pub struct User {
     pub password_hash: String,
     pub role: String,
     pub created_at: DateTime<Utc>,
+    /// 是否强制修改密码（新装面板的种子 admin 为 true）
+    pub must_change_password: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -20,6 +22,21 @@ pub struct ServerNode {
     pub ip_address: String,
     pub status: String,
     pub created_at: DateTime<Utc>,
+    /// 最近一次心跳时间（Agent 上报）
+    pub last_heartbeat_at: Option<DateTime<Utc>>,
+    /// 最近指标快照 JSON：{cpu_usage, memory_usage_percent, disk_usage_percent, load_one}
+    pub metrics_json: Option<String>,
+    /// Agent 注册时携带的认证令牌
+    pub auth_token: Option<String>,
+}
+
+impl ServerNode {
+    pub fn is_online(&self, now: DateTime<Utc>, timeout_secs: i64) -> bool {
+        match self.last_heartbeat_at {
+            Some(t) => (now - t).num_seconds() <= timeout_secs,
+            None => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -64,6 +81,15 @@ pub enum DomainEvent {
     UserCreated { user_id: i64, username: String },
     NodeRegistered { node_id: i64, node_name: String },
     WebsiteCreated { website_id: i64, domain: String },
+    NodeHeartbeat { node_id: i64, node_name: String },
+    AppInstalled { app_key: String, app_name: String, version: String },
+    AppUninstalled { app_key: String, app_name: String },
+    AppUpgraded { app_key: String, app_name: String, from: String, to: String },
+    FirewallRulesApplied { rule_count: usize },
+    BackupCreated { filename: String },
+    UserLoggedIn { username: String },
+    PasswordChanged { username: String },
+    NodeOffline { node_id: i64, node_name: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +133,10 @@ pub struct MetricsSnapshot {
     pub load_one: f64,
     pub load_five: f64,
     pub load_fifteen: f64,
+    /// 网络接收速率（MB/s）
+    pub network_rx_mbps: f64,
+    /// 网络发送速率（MB/s）
+    pub network_tx_mbps: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,6 +301,9 @@ pub struct AppMetadata {
     pub min_memory_mb: Option<u32>,
     pub architectures: Vec<String>,
     pub readme: Option<String>,
+    /// 商店首页推荐位标记（v0.7.0）
+    #[serde(default)]
+    pub recommended: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -303,6 +336,9 @@ pub struct InstalledApp {
     pub params_json: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// 启动次数（常用应用排序，v0.7.0）
+    #[serde(default)]
+    pub launch_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -313,6 +349,17 @@ pub struct OperationLog {
     pub target: Option<String>,
     pub ip: Option<String>,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct Memo {
+    pub id: i64,
+    pub content: String,
+    /// memo | todo
+    pub kind: String,
+    pub done: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -383,6 +430,24 @@ pub fn default_settings() -> Vec<PanelSetting> {
             description: "是否启用两步验证".into(),
             updated_at: Utc::now(),
         },
+        PanelSetting {
+            key: "auto_backup_enabled".into(),
+            value: "false".into(),
+            description: "自动备份开关".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "auto_backup_interval_hours".into(),
+            value: "24".into(),
+            description: "自动备份间隔（小时）".into(),
+            updated_at: Utc::now(),
+        },
+        PanelSetting {
+            key: "backup_retention".into(),
+            value: "7".into(),
+            description: "备份保留份数".into(),
+            updated_at: Utc::now(),
+        },
     ]
 }
 
@@ -421,6 +486,10 @@ pub fn default_permissions() -> Vec<Permission> {
         ("docker", "stop", "停止容器"),
         ("docker", "update", "修改容器/网络/卷"),
         ("docker", "delete", "删除容器/镜像"),
+        ("memo", "read", "查看备忘录"),
+        ("memo", "create", "创建备忘录"),
+        ("memo", "update", "修改备忘录"),
+        ("memo", "delete", "删除备忘录"),
         ("operation_log", "read", "查看审计日志"),
         ("operation_log", "delete", "删除审计日志"),
         ("log", "read", "查看系统日志"),

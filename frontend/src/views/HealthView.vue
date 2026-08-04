@@ -5,35 +5,49 @@
     <el-row :gutter="16">
       <el-col :xs="24" :md="8">
         <el-card shadow="hover">
-          <template #header>{{ t('health.backend') }}</template>
+          <template #header>{{ t('health.database') }}</template>
           <div class="health-item">
-            <span class="dot green" />
-            <span>{{ t('health.connected') }}</span>
+            <span class="dot" :class="dbOk ? 'green' : 'red'" />
+            <span>{{ dbOk ? t('health.connected') : t('health.disconnected') }}</span>
           </div>
-          <div class="health-detail">Status: 200 OK</div>
+          <div class="health-detail">{{ dbDetail }}</div>
         </el-card>
       </el-col>
       <el-col :xs="24" :md="8">
         <el-card shadow="hover">
-          <template #header>{{ t('health.websocket') }}</template>
+          <template #header>{{ t('health.docker') }}</template>
           <div class="health-item">
-            <span class="dot" :class="wsOk ? 'green' : 'red'" />
-            <span>{{ wsOk ? t('health.connected') : t('health.disconnected') }}</span>
+            <span class="dot" :class="dockerOk ? 'green' : 'red'" />
+            <span>{{ dockerOk ? t('health.connected') : t('health.degraded') }}</span>
           </div>
-          <div class="health-detail">Endpoint: /ws/metrics</div>
+          <div class="health-detail">{{ dockerDetail }}</div>
         </el-card>
       </el-col>
       <el-col :xs="24" :md="8">
         <el-card shadow="hover">
-          <template #header>{{ t('health.storage') }}</template>
+          <template #header>{{ t('health.disk') }}</template>
           <div class="health-item">
-            <span class="dot green" />
-            <span>{{ t('health.memory') }}</span>
+            <span class="dot" :class="diskOk ? 'green' : 'red'" />
+            <span>{{ diskOk ? t('health.connected') : t('health.degraded') }}</span>
           </div>
-          <div class="health-detail">SQLite</div>
+          <div class="health-detail">{{ diskDetail }}</div>
         </el-card>
       </el-col>
     </el-row>
+
+    <el-card shadow="hover" class="mt-4">
+      <template #header>
+        <span>{{ t('health.panel') }}</span>
+        <el-tag :type="panelStatus === 'ok' ? 'success' : 'warning'" size="small" class="ml-2">
+          {{ panelStatus }}
+        </el-tag>
+      </template>
+      <div class="info-rows">
+        <div class="info-row"><span>{{ t('health.version') }}</span><span>{{ health?.version || '—' }}</span></div>
+        <div class="info-row"><span>{{ t('health.uptime') }}</span><span>{{ uptimeText }}</span></div>
+        <div class="info-row"><span>{{ t('health.websocket') }}</span><span>{{ wsOk ? t('health.connected') : t('health.disconnected') }}</span></div>
+      </div>
+    </el-card>
 
     <el-card shadow="hover" class="mt-4">
       <template #header>{{ t('health.routes') }}</template>
@@ -76,12 +90,52 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { connectWithRetry } from '@/utils/ws'
+import { fetchHealthDetail } from '@/api/health'
+import type { HealthDetail } from '@/types'
 
 const { t } = useI18n()
 const wsOk = ref(false)
-let ws: WebSocket | null = null
+let wsConn: ReturnType<typeof connectWithRetry> | null = null
+
+// ── 真实 /api/health 数据 ──
+const health = ref<HealthDetail | null>(null)
+const dbOk = ref(false)
+const dockerOk = ref(false)
+const diskOk = ref(false)
+const dbDetail = ref('—')
+const dockerDetail = ref('—')
+const diskDetail = ref('—')
+const panelStatus = ref('unknown')
+
+const uptimeText = computed(() => {
+  const s = health.value?.uptime_secs ?? 0
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  return `${h}h ${m}m`
+})
+
+async function refreshHealth() {
+  try {
+    const res = await fetchHealthDetail()
+    health.value = res.data
+    panelStatus.value = res.data.status
+    const c = res.data.checks
+    dbOk.value = c.database.status === 'ok'
+    dockerOk.value = c.docker.status === 'ok'
+    diskOk.value = c.disk.status === 'ok'
+    dbDetail.value = c.database.detail || c.database.status
+    dockerDetail.value = c.docker.detail || c.docker.status
+    diskDetail.value = c.disk.detail || c.disk.status
+  } catch {
+    panelStatus.value = 'error'
+    dbOk.value = false
+    dockerOk.value = false
+    diskOk.value = false
+  }
+}
 
 const routes = [
   { method: 'GET', path: '/health', auth: false },
@@ -141,20 +195,16 @@ const routes = [
 ]
 
 onMounted(() => {
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  ws = new WebSocket(`${protocol}//${location.host}/ws/metrics`)
-  ws.onopen = () => {
-    wsOk.value = true
-  }
-  ws.onclose = () => {
-    wsOk.value = false
-  }
-  ws.onerror = () => {
-    wsOk.value = false
-  }
+  refreshHealth()
+  wsConn = connectWithRetry('/ws/metrics', {
+    onStatus: (connected) => {
+      wsOk.value = connected
+    },
+    onMessage: () => {},
+  })
 })
 
-onUnmounted(() => ws?.close())
+onUnmounted(() => wsConn?.close())
 </script>
 
 <style scoped>
@@ -181,5 +231,16 @@ onUnmounted(() => ws?.close())
 }
 .dot.red {
   background: #f56c6c;
+}
+.info-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 </style>

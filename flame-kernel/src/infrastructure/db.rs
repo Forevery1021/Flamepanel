@@ -45,6 +45,7 @@ impl UserRepository for InMemoryUserRepository {
             password_hash: password_hash.to_string(),
             role: role.to_string(),
             created_at: chrono::Utc::now(),
+            must_change_password: false,
         };
         users.push(user.clone());
         *next_id += 1;
@@ -57,6 +58,7 @@ impl UserRepository for InMemoryUserRepository {
             existing.username = user.username.clone();
             existing.password_hash = user.password_hash.clone();
             existing.role = user.role.clone();
+            existing.must_change_password = user.must_change_password;
             Ok(())
         } else {
             Err(AppError::NotFound("User not found".into()))
@@ -72,6 +74,7 @@ impl UserRepository for InMemoryUserRepository {
         let mut users = self.users.lock().unwrap();
         if let Some(user) = users.iter_mut().find(|u| u.id == id) {
             user.password_hash = new_password_hash.to_string();
+            user.must_change_password = false;
             Ok(())
         } else {
             Err(AppError::NotFound("User not found".into()))
@@ -121,6 +124,9 @@ impl NodeRepository for InMemoryNodeRepository {
             ip_address: node.ip_address.clone(),
             status: node.status.clone(),
             created_at: node.created_at,
+            last_heartbeat_at: None,
+            metrics_json: None,
+            auth_token: node.auth_token.clone(),
         };
         let id = node_with_id.id;
         nodes.push(node_with_id);
@@ -150,6 +156,17 @@ impl NodeRepository for InMemoryNodeRepository {
         let mut nodes = self.nodes.lock().unwrap();
         nodes.retain(|n| n.id != id);
         Ok(())
+    }
+
+    async fn update_heartbeat(&self, id: i64, metrics_json: &str) -> Result<(), AppError> {
+        let mut nodes = self.nodes.lock().unwrap();
+        if let Some(existing) = nodes.iter_mut().find(|n| n.id == id) {
+            existing.last_heartbeat_at = Some(chrono::Utc::now());
+            existing.metrics_json = Some(metrics_json.to_string());
+            Ok(())
+        } else {
+            Err(AppError::NotFound("Node not found".into()))
+        }
     }
 }
 
@@ -1302,5 +1319,87 @@ impl Default for InMemoryInstalledAppRepository {
 impl Default for InMemoryPluginRepository {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub struct InMemoryMemoRepository {
+    memos: Mutex<Vec<Memo>>,
+    next_id: Mutex<i64>,
+}
+
+impl Default for InMemoryMemoRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InMemoryMemoRepository {
+    pub fn new() -> Self {
+        Self {
+            memos: Mutex::new(Vec::new()),
+            next_id: Mutex::new(1),
+        }
+    }
+}
+
+#[async_trait]
+impl MemoRepository for InMemoryMemoRepository {
+    async fn list(&self, kind: Option<&str>, done: Option<bool>) -> Result<Vec<Memo>, AppError> {
+        let memos = self.memos.lock().unwrap();
+        let mut result: Vec<Memo> = memos
+            .iter()
+            .filter(|m| {
+                let k_ok = kind.map(|k| !k.is_empty() && m.kind == k).unwrap_or(true);
+                let d_ok = done.map(|d| m.done == d).unwrap_or(true);
+                k_ok && d_ok
+            })
+            .cloned()
+            .collect();
+        result.sort_by_key(|m| std::cmp::Reverse(m.id));
+        Ok(result)
+    }
+
+    async fn find_by_id(&self, id: i64) -> Result<Option<Memo>, AppError> {
+        let memos = self.memos.lock().unwrap();
+        Ok(memos.iter().find(|m| m.id == id).cloned())
+    }
+
+    async fn create(&self, content: &str, kind: &str) -> Result<i64, AppError> {
+        let mut memos = self.memos.lock().unwrap();
+        let mut next_id = self.next_id.lock().unwrap();
+        let memo = Memo {
+            id: *next_id,
+            content: content.to_string(),
+            kind: kind.to_string(),
+            done: false,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        memos.push(memo);
+        *next_id += 1;
+        Ok(*next_id - 1)
+    }
+
+    async fn update(&self, memo: &Memo) -> Result<(), AppError> {
+        let mut memos = self.memos.lock().unwrap();
+        if let Some(existing) = memos.iter_mut().find(|m| m.id == memo.id) {
+            existing.content = memo.content.clone();
+            existing.kind = memo.kind.clone();
+            existing.done = memo.done;
+            existing.updated_at = chrono::Utc::now();
+            Ok(())
+        } else {
+            Err(AppError::NotFound("Memo not found".into()))
+        }
+    }
+
+    async fn delete(&self, id: i64) -> Result<(), AppError> {
+        let mut memos = self.memos.lock().unwrap();
+        let before = memos.len();
+        memos.retain(|m| m.id != id);
+        if memos.len() == before {
+            return Err(AppError::NotFound("Memo not found".into()));
+        }
+        Ok(())
     }
 }

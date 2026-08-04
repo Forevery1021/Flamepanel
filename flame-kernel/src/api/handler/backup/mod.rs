@@ -41,6 +41,12 @@ pub async fn create_backup(
     State(state): State<AppState>,
 ) -> Result<Json<BackupEntryDto>, AppError> {
     let backup = state.backup_service.create_backup().await?;
+    let _ = state
+        .event_bus
+        .publish(crate::domain::entity::DomainEvent::BackupCreated {
+            filename: backup.filename.clone(),
+        })
+        .await;
     Ok(Json(BackupEntryDto {
         filename: backup.filename,
         size: backup.size,

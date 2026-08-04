@@ -16,3 +16,16 @@ export function updateNode(id: number, node: ServerNode) {
 export function deleteNode(id: number) {
   return api.delete(`/nodes/${id}`)
 }
+
+export function nodeStatus(id: number) {
+  return api.get<{ id: number; status: string }>(`/nodes/${id}/status`)
+}
+
+export function nodeMetrics(id: number) {
+  return api.get<{
+    cpu_usage?: number
+    memory_usage_percent?: number
+    disk_usage_percent?: number
+    load_one?: number
+  }>(`/nodes/${id}/metrics`)
+}

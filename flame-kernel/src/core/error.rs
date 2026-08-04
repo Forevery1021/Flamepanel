@@ -9,6 +9,7 @@ use tracing::error;
 pub enum ErrorCode {
     AuthUnauthorized,
     AuthForbidden,
+    PasswordChangeRequired,
     NotFound,
     BadRequest,
     ValidationError,
@@ -22,6 +23,7 @@ impl ErrorCode {
         match self {
             ErrorCode::AuthUnauthorized => "AUTH_UNAUTHORIZED",
             ErrorCode::AuthForbidden => "AUTH_FORBIDDEN",
+            ErrorCode::PasswordChangeRequired => "PASSWORD_CHANGE_REQUIRED",
             ErrorCode::NotFound => "NOT_FOUND",
             ErrorCode::BadRequest => "BAD_REQUEST",
             ErrorCode::ValidationError => "VALIDATION_ERROR",
@@ -35,6 +37,7 @@ impl ErrorCode {
         match self {
             ErrorCode::AuthUnauthorized => StatusCode::UNAUTHORIZED,
             ErrorCode::AuthForbidden => StatusCode::FORBIDDEN,
+            ErrorCode::PasswordChangeRequired => StatusCode::FORBIDDEN,
             ErrorCode::NotFound => StatusCode::NOT_FOUND,
             ErrorCode::BadRequest | ErrorCode::ValidationError => StatusCode::BAD_REQUEST,
             ErrorCode::Conflict => StatusCode::CONFLICT,
@@ -50,6 +53,8 @@ pub enum AppError {
     Unauthorized(String),
     #[error("Forbidden: {0}")]
     Forbidden(String),
+    #[error("Password change required: {0}")]
+    PasswordChangeRequired(String),
     #[error("Not found: {0}")]
     NotFound(String),
     #[error("Bad request: {0}")]
@@ -90,6 +95,7 @@ impl AppError {
         match self {
             AppError::Unauthorized(_) => ErrorCode::AuthUnauthorized,
             AppError::Forbidden(_) => ErrorCode::AuthForbidden,
+            AppError::PasswordChangeRequired(_) => ErrorCode::PasswordChangeRequired,
             AppError::NotFound(_) => ErrorCode::NotFound,
             AppError::BadRequest(_) => ErrorCode::BadRequest,
             AppError::ValidationError(_) => ErrorCode::ValidationError,

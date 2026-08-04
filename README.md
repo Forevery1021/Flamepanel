@@ -11,7 +11,7 @@
 
 ## 核心特性
 
-- **系统监控** — WebSocket 实时推送 CPU/内存/磁盘/负载，ECharts 趋势图表
+- **系统监控** — WebSocket 实时推送 CPU/内存/磁盘/负载/网络 IO，ECharts 趋势图 + 负载仪表 + 进程 TOP
 - **Docker 管理** — 容器/镜像/网络/卷/Compose 全生命周期管理（29 端点，参考 1Panel）：容器 inspect/重命名/暂停/恢复/强杀/清理，网络创建/连接/断开/清理，卷创建/删除/清理，镜像拉取/打标签/清理，Compose 项目列表
 - **Web 服务器引擎** — 原生支持 Nginx/Apache/OpenLiteSpeed/OpenResty/Caddy，自动生成配置，进程管理（25 端点）；性能预设（low/medium/high/ultra 资源感知推荐）+ 一键引擎切换；原生控制：系统包管理器安装/卸载、systemd 开机自启、安装状态/版本/监听端口自动检测（1Panel 风格）
 - **数据库管理** — MySQL/MariaDB/Redis 原生安装（apt/yum/apk），数据库/用户 CRUD，服务启停（15 端点）
@@ -20,12 +20,16 @@
 - **防火墙管理** — ufw/firewalld/iptables 自动检测，规则 CRUD/应用/开关（11 端点）
 - **Web 终端** — xterm.js + WebSocket，浏览器内直接连接服务器 Shell
 - **WASM 插件系统** — wasmtime 沙箱，生命周期钩子/指标追踪/热重载/依赖校验；内置 WASM 工具（插件表持久化 + 启动恢复）
-- **面板配置** — Key-Value 配置，主题/多语言/端口/日志/2FA/JWT 密钥轮换
-- **用户 & RBAC** — JWT + bcrypt，admin/operator/viewer 三角色，60+ 路由权限映射；认证+RBAC 合并中间件（一次查库）
-- **统一错误体系** — 全部错误（含中间件/404/JSON 解析失败）返回 `{code, error, message}` JSON，8 个稳定错误码，前端按码国际化提示；内部错误完整日志链
+- **面板配置** — Key-Value 配置，主题/多语言/端口/日志/2FA/JWT 密钥轮换；自动备份（间隔/保留份数，后台任务）
+- **用户 & RBAC** — JWT + bcrypt + 滑动过期刷新，admin/operator/viewer 三角色，64 项权限；认证+RBAC 合并中间件（一次查库）；新装面板强制改密、登录失败锁定（5 次/5 分钟）
+- **节点管理** — Agent 心跳对接：`POST /api/nodes/heartbeat/:id`（白名单 + Agent 令牌校验）、在线状态惰性判定（30s 超时）、实时指标快照；前端节点状态/指标 10s 轮询
+- **统一错误体系** — 全部错误（含中间件/404/JSON 解析失败）返回 `{code, error, message}` JSON，9 个稳定错误码，前端按码国际化提示；内部错误完整日志链
 - **国际化** — 简体中文 / English / 日本語 三语言支持，前端实时切换
+- **备忘录 & TODO** — 后端持久化（memos 表），备忘录/待办双视图，Dashboard 今日待办快捷卡
+- **应用推荐 & 常用** — 商店推荐位 + 已装状态角标；启动次数统计驱动常用应用（Dashboard/顶栏快捷入口）
+- **1Panel 风格顶栏** — 全局搜索（Ctrl+K）、快捷应用、实时状态（节点/容器）、通知中心
 - **暗色主题** — 跟随系统 / 手动切换，Element Plus 暗色变量全覆盖
-- **审计日志 & 系统日志** — REST + WebSocket 双通道
+- **审计日志 & 系统日志** — 写操作自动审计落库（中间件）+ 登录成功/失败审计 + `?action=` 过滤；系统日志 REST + WebSocket 双通道
 - **弹性与容错** — Circuit Breaker + Retry，Docker 不可用时 InMemory 自动降级
 
 ## 技术栈
@@ -52,7 +56,7 @@ Flamepanel/
 │   │   ├── application/   # 服务层 (UserService/DockerService/AppStoreService/…)
 │   │   ├── infrastructure/# 仓库实现 (InMemory + SQLite + Bollard + OS 抽象)
 │   │   │   └── app_store/ # 应用商店适配器 (Flame/1Panel/宝塔) + 变量映射 + 安全扫描
-│   │   ├── api/           # HTTP 层 (17 个 handler 模块各带 routes(), 113 路由, 统一错误/中间件)
+│   │   ├── api/           # HTTP 层 (17 个 handler 模块各带 routes(), 153 路由, 统一错误/中间件)
 │   │   ├── plugin/        # WASM 沙箱 + 注册表
 │   │   ├── webserver/     # 5 引擎配置生成 + 性能预设 + 进程管理
 │   │   ├── database/      # MySQL/Redis 原生管理
@@ -91,6 +95,62 @@ npm run dev
 ```
 
 访问 `http://localhost:5173`，默认账号 `admin` / `admin123`。
+
+> 新装面板（v0.6.0+）首次登录会**强制修改初始密码**（`must_change_password` 机制），改密前面板功能受限。
+
+## 构建与发行
+
+### 开发常用命令（justfile）
+
+| 命令 | 说明 |
+|------|------|
+| `just dev` | 后端热重载（需 cargo-watch） |
+| `just build` | 完整构建（前端 + 后端 release） |
+| `just test` | 后端全量测试 |
+| `just lint` | 前端 ESLint + 后端 Clippy |
+| `just typecheck` | 前端 vue-tsc 类型检查 |
+| `just check-full` | **发版前全量验证**（test + lint + typecheck + build） |
+| `just release` | 打包发行资产（见下） |
+| `just release-v 0.6.0` | 指定版本打包 |
+| `just release-verify` | 校验发行资产 SHA256 |
+
+### 打包发行资产
+
+`scripts/package-release.sh` 生成 `install.sh` 依赖的 GitHub Releases 产物：
+
+```bash
+./scripts/package-release.sh [输出目录] [版本号]
+# 默认输出 release-assets/，版本号自动从 Cargo.toml 读取
+```
+
+产物：
+
+```
+release-assets/
+├── flamepanel-linux-amd64.tar.gz      # 后端二进制（顶层为 flamepanel）
+├── flamepanel-linux-arm64.tar.gz      # ARM64 后端二进制
+├── flamepanel-frontend.tar.gz         # 前端静态资源（dist 内容）
+└── flamepanel-<VERSION>-checksums.txt # SHA256 校验和
+```
+
+脚本自动：跑后端测试 → 构建 release → 构建前端 → 打包 → 生成校验和。
+
+### 发布流程
+
+```bash
+# 1. 全量验证
+just check-full
+
+# 2. 打包发行资产
+just release
+
+# 3. 打标签触发 CI 自动发布（.github/workflows/release.yml 双架构构建 + 自动生成 Release）
+git tag v0.6.0 && git push origin v0.6.0
+
+# 4. 或手动上传 release-assets/ 产物到 GitHub Releases
+```
+
+> CI 发布流水线（`release.yml`）：tag `v*` 触发 → amd64/arm64 双架构交叉编译 → 打包后端+前端 → 生成校验和 → 创建 GitHub Release。`install.sh` 通过 `releases/latest/download/` 自动下载对应架构产物。
 
 ## 生产部署
 
@@ -330,9 +390,9 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 | 模块 | 端点数 | 路径前缀 |
 |------|--------|----------|
 | 健康检查 | 1 | `GET /health` |
-| 认证 | 2 | `/api/auth/*` |
+| 认证 | 4 | `/api/auth/*` |
 | 用户 | 4 | `/api/users` |
-| 节点 | 4 | `/api/nodes` |
+| 节点 | 7 | `/api/nodes` |
 | 网站 | 6 | `/api/websites` |
 | Docker | 29 | `/api/docker/*` |
 | 插件 | 13 | `/api/plugins/*` |
@@ -356,13 +416,17 @@ cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
 - **Phase 4** ✅ CRUD 补全：Website 完整 CRUD、User/Node 更新、OperationLog/Log 删除端点
 - **Phase 4** ✅ 前端编辑对话框：用户/节点/网站视图编辑功能
 - **Phase 4** ✅ 优雅关闭：SIGTERM/Ctrl+C 信号处理
-- **Phase 4** 🔄 进行中：SSL 证书、定时任务、备份系统、告警通知、Web 服务器 / 数据库管理增强
+- **Phase 4** ✅ 定时任务：cron 解析 + 服务 + API + 前端视图（v0.4.2）
+- **Phase 4** ✅ 备份系统：手动备份/恢复/下载/删除（v0.4.1）+ 自动备份（v0.6.0）
 - **Phase 5** ✅ 应用商店：1Panel/宝塔/Flame 三格式适配器 + 容器/原生/WASM 三模式安装编排（变量映射、安全扫描、失败回滚）、WASM 内置工具持久化、完整 API + 前端商店视图（动态表单安装向导）
 - **Phase 5** ✅ Web 引擎统一：性能预设（资源感知推荐）+ 引擎一键切换（Web 服务器 & 网站）+ 预设应用，前端预设/切换 UI
 - **Phase 6** ✅ 内核优化：统一错误体系（8 稳定错误码 + JSON 化中间件/404/ApiJson）、认证+RBAC 合并中间件、Services 聚合 + 路由分模块、release profile 优化（18MB stripped）、前端错误码 i18n
 - **Phase 6** ✅ Docker 增强（参考 1Panel）：容器 inspect/重命名/暂停/恢复/强杀/清理，网络/卷管理（创建/连接/断开/清理），镜像拉取/打标签/清理，Compose 项目列表（Docker 端点 13→29）
 - **Phase 6** ✅ Web 服务器原生控制：系统包管理器安装/卸载、systemd 开机自启、安装状态/版本/监听端口自动检测（原生 Tab 一键操作）
-- **测试** ✅ 162 测试全部通过（98 集成 + 64 单元）
+- **Phase 7** ✅ P0 生产可用（v0.6.0）：节点心跳对接（heartbeat/status/metrics 端点 + Agent 令牌校验 + 前端实时状态）、生产安全（强制改密 + JWT 滑动刷新 + 登录失败锁定 + /api/auth/me）、自动备份（间隔/保留策略 + 后台任务 + 设置 UI）
+- **Phase 7** ✅ 发行体系：package-release.sh 打包脚本（版本号自动读取 + SHA256 校验和）、CI 双架构发布流水线（amd64/arm64）、justfile 发版命令（check-full/release/release-verify）、docker-compose healthcheck 与数据卷、Agent Dockerfile
+- **Phase 7** ✅ 可观测性与审计（v0.6.0）：审计中间件（写操作自动落库 + 登录成败 + action 过滤）、`RUST_LOG_FORMAT=json` 结构化日志、`GET /api/health` 依赖检查、事件驱动深化（应用/防火墙/备份/节点下线告警）、前端 WS 指数退避重连
+- **测试** ✅ 180 测试全部通过（113 集成 + 67 单元）
 
 ## License
 

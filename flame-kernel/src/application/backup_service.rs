@@ -120,6 +120,40 @@ impl BackupService {
                 .unwrap_or_default(),
         })
     }
+
+    /// 保留策略：超过保留份数的旧备份按时间倒序清理
+    pub async fn enforce_retention(&self, retention: usize) -> Result<Vec<String>, AppError> {
+        let backups = self.list_backups().await?;
+        if backups.len() <= retention {
+            return Ok(vec![]);
+        }
+        let mut removed = Vec::new();
+        for entry in backups.iter().skip(retention) {
+            let path = self.get_backup_path(&entry.filename).await?;
+            std::fs::remove_file(&path)?;
+            removed.push(entry.filename.clone());
+        }
+        Ok(removed)
+    }
+
+    /// 距离最近一次备份的秒数（无备份返回 None）
+    pub async fn last_backup_age_secs(&self) -> Result<Option<u64>, AppError> {
+        let backups = self.list_backups().await?;
+        let newest = backups.first();
+        match newest {
+            Some(entry) => {
+                let path = self.get_backup_path(&entry.filename).await?;
+                let meta = std::fs::metadata(&path)?;
+                let modified = meta.modified()?;
+                let age = std::time::SystemTime::now()
+                    .duration_since(modified)
+                    .unwrap_or_default()
+                    .as_secs();
+                Ok(Some(age))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 /// 从数据库 URL 解析文件路径（sqlite:data/app.db?mode=rwc -> data/app.db）

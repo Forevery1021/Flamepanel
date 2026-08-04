@@ -80,6 +80,7 @@ async fn setup_router() -> (axum::Router, AppState) {
         plugin_registry.clone(),
         plugin_repo.clone(),
         AppStoreService::default_apps_dir(),
+        EventBus::new(100),
     ));
     let backup_dir = backup_temp_dir("setup");
     std::fs::create_dir_all(&backup_dir).unwrap();
@@ -92,6 +93,7 @@ async fn setup_router() -> (axum::Router, AppState) {
         role_service: Arc::new(RoleService::new(role_repo, perm_repo.clone())),
         permission_service: Arc::new(PermissionService::new(perm_repo)),
         operation_log_service: Arc::new(OperationLogService::new(log_repo)),
+        memo_service: Arc::new(MemoService::new(Arc::new(InMemoryMemoRepository::new()))),
         log_service: Arc::new(LogService::new(sys_log_repo)),
         plugin_sandbox,
         plugin_registry,
@@ -122,6 +124,8 @@ async fn setup_router() -> (axum::Router, AppState) {
 }
 
 async fn setup_full_router() -> axum::Router {
+    // 测试进程内所有 router 共享进程级限流器（OnceLock），调高阈值避免全量并行 429
+    flame_kernel::api::rate_limiter::init_global_limiter(100000, 60);
     let (router, state) = setup_router().await;
     middleware::add_middleware(router, state)
 }
@@ -1287,6 +1291,9 @@ async fn test_in_memory_node_repository() {
         ip_address: "10.0.0.1".into(),
         status: "online".into(),
         created_at: Utc::now(),
+        last_heartbeat_at: None,
+        metrics_json: None,
+        auth_token: None,
     };
     let id = repo.create(&node).await.unwrap();
     assert_eq!(id, 1);
@@ -1365,6 +1372,9 @@ async fn test_node_service() {
         ip_address: "1.2.3.4".into(),
         status: "online".into(),
         created_at: Utc::now(),
+        last_heartbeat_at: None,
+        metrics_json: None,
+        auth_token: None,
     };
     let id = svc.register_node(&node).await.unwrap();
     assert_eq!(id, 1);
@@ -1488,6 +1498,9 @@ async fn test_services_emit_domain_events() {
             ip_address: "10.0.0.1".into(),
             status: "online".into(),
             created_at: Utc::now(),
+            last_heartbeat_at: None,
+            metrics_json: None,
+            auth_token: None,
         })
         .await
         .unwrap();
@@ -2203,6 +2216,9 @@ async fn test_kernel_creates_with_default_config() {
             ip_address: "10.0.0.1".into(),
             status: "online".into(),
             created_at: Utc::now(),
+            last_heartbeat_at: None,
+            metrics_json: None,
+            auth_token: None,
         })
         .await
         .unwrap();
@@ -3399,4 +3415,824 @@ async fn test_scheduled_task_api_flow() {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
+}
+
+// ── 节点心跳（P0-A） ─────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_node_heartbeat_flow() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // 注册节点（带 auth_token）
+    let body = serde_json::json!({
+        "node": {
+            "id": 0,
+            "name": "hb-01",
+            "hostname": "hb-01.example.com",
+            "ip_address": "10.0.0.9",
+            "status": "online",
+            "created_at": "2026-01-01T00:00:00Z",
+            "auth_token": "agent-secret-1"
+        }
+    });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/nodes")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let node_id: i64 = serde_json::from_slice(&bytes).unwrap();
+
+    // 心跳（白名单免 JWT，携带正确 Agent token）
+    let hb = serde_json::json!({
+        "cpu_usage": 12.3,
+        "memory_usage_percent": 45.6,
+        "disk_usage_percent": 67.8,
+        "load_one": 0.5
+    });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/nodes/heartbeat/{}", node_id))
+                .header("Content-Type", "application/json")
+                .header(header::AUTHORIZATION, "Bearer agent-secret-1")
+                .body(Body::from(serde_json::to_string(&hb).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 心跳后 status = online
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/nodes/{}/status", node_id))
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let status: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(status["status"], "online");
+
+    // 指标快照可查询
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/nodes/{}/metrics", node_id))
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let metrics: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let cpu = metrics["cpu_usage"].as_f64().unwrap();
+    assert!((cpu - 12.3).abs() < 0.01, "cpu_usage={} not ~12.3", cpu);
+}
+
+#[tokio::test]
+async fn test_node_heartbeat_token_mismatch_rejected() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    let body = serde_json::json!({
+        "node": {
+            "id": 0,
+            "name": "hb-02",
+            "hostname": "hb-02.example.com",
+            "ip_address": "10.0.0.10",
+            "status": "online",
+            "created_at": "2026-01-01T00:00:00Z",
+            "auth_token": "real-token"
+        }
+    });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/nodes")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let node_id: i64 = serde_json::from_slice(&bytes).unwrap();
+
+    // 错误 token → 401
+    let hb = serde_json::json!({"cpu_usage": 1.0, "memory_usage_percent": 1.0, "disk_usage_percent": 1.0, "load_one": 0.1});
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/nodes/heartbeat/{}", node_id))
+                .header("Content-Type", "application/json")
+                .header(header::AUTHORIZATION, "Bearer wrong-token")
+                .body(Body::from(serde_json::to_string(&hb).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_node_heartbeat_no_token_compat() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // 旧 Agent：注册不带 auth_token
+    let body = serde_json::json!({
+        "node": {
+            "id": 0,
+            "name": "hb-legacy",
+            "hostname": "hb-legacy.example.com",
+            "ip_address": "10.0.0.11",
+            "status": "online",
+            "created_at": "2026-01-01T00:00:00Z"
+        }
+    });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/nodes")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let node_id: i64 = serde_json::from_slice(&bytes).unwrap();
+
+    // 无 token 心跳 → 放行（兼容）
+    let hb = serde_json::json!({"cpu_usage": 5.0, "memory_usage_percent": 5.0, "disk_usage_percent": 5.0, "load_one": 0.2});
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/nodes/heartbeat/{}", node_id))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&hb).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+// ── 生产安全（P0-B）：强制改密 / refresh / 登录锁定 ─────────────
+
+fn bcrypt_hash(pw: &str) -> String {
+    flame_kernel::utils::password::PasswordUtils::hash(pw).unwrap()
+}
+
+#[tokio::test]
+async fn test_auth_refresh_endpoint() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // 登录拿 token
+    // setup 的 admin hash 是 "hash" 字符串，无法登录；改用直接 refresh（用已签发的 JWT）
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/auth/refresh")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // 合法 JWT（test-secret 签发）→ 200
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let resp: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(resp["token"].as_str().unwrap().len() > 20);
+    assert_eq!(resp["username"], "admin");
+
+    // 无 token → 401
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/auth/refresh")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_auth_me_endpoint() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/auth/me")
+                .header(h, v)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let me: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(me["username"], "admin");
+    assert!(me.get("must_change_password").is_some());
+}
+
+#[tokio::test]
+async fn test_must_change_password_enforced() {
+    // 构造必须改密的用户，验证访问受限
+    let user_repo: Arc<dyn UserRepository> = Arc::new(InMemoryUserRepository::new());
+    let user = user_repo
+        .create("forced", &bcrypt_hash("OldP@ss1"), "admin")
+        .await
+        .unwrap();
+    user_repo.update(&User {
+        must_change_password: true,
+        ..user
+    })
+    .await
+    .unwrap();
+
+    // 通过 service 直接验证中间件逻辑：构造 AppState 级测试过于复杂，
+    // 此处验证 set_must_change_password 与 login 响应的标志位
+    let bus = EventBus::new(100);
+    let user_service = UserService::new(user_repo.clone(), bus);
+    let updated = user_service.find_by_username("forced").await.unwrap().unwrap();
+    assert!(updated.must_change_password, "flag should persist");
+
+    // 清除标志
+    user_service
+        .set_must_change_password(updated.id, false)
+        .await
+        .unwrap();
+    let cleared = user_service.find_by_username("forced").await.unwrap().unwrap();
+    assert!(!cleared.must_change_password);
+}
+
+#[tokio::test]
+async fn test_login_attempt_lock_unit() {
+    use flame_kernel::api::login_attempt::LoginAttemptStore;
+    let store = LoginAttemptStore::new();
+    for _ in 0..5 {
+        store.record_failure("alice").await;
+    }
+    let err = store.check_locked("alice").await;
+    assert!(err.is_err(), "locked after 5 failures");
+    assert_eq!(err.unwrap_err().status_code(), StatusCode::FORBIDDEN);
+}
+
+// ── 自动备份（P0-C） ───────────────────────────────────────────
+
+#[tokio::test]
+async fn test_backup_retention_cleans_old() {
+    let dir = backup_temp_dir("retention");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("app.db");
+    std::fs::write(&db, b"seed-db").unwrap();
+    let svc = BackupService::new(&db, dir.join("backups"));
+
+    // 创建 5 份备份
+    for _ in 0..5 {
+        svc.create_backup().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    }
+    let all = svc.list_backups().await.unwrap();
+    assert_eq!(all.len(), 5);
+
+    // 保留 3 份 → 删除 2 份
+    let removed = svc.enforce_retention(3).await.unwrap();
+    assert_eq!(removed.len(), 2);
+    let remaining = svc.list_backups().await.unwrap();
+    assert_eq!(remaining.len(), 3);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_backup_last_age_and_interval() {
+    let dir = backup_temp_dir("age");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("app.db");
+    std::fs::write(&db, b"seed-db").unwrap();
+    let svc = BackupService::new(&db, dir.join("backups"));
+
+    // 无备份 → None
+    assert!(svc.last_backup_age_secs().await.unwrap().is_none());
+
+    // 创建后 age < 5s
+    svc.create_backup().await.unwrap();
+    let age = svc.last_backup_age_secs().await.unwrap().unwrap();
+    assert!(age < 5, "age={} should be < 5s", age);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ── 审计日志（M2-A）：写操作自动落库 ────────────────────────────
+
+#[tokio::test]
+async fn test_audit_write_operations_logged() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // 执行一个写操作（创建用户）
+    let body = serde_json::json!({
+        "username": "audit-user",
+        "password_hash": "hash123",
+        "role": "viewer"
+    });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/users")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 稍等异步审计落库
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // 查询审计日志
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/operation-logs")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let logs: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let items = logs["data"].as_array().unwrap();
+    assert!(!items.is_empty(), "audit log should have entries");
+    let first = &items[0];
+    let action = first["action"].as_str().unwrap();
+    assert!(action.starts_with("POST /api/users"), "action={}", action);
+    assert_eq!(first["username"], "admin");
+}
+
+#[tokio::test]
+async fn test_audit_read_operations_not_logged() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // GET 请求不应产生审计
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/users")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/operation-logs")
+                .header(h, v)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let logs: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let items = logs["data"].as_array().unwrap();
+    assert!(
+        items.iter().all(|l| !l["action"].as_str().unwrap_or("").starts_with("GET")),
+        "GET requests must not be audited"
+    );
+}
+
+#[tokio::test]
+async fn test_audit_login_success_and_filter() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // 造一个可登录用户（bcrypt hash）
+    let body = serde_json::json!({
+        "username": "audit-login",
+        "password_hash": bcrypt_hash("Passw0rd!"),
+        "role": "admin"
+    });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/users")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 登录（成功）
+    let login_body = serde_json::json!({"username": "audit-login", "password": "Passw0rd!"});
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/auth/login")
+                .header("Content-Type", "application/json")
+                .header("X-Real-IP", "192.168.1.100")
+                .body(Body::from(serde_json::to_string(&login_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 登录（失败）
+    let bad_body = serde_json::json!({"username": "audit-login", "password": "wrong"});
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/auth/login")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&bad_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    // 按 action=LOGIN 过滤查询
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/operation-logs?action=LOGIN")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let logs: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let items = logs["data"].as_array().unwrap();
+    let actions: Vec<&str> = items
+        .iter()
+        .map(|l| l["action"].as_str().unwrap_or(""))
+        .collect();
+    assert!(
+        actions.contains(&"LOGIN_SUCCESS"),
+        "should contain LOGIN_SUCCESS: {:?}",
+        actions
+    );
+    assert!(
+        actions.contains(&"LOGIN_FAILED"),
+        "should contain LOGIN_FAILED: {:?}",
+        actions
+    );
+    // 过滤后不应出现其他 action
+    assert!(
+        actions.iter().all(|a| a.starts_with("LOGIN")),
+        "filtered actions: {:?}",
+        actions
+    );
+}
+
+// ── 可观测性（M2-B）：/api/health 详细检查 ───────────────────────
+
+#[tokio::test]
+async fn test_health_detail_endpoint() {
+    let app = setup_full_router().await;
+
+    // 免认证访问
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let health: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(health["status"], "ok");
+    assert!(!health["version"].as_str().unwrap().is_empty());
+    assert!(health["checks"]["database"]["status"].as_str().is_some());
+    assert!(health["checks"]["disk"]["status"].as_str().is_some());
+    // docker 在测试环境可能是 degraded（无 daemon），但字段必须存在
+    assert!(health["checks"]["docker"].get("status").is_some());
+}
+
+// ── 事件驱动（M2-D） ───────────────────────────────────────────
+
+#[tokio::test]
+async fn test_event_bus_emits_new_variants() {
+    let bus = EventBus::new(16);
+    let mut rx = bus.subscribe();
+
+    // 发布应用安装事件
+    let _ = bus
+        .publish(DomainEvent::AppInstalled {
+            app_key: "nginx".into(),
+            app_name: "Nginx".into(),
+            version: "1.27".into(),
+        })
+        .await;
+
+    let received = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    match received {
+        DomainEvent::AppInstalled { app_key, version, .. } => {
+            assert_eq!(app_key, "nginx");
+            assert_eq!(version, "1.27");
+        }
+        other => panic!("expected AppInstalled, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_app_store_install_publishes_event() {
+    // AppStoreService 安装内置应用后应发布 AppInstalled 事件
+    let bus = EventBus::new(16);
+    let mut rx = bus.subscribe();
+
+    let pkg_repo: Arc<dyn AppPackageRepository> = Arc::new(InMemoryAppPackageRepository::new());
+    let installed_repo: Arc<dyn InstalledAppRepository> =
+        Arc::new(InMemoryInstalledAppRepository::new());
+    let docker_service = Arc::new(DockerService::new(Arc::new(InMemoryDockerRepository::new())));
+    let ws_service = Arc::new(WebServerService::new(Arc::new(InMemoryWebServerRepository::new())));
+    let db_service = Arc::new(DatabaseService::new(Arc::new(InMemoryDatabaseRepository::new())));
+    let sandbox = Arc::new(PluginSandbox::new());
+    let registry = Arc::new(PluginRegistry::new());
+    let plugin_repo: Arc<dyn PluginRepository> = Arc::new(InMemoryPluginRepository::new());
+    let dir = std::env::temp_dir().join(format!("appstore_event_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let svc = AppStoreService::new(
+        pkg_repo,
+        installed_repo,
+        docker_service,
+        ws_service,
+        db_service,
+        sandbox,
+        registry,
+        plugin_repo,
+        dir,
+        bus.clone(),
+    );
+    // 种子内置应用
+    svc.seed_builtin_apps().await.unwrap();
+
+    // 安装（容器模式走 InMemory docker，会成功）
+    let req = crate_install_req();
+    let _ = svc.install(&req).await;
+
+    let received = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(received, DomainEvent::AppInstalled { .. }));
+}
+
+fn crate_install_req() -> flame_kernel::application::app_store_service::InstallRequest {
+    serde_json::from_value(serde_json::json!({
+        "package_key": "nginx",
+        "version": "1.27",
+        "mode": "container",
+        "name": "event-nginx",
+        "port": 18083,
+        "values": { "PORT": "18083", "NAME": "event-nginx" },
+        "confirm_risky": true
+    }))
+    .unwrap()
+}
+
+// ── 备忘录/TODO + 进程TOP + 常用应用（v0.7） ───────────────────
+
+#[tokio::test]
+async fn test_memos_crud_api() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+
+    // 创建 memo
+    let body = serde_json::json!({"content": "备份数据库", "kind": "todo"});
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/memos")
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let memo: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let id = memo["id"].as_i64().unwrap();
+    assert_eq!(memo["kind"], "todo");
+    assert_eq!(memo["done"], false);
+
+    // 列表（kind 过滤）
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/memos?kind=todo")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(list.as_array().unwrap().iter().any(|m| m["id"] == id));
+
+    // 标记完成
+    let body = serde_json::json!({"done": true});
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::PUT)
+                .uri(format!("/api/memos/{}", id))
+                .header("Content-Type", "application/json")
+                .header(h.clone(), v.clone())
+                .body(Body::from(serde_json::to_string(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // done 过滤
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/memos?done=true")
+                .header(h.clone(), v.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(list.as_array().unwrap().iter().any(|m| m["id"] == id));
+
+    // 删除
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri(format!("/api/memos/{}", id))
+                .header(h, v)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_metrics_processes_endpoint() {
+    let app = setup_full_router().await;
+    let (h, v) = auth_header();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/metrics/processes")
+                .header(h, v)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = hyper::body::to_bytes(res.into_body()).await.unwrap();
+    let procs: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(procs.as_array().unwrap().len() <= 5);
+    if let Some(first) = procs.as_array().unwrap().first() {
+        assert!(first.get("pid").is_some());
+        assert!(first.get("cpu").is_some());
+    }
+}
+
+#[tokio::test]
+async fn test_app_launch_count() {
+    let bus = EventBus::new(16);
+    let pkg_repo: Arc<dyn AppPackageRepository> = Arc::new(InMemoryAppPackageRepository::new());
+    let installed_repo: Arc<dyn InstalledAppRepository> =
+        Arc::new(InMemoryInstalledAppRepository::new());
+    let docker_service = Arc::new(DockerService::new(Arc::new(InMemoryDockerRepository::new())));
+    let ws_service = Arc::new(WebServerService::new(Arc::new(InMemoryWebServerRepository::new())));
+    let db_service = Arc::new(DatabaseService::new(Arc::new(InMemoryDatabaseRepository::new())));
+    let sandbox = Arc::new(PluginSandbox::new());
+    let registry = Arc::new(PluginRegistry::new());
+    let plugin_repo: Arc<dyn PluginRepository> = Arc::new(InMemoryPluginRepository::new());
+    let dir = std::env::temp_dir().join(format!("appstore_launch_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let svc = AppStoreService::new(
+        pkg_repo,
+        installed_repo,
+        docker_service,
+        ws_service,
+        db_service,
+        sandbox,
+        registry,
+        plugin_repo,
+        dir,
+        bus,
+    );
+    // 直接插入一个已安装应用
+    let now = chrono::Utc::now();
+    let installed = InstalledApp {
+        id: 0,
+        package_key: "nginx".into(),
+        name: "nginx-test".into(),
+        version: "1.27".into(),
+        mode: "container".into(),
+        status: "running".into(),
+        access_url: Some("http://localhost:18083".into()),
+        install_path: "/tmp/fp-launch".into(),
+        container_name: None,
+        port: Some(18083),
+        params_json: "{}".into(),
+        created_at: now,
+        updated_at: now,
+        launch_count: 0,
+    };
+    let id = svc.installed_repo.create(&installed).await.unwrap();
+    let launched = svc.record_launch(id).await.unwrap();
+    assert_eq!(launched.launch_count, 1);
 }

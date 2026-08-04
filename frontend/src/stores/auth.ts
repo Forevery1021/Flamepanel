@@ -25,7 +25,6 @@ export const useAuthStore = defineStore('auth', () => {
     save(res.data)
     return res.data
   }
-
   function logout() {
     token.value = ''
     username.value = ''

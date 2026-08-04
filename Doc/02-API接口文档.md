@@ -44,6 +44,7 @@ sequenceDiagram
 |----------------|------|------|
 | `AUTH_UNAUTHORIZED` | 401 | 未登录 / 令牌无效 / 令牌过期 |
 | `AUTH_FORBIDDEN` | 403 | 无操作权限（RBAC 拒绝） |
+| `PASSWORD_CHANGE_REQUIRED` | 403 | 需先修改初始密码（新装面板首次登录） |
 | `NOT_FOUND` | 404 | 资源或路由不存在 |
 | `BAD_REQUEST` | 400 | 参数错误 / JSON 解析失败 |
 | `VALIDATION_ERROR` | 400 | 业务校验失败 |
@@ -80,6 +81,25 @@ sequenceDiagram
 
 **响应**：`200 OK`
 
+### `GET /api/health`
+
+无需认证。详细健康检查（依赖探测 + 版本 + 运行时长）：
+
+```json
+{
+  "status": "ok",
+  "version": "0.1.0",
+  "uptime_secs": 86400,
+  "checks": {
+    "database": { "status": "ok", "detail": null },
+    "docker": { "status": "ok", "detail": "5 containers" },
+    "disk": { "status": "ok", "detail": "10240 MB free" }
+  }
+}
+```
+
+> `status` 为 `ok`/`degraded`；`docker` 不可用时为 `degraded`（面板仍可用）；`disk` 目录不存在时为 `unknown`（不判失败）。
+
 ## 3. 认证模块 `/api/auth`
 
 ### `POST /api/auth/login`
@@ -98,15 +118,38 @@ sequenceDiagram
 {
   "token": "eyJhbGciOiJIUzI1NiIs...",
   "username": "admin",
-  "role": "admin"
+  "role": "admin",
+  "must_change_password": true
 }
 ```
 
-**错误**：`401 AUTH_UNAUTHORIZED`（凭据错误）
+> `must_change_password=true` 表示首次登录需先改密（改密前除 `/api/auth/*` 外一律 `403 PASSWORD_CHANGE_REQUIRED`）。
+
+**错误**：`401 AUTH_UNAUTHORIZED`（凭据错误）、`403 AUTH_FORBIDDEN`（登录失败锁定，5 次/5 分钟）
+
+### `POST /api/auth/refresh`
+
+刷新 JWT（滑动过期：剩余寿命 <12h 时重置为 24h，否则原样返回）。前端 401 自动调用并重放原请求。
+
+**请求头**：`Authorization: Bearer <token>`
+
+**响应 200**：同 login（`token`/`username`/`role`/`must_change_password`）
+
+**错误**：`401 AUTH_UNAUTHORIZED`（token 无效/缺失）
+
+### `GET /api/auth/me`
+
+获取当前登录用户信息（前端刷新页面恢复身份）。
+
+**响应 200**：
+
+```json
+{ "id": 1, "username": "admin", "role": "admin", "must_change_password": false }
+```
 
 ### `POST /api/auth/change-password`
 
-修改当前用户密码（需登录）。
+修改当前用户密码（需登录）。修改成功后自动清除 `must_change_password` 标志。
 
 **请求体**：
 
@@ -149,7 +192,7 @@ sequenceDiagram
 }
 ```
 
-**User 实体字段**：`id`、`username`、`password_hash`、`role`、`created_at`
+**User 实体字段**：`id`、`username`、`password_hash`、`role`、`created_at`、`must_change_password`
 
 ## 5. 节点模块 `/api/nodes`
 
@@ -158,24 +201,46 @@ sequenceDiagram
 | 方法 | 路径 | 权限 | 说明 |
 |------|------|------|------|
 | GET | `/api/nodes` | node:read | 节点列表（分页） |
-| POST | `/api/nodes` | node:create | 注册节点 |
+| POST | `/api/nodes` | node:create | 注册节点（兼容 Agent 平铺格式） |
 | PUT | `/api/nodes/:id` | node:update | 更新节点 |
 | DELETE | `/api/nodes/:id` | node:delete | 删除节点 |
+| POST | `/api/nodes/heartbeat/:id` | 白名单 | Agent 心跳上报（校验 Agent token） |
+| GET | `/api/nodes/:id/status` | node:read | 在线状态 |
+| GET | `/api/nodes/:id/metrics` | node:read | 指标快照 |
 
-**请求体结构**（POST/PUT）：
+**请求体结构**（POST/PUT，兼容两种格式）：
 
 ```json
-{
-  "node": {
-    "name": "web-01",
-    "hostname": "web-01.example.com",
-    "ip_address": "192.168.1.10",
-    "status": "online"
-  }
-}
+// 面板/测试格式（嵌套 node）
+{ "node": { "name": "web-01", "hostname": "web-01.example.com", "ip_address": "192.168.1.10", "status": "online" } }
+
+// Agent 平铺格式
+{ "name": "web-01", "host": "192.168.1.10", "agent_port": 9527, "auth_token": "agent-secret" }
 ```
 
-**ServerNode 字段**：`id`、`name`、`hostname`、`ip_address`、`status`、`created_at`
+**ServerNode 字段**：`id`、`name`、`hostname`、`ip_address`、`status`、`created_at`、`last_heartbeat_at`、`metrics_json`、`auth_token`
+
+### 5.1 节点心跳与在线状态
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| POST | `/api/nodes/heartbeat/:id` | 白名单（免 JWT，校验 Agent token） | Agent 心跳上报 |
+| GET | `/api/nodes/:id/status` | node:read | 在线状态（>30s 无心跳判定 offline） |
+| GET | `/api/nodes/:id/metrics` | node:read | 最近指标快照 |
+
+**heartbeat 请求体**：
+
+```json
+{ "cpu_usage": 12.3, "memory_usage_percent": 45.6, "disk_usage_percent": 67.8, "load_one": 0.5 }
+```
+
+**请求头**：`Authorization: Bearer <agent-token>`（与注册时 `auth_token` 一致；旧 Agent 无 token 时放行并告警）
+
+**响应 200**：`{ "id": 3, "status": "ok", "last_heartbeat_at": "..." }`
+
+**错误**：`401 AUTH_UNAUTHORIZED`（Agent token 不匹配）
+
+**status 响应**：`{ "id": 3, "status": "online" }`
 
 ## 6. 网站模块 `/api/websites`
 
@@ -578,8 +643,10 @@ sequenceDiagram
 
 | 方法 | 路径 | 权限 | 说明 |
 |------|------|------|------|
-| GET | `/api/operation-logs` | operation_log:read | 审计日志（分页） |
+| GET | `/api/operation-logs` | operation_log:read | 审计日志（分页，`?action=` 按前缀过滤） |
 | DELETE | `/api/operation-logs/:id` | operation_log:delete | 删除日志 |
+
+> **审计机制（v0.6.0）**：所有写操作（POST/PUT/DELETE）经中间件自动落库，`action` 格式为 `{METHOD} {path}`（如 `POST /api/users`）；登录成功/失败显式记录为 `LOGIN_SUCCESS` / `LOGIN_FAILED`。示例：`GET /api/operation-logs?action=LOGIN` 仅查登录审计。
 
 ### 系统日志 `/api/logs`
 
@@ -629,7 +696,30 @@ sequenceDiagram
 
 > `schedule` 为标准 5 字段 cron 表达式（分 时 日 月 周），后端每 30 秒检查一次到期任务。
 
-## 18. WebSocket 接口
+## 18. 备忘录模块 `/api/memos`
+
+权限前缀：`memo:*`（read/create/update/delete）
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/api/memos` | memo:read | 列表（`?kind=memo\|todo`、`?done=true\|false`） |
+| POST | `/api/memos` | memo:create | 创建 `{content, kind}` |
+| PUT | `/api/memos/:id` | memo:update | 更新 `{content?, done?}` |
+| DELETE | `/api/memos/:id` | memo:delete | 删除 |
+
+## 19. 进程与系统指标 `/api/metrics`
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/api/metrics/processes` | 免认证 | 按 CPU 排序的进程 TOP 5 |
+
+## 20. 应用启动记录
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| POST | `/api/app-store/installed/:id/launch` | app_store:read | 记录应用启动次数（常用应用排序） |
+
+## 21. WebSocket 接口
 
 | 路径 | 说明 | 消息格式 |
 |------|------|----------|
@@ -685,7 +775,7 @@ sequenceDiagram
 - `input`：写入终端（`data` 为字符串，含 `\r` 换行）；`resize`：调整 PTY 尺寸（缺省 80×24）。
 - 连接建立时后端创建独立 `TerminalSession`，客户端断开后自动关闭会话并清理。
 
-## 19. 快速调试示例
+## 22. 快速调试示例
 
 ```bash
 # 登录获取 token
@@ -701,7 +791,7 @@ curl -s http://localhost:8080/api/users?page=1&page_size=10 \
 curl -s http://localhost:8080/health
 ```
 
-## 20. 权限速查
+## 23. 权限速查
 
 | 资源 | 动作 |
 |------|------|

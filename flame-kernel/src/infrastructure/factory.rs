@@ -162,4 +162,11 @@ impl RepoFactory {
             BackendKind::Sqlite(pool) => Arc::new(SqlitePluginRepository::new(pool.clone())),
         }
     }
+
+    pub fn create_memo_repo(&self) -> Arc<dyn MemoRepository> {
+        match &self.kind {
+            BackendKind::InMemory => Arc::new(InMemoryMemoRepository::new()),
+            BackendKind::Sqlite(pool) => Arc::new(SqliteMemoRepository::new(pool.clone())),
+        }
+    }
 }
