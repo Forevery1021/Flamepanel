@@ -12,14 +12,15 @@ use crate::api::types::AppState;
 use crate::application::app_store_service::InstallRequest;
 use crate::core::error::AppError;
 use crate::domain::entity::{AppMetadata, InstalledApp};
+use utoipa::ToSchema;
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct AppStoreListResponse {
     pub packages: Vec<AppMetadata>,
     pub total: i64,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct InstallAppRequest {
     pub package_key: String,
     pub version: Option<String>,
@@ -30,19 +31,45 @@ pub struct InstallAppRequest {
     pub values: Option<HashMap<String, String>>,
     #[serde(default)]
     pub confirm_risky: bool,
+    /// 安装包含原生脚本时需显式确认执行第三方脚本。
+    #[serde(default)]
+    pub acknowledge_scripts: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct ImportPackageRequest {
     pub path: String,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, ToSchema)]
+pub struct BatchImportPackagesRequest {
+    pub paths: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct BatchImportPackagesResponse {
+    pub imported: Vec<AppMetadata>,
+    pub count: usize,
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct InstalledAppResponse {
     pub app: InstalledApp,
     pub logs: Option<String>,
 }
 
+/// 应用商店包列表
+#[utoipa::path(
+    get,
+    path = "/api/app-store/packages",
+    tag = "app_store",
+    params(("category" = Option<String>, Query, description = "分类过滤")),
+    responses(
+        (status = 200, description = "包列表", body = AppStoreListResponse),
+        (status = 401, description = "未认证"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list_packages(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
@@ -87,6 +114,7 @@ pub async fn install(
         container_name: req.container_name,
         values,
         confirm_risky: req.confirm_risky,
+        acknowledge_scripts: req.acknowledge_scripts,
     };
     let app = state.app_store_service.install(&request).await?;
     Ok(Json(app))
@@ -100,6 +128,42 @@ pub async fn import_package(
     Ok(Json(meta))
 }
 
+/// 批量导入本地目录应用包（Phase A2：`create_many` 事务语义，全成或全败）
+#[utoipa::path(
+    post,
+    path = "/api/app-store/packages/batch-import",
+    tag = "app_store",
+    request_body = BatchImportPackagesRequest,
+    responses(
+        (status = 200, description = "批量导入结果", body = BatchImportPackagesResponse),
+        (status = 400, description = "非法路径 / 空列表 / 已存在"),
+        (status = 401, description = "未认证"),
+    ),
+    security(("BearerAuth" = []))
+)]
+pub async fn batch_import_packages(
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<BatchImportPackagesRequest>,
+) -> Result<Json<BatchImportPackagesResponse>, AppError> {
+    let imported = state
+        .app_store_service
+        .batch_import_packages(&req.paths)
+        .await?;
+    let count = imported.len();
+    Ok(Json(BatchImportPackagesResponse { imported, count }))
+}
+
+/// 已安装应用列表
+#[utoipa::path(
+    get,
+    path = "/api/app-store/installed",
+    tag = "app_store",
+    responses(
+        (status = 200, description = "已安装应用列表", body = Vec<InstalledApp>),
+        (status = 401, description = "未认证"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list_installed(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<InstalledApp>>, AppError> {
@@ -174,15 +238,19 @@ pub fn routes() -> Router<AppState> {
             axum::routing::post(import_package),
         )
         .route(
-            "/api/app-store/packages/:key",
+            "/api/app-store/packages/batch-import",
+            axum::routing::post(batch_import_packages),
+        )
+        .route(
+            "/api/app-store/packages/{key}",
             axum::routing::get(get_package),
         )
         .route(
-            "/api/app-store/packages/:key/versions/:version",
+            "/api/app-store/packages/{key}/versions/{version}",
             axum::routing::get(list_versions),
         )
         .route(
-            "/api/app-store/packages/:key/install",
+            "/api/app-store/packages/{key}/install",
             axum::routing::post(install),
         )
         .route(
@@ -190,23 +258,23 @@ pub fn routes() -> Router<AppState> {
             axum::routing::get(list_installed),
         )
         .route(
-            "/api/app-store/installed/:id",
+            "/api/app-store/installed/{id}",
             axum::routing::get(get_installed),
         )
         .route(
-            "/api/app-store/installed/:id/upgrade",
+            "/api/app-store/installed/{id}/upgrade",
             axum::routing::post(upgrade),
         )
         .route(
-            "/api/app-store/installed/:id/uninstall",
+            "/api/app-store/installed/{id}/uninstall",
             axum::routing::post(uninstall),
         )
         .route(
-            "/api/app-store/installed/:id/launch",
+            "/api/app-store/installed/{id}/launch",
             axum::routing::post(launch),
         )
         .route(
-            "/api/app-store/installed/:id/logs",
+            "/api/app-store/installed/{id}/logs",
             axum::routing::get(get_logs),
         )
         .route(

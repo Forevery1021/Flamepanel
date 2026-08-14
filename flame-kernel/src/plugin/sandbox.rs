@@ -65,6 +65,8 @@ pub struct SandboxedPlugin {
     pub id: String,
     pub status: PluginStatus,
     pub wasm_bytes: Vec<u8>,
+    /// WASM 字节码 SHA-256 哈希（用于完整性校验）
+    pub wasm_hash: String,
     pub config: PluginConfig,
     pub metrics: PluginMetrics,
     pub loaded_at: DateTime<Utc>,
@@ -72,17 +74,77 @@ pub struct SandboxedPlugin {
     pub last_error: Option<String>,
 }
 
-pub struct WasmSandbox {
-    engine: wasmtime::Engine,
+/// 校验 WASM 字节码哈希（sha2 实现，不依赖 wasmtime；所有 feature 下可用）。
+/// 若提供了期望值且不匹配则拒绝，返回稳定错误。
+pub fn verify_wasm_hash(wasm_bytes: &[u8], expected: Option<&str>) -> Result<(), AppError> {
+    if let Some(expected) = expected {
+        if expected.is_empty() {
+            return Ok(());
+        }
+        let mut hasher = Sha256::new();
+        hasher.update(wasm_bytes);
+        let actual = format!("{:x}", hasher.finalize());
+        if actual != expected {
+            return Err(AppError::BadRequest(format!(
+                "WASM hash mismatch: expected {}, got {}",
+                expected, actual
+            )));
+        }
+    }
+    Ok(())
 }
 
+/// WASM 执行沙箱（wasmtime 实现，feature `wasm` 开启时可用）。
+/// 关闭 `wasm` feature 时：插件仅保留元数据/哈希校验，不执行字节码。
+#[cfg(feature = "wasm")]
+pub struct WasmSandbox {
+    engine: wasmtime::Engine,
+    /// 每个插件执行的内存上限（字节）
+    memory_limit_bytes: usize,
+}
+
+/// 资源限制器：限制每个 WASM 实例的线性内存大小（memory.grow 上限）
+#[cfg(feature = "wasm")]
+#[derive(Debug, Clone)]
+struct MemoryLimiter {
+    max_memory_bytes: usize,
+}
+
+#[cfg(feature = "wasm")]
+impl wasmtime::ResourceLimiter for MemoryLimiter {
+    fn memory_growing(
+        &mut self,
+        _current: usize,
+        desired: usize,
+        _maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        Ok(desired <= self.max_memory_bytes)
+    }
+
+    fn table_growing(
+        &mut self,
+        _current: usize,
+        desired: usize,
+        _maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        // 表格元素数上限：防止实例表无限增长（每个元素占一个指针宽度）
+        Ok(desired <= self.max_memory_bytes / std::mem::size_of::<usize>())
+    }
+}
+
+#[cfg(feature = "wasm")]
 impl WasmSandbox {
-    pub fn new(_config: &PluginConfig) -> Result<Self, AppError> {
+    pub fn new(config: &PluginConfig) -> Result<Self, AppError> {
         let mut config_builder = wasmtime::Config::new();
         config_builder.consume_fuel(true);
+        // 限制 WASM 栈大小，防止栈溢出耗尽宿主内存
+        config_builder.max_wasm_stack(config.max_stack_size);
         let engine = wasmtime::Engine::new(&config_builder)
             .map_err(|e| AppError::internal(format!("Failed to create WASM engine: {}", e)))?;
-        Ok(Self { engine })
+        Ok(Self {
+            engine,
+            memory_limit_bytes: config.memory_limit_bytes,
+        })
     }
 
     pub fn execute(
@@ -93,10 +155,15 @@ impl WasmSandbox {
     ) -> Result<Vec<u8>, AppError> {
         let module = wasmtime::Module::new(&self.engine, wasm_bytes)
             .map_err(|e| AppError::internal(format!("Failed to compile WASM module: {}", e)))?;
-        let mut store = wasmtime::Store::new(&self.engine, ());
+        // 将资源限制器作为 store 数据，限制每个实例的线性内存/表格大小
+        let limiter = MemoryLimiter {
+            max_memory_bytes: self.memory_limit_bytes,
+        };
+        let mut store = wasmtime::Store::new(&self.engine, limiter);
         store
             .set_fuel(fuel_limit)
             .map_err(|e| AppError::internal(format!("Failed to set fuel: {}", e)))?;
+        store.limiter(|data| data);
         let instance = wasmtime::Instance::new(&mut store, &module, &[])
             .map_err(|e| AppError::internal(format!("Failed to instantiate WASM module: {}", e)))?;
         if let Ok(func) = instance.get_typed_func::<(), i32>(&mut store, function) {
@@ -145,18 +212,25 @@ impl PluginSandbox {
     }
 
     async fn call_lifecycle_hook(&self, wasm_bytes: &[u8], config: &PluginConfig, hook: &str) {
-        let wasm_owned = wasm_bytes.to_vec();
-        let config_owned = config.clone();
-        let hook_owned = hook.to_string();
-        let sandbox = match WasmSandbox::new(&config_owned) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        if sandbox.has_function(&wasm_owned, &hook_owned) {
-            let _ = tokio::task::spawn_blocking(move || {
-                sandbox.execute(&wasm_owned, &hook_owned, 100_000)
-            })
-            .await;
+        #[cfg(feature = "wasm")]
+        {
+            let wasm_owned = wasm_bytes.to_vec();
+            let config_owned = config.clone();
+            let hook_owned = hook.to_string();
+            let sandbox = match WasmSandbox::new(&config_owned) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            if sandbox.has_function(&wasm_owned, &hook_owned) {
+                let _ = tokio::task::spawn_blocking(move || {
+                    sandbox.execute(&wasm_owned, &hook_owned, 100_000)
+                })
+                .await;
+            }
+        }
+        #[cfg(not(feature = "wasm"))]
+        {
+            let _ = (wasm_bytes, config, hook); // 无 WASM 引擎：生命周期钩子为空操作
         }
     }
 
@@ -167,17 +241,22 @@ impl PluginSandbox {
         config: Option<PluginConfig>,
     ) -> Result<SandboxedPlugin, AppError> {
         let cfg = config.unwrap_or_default();
-        let sandbox = WasmSandbox::new(&cfg)?;
-        let _module = wasmtime::Module::new(&sandbox.engine, &wasm_bytes)
-            .map_err(|e| AppError::BadRequest(format!("Invalid WASM module: {}", e)))?;
+        #[cfg(feature = "wasm")]
+        {
+            let sandbox = WasmSandbox::new(&cfg)?;
+            let _module = wasmtime::Module::new(&sandbox.engine, &wasm_bytes)
+                .map_err(|e| AppError::BadRequest(format!("Invalid WASM module: {}", e)))?;
+        }
+        // 计算并存储 WASM 哈希（恢复/安装时用于完整性校验）
         let mut hasher = Sha256::new();
         hasher.update(&wasm_bytes);
-        let _hash = format!("{:x}", hasher.finalize());
+        let hash = format!("{:x}", hasher.finalize());
 
         let plugin = SandboxedPlugin {
             id: id.to_string(),
             status: PluginStatus::Loaded,
             wasm_bytes: wasm_bytes.clone(),
+            wasm_hash: hash,
             config: cfg.clone(),
             metrics: PluginMetrics::default(),
             loaded_at: Utc::now(),
@@ -200,11 +279,17 @@ impl PluginSandbox {
         id: &str,
         new_wasm_bytes: Vec<u8>,
         new_config: Option<PluginConfig>,
+        expected_hash: Option<&str>,
     ) -> Result<SandboxedPlugin, AppError> {
+        // 重载前强制校验哈希（若提供了期望值）
+        verify_wasm_hash(&new_wasm_bytes, expected_hash)?;
         let cfg = new_config.unwrap_or_default();
-        let sandbox = WasmSandbox::new(&cfg)?;
-        let _module = wasmtime::Module::new(&sandbox.engine, &new_wasm_bytes)
-            .map_err(|e| AppError::BadRequest(format!("Invalid WASM module: {}", e)))?;
+        #[cfg(feature = "wasm")]
+        {
+            let sandbox = WasmSandbox::new(&cfg)?;
+            let _module = wasmtime::Module::new(&sandbox.engine, &new_wasm_bytes)
+                .map_err(|e| AppError::BadRequest(format!("Invalid WASM module: {}", e)))?;
+        }
 
         let mut plugins = self.plugins.lock().await;
         let plugin = plugins
@@ -219,7 +304,11 @@ impl PluginSandbox {
         plugin.config = cfg.clone();
         plugin.status = PluginStatus::Loaded;
 
-        if let Err(e) = sandbox.execute(&new_wasm_bytes, "on_reload", 100_000) {
+        #[cfg(feature = "wasm")]
+        if let Err(e) = {
+            let sandbox = WasmSandbox::new(&cfg)?;
+            sandbox.execute(&new_wasm_bytes, "on_reload", 100_000)
+        } {
             plugin.wasm_bytes = old_bytes;
             plugin.config = old_config;
             plugin.status = PluginStatus::Error(format!("Reload hook failed: {}", e));
@@ -228,6 +317,8 @@ impl PluginSandbox {
                 e
             )));
         }
+        #[cfg(not(feature = "wasm"))]
+        let _ = (old_bytes, old_config);
 
         Ok(plugin.clone())
     }
@@ -238,73 +329,85 @@ impl PluginSandbox {
         function: &str,
         _args: Option<Vec<i32>>,
     ) -> Result<ExecutionResult, AppError> {
-        let mut plugins = self.plugins.lock().await;
-        let plugin = plugins
-            .iter_mut()
-            .find(|p| p.id == id)
-            .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
-        if plugin.status == PluginStatus::Disabled {
-            return Err(AppError::BadRequest(format!("Plugin {} is disabled", id)));
+        // feature `wasm` 关闭时无法执行字节码，返回稳定错误
+        #[cfg(not(feature = "wasm"))]
+        {
+            let _ = (id, function);
+            return Err(AppError::ServiceUnavailable(
+                "WASM execution disabled (feature `wasm` is off)".to_string(),
+            ));
         }
-        plugin.status = PluginStatus::Running;
-        let config = plugin.config.clone();
-        let wasm_bytes = plugin.wasm_bytes.clone();
-        let function_name = function.to_string();
-        drop(plugins);
-
-        let sandbox = WasmSandbox::new(&config)?;
-        let fuel_limit = 1_000_000;
-        let start = std::time::Instant::now();
-        let result = tokio::task::spawn_blocking(move || {
-            sandbox.execute(&wasm_bytes, &function_name, fuel_limit)
-        })
-        .await
-        .map_err(|e| AppError::internal(format!("WASM task failed: {}", e)))?;
-
-        let elapsed_ms = start.elapsed().as_millis() as u64;
-
-        let mut plugins = self.plugins.lock().await;
-        if let Some(plugin) = plugins.iter_mut().find(|p| p.id == id) {
-            plugin.status = match &result {
-                Ok(_) => PluginStatus::Loaded,
-                Err(e) => PluginStatus::Error(e.to_string()),
-            };
-            plugin.last_executed_at = Some(Utc::now());
-            plugin.metrics.total_executions += 1;
-            plugin.metrics.last_execution_ms = elapsed_ms;
-            if elapsed_ms > plugin.metrics.max_execution_ms {
-                plugin.metrics.max_execution_ms = elapsed_ms;
+        #[cfg(feature = "wasm")]
+        {
+            let mut plugins = self.plugins.lock().await;
+            let plugin = plugins
+                .iter_mut()
+                .find(|p| p.id == id)
+                .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
+            if plugin.status == PluginStatus::Disabled {
+                return Err(AppError::BadRequest(format!("Plugin {} is disabled", id)));
             }
-            if elapsed_ms < plugin.metrics.min_execution_ms {
-                plugin.metrics.min_execution_ms = elapsed_ms;
-            }
-            plugin.metrics.avg_execution_ms =
-                if plugin.metrics.successful_executions + plugin.metrics.failed_executions > 0 {
+            plugin.status = PluginStatus::Running;
+            let config = plugin.config.clone();
+            let wasm_bytes = plugin.wasm_bytes.clone();
+            let function_name = function.to_string();
+            drop(plugins);
+
+            let sandbox = WasmSandbox::new(&config)?;
+            let fuel_limit = 1_000_000;
+            let start = std::time::Instant::now();
+            let result = tokio::task::spawn_blocking(move || {
+                sandbox.execute(&wasm_bytes, &function_name, fuel_limit)
+            })
+            .await
+            .map_err(|e| AppError::internal(format!("WASM task failed: {}", e)))?;
+
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+
+            let mut plugins = self.plugins.lock().await;
+            if let Some(plugin) = plugins.iter_mut().find(|p| p.id == id) {
+                plugin.status = match &result {
+                    Ok(_) => PluginStatus::Loaded,
+                    Err(e) => PluginStatus::Error(e.to_string()),
+                };
+                plugin.last_executed_at = Some(Utc::now());
+                plugin.metrics.total_executions += 1;
+                plugin.metrics.last_execution_ms = elapsed_ms;
+                if elapsed_ms > plugin.metrics.max_execution_ms {
+                    plugin.metrics.max_execution_ms = elapsed_ms;
+                }
+                if elapsed_ms < plugin.metrics.min_execution_ms {
+                    plugin.metrics.min_execution_ms = elapsed_ms;
+                }
+                plugin.metrics.avg_execution_ms = if plugin.metrics.successful_executions
+                    + plugin.metrics.failed_executions
+                    > 0
+                {
                     (plugin.metrics.avg_execution_ms * (plugin.metrics.total_executions - 1) as f64
                         + elapsed_ms as f64)
                         / plugin.metrics.total_executions as f64
                 } else {
                     elapsed_ms as f64
                 };
-            match &result {
-                Ok(_) => {
-                    plugin.metrics.successful_executions += 1;
-                    plugin.last_error = None;
-                }
-                Err(e) => {
-                    plugin.metrics.failed_executions += 1;
-                    plugin.last_error = Some(e.to_string());
+                match &result {
+                    Ok(_) => {
+                        plugin.metrics.successful_executions += 1;
+                        plugin.last_error = None;
+                    }
+                    Err(e) => {
+                        plugin.metrics.failed_executions += 1;
+                        plugin.last_error = Some(e.to_string());
+                    }
                 }
             }
-        }
 
-        match result {
-            Ok(output) => Ok(ExecutionResult {
-                output,
-                execution_ms: elapsed_ms,
-                fuel_used: 0,
-            }),
-            Err(e) => Err(e),
+            match result {
+                Ok(output) => Ok(ExecutionResult {
+                    output,
+                    execution_ms: elapsed_ms,
+                }),
+                Err(e) => Err(e),
+            }
         }
     }
 
@@ -466,7 +569,6 @@ impl PluginSandbox {
 pub struct ExecutionResult {
     pub output: Vec<u8>,
     pub execution_ms: u64,
-    pub fuel_used: u64,
 }
 
 impl ExecutionResult {

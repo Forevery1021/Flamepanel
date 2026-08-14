@@ -18,6 +18,7 @@
             variant="ghost"
             icon="oi oi-refresh"
             :loading="reloading"
+            :aria-label="t('common.refresh')"
             :title="t('common.refresh')"
             @click="doReload"
           />

@@ -1,52 +1,76 @@
 <template>
   <div class="view-container">
     <div class="page-toolbar">
-      <FpButton variant="primary" icon="oi oi-plus" @click="openCreate">
+      <div class="toolbar-left">
+        <FpInput
+          v-model="searchText"
+          :placeholder="t('common.searchPlaceholder')"
+          class="toolbar-search"
+        />
+        <FpSelect
+          v-model="statusFilter"
+          :options="statusOptions"
+          option-label="label"
+          option-value="value"
+          show-clear
+          class="toolbar-filter"
+        />
+      </div>
+      <FpButton v-permission="{ perm: 'website:create', mode: 'view' }" variant="primary" icon="oi oi-plus" @click="openCreate">
         {{ t('website.create') }}
       </FpButton>
     </div>
 
     <div class="panel">
-      <FpTable
-        :rows="websites"
+      <FpStatePanel
         :loading="loading"
-        :empty-text="t('common.noData')"
-        :first="(currentPage - 1) * pageSize"
-        striped-rows
+        :error="websitesError"
+        :empty="!total && !loading && !websitesError"
+        retryable
+        :empty-title="t('common.noData')"
+        @retry="fetch"
       >
-        <Column field="id" :header="t('website.id')" style="width: 60px" />
-        <Column field="name" :header="t('website.name')" />
-        <Column field="domain" :header="t('website.domain')" />
-        <Column field="root_path" :header="t('website.rootPath')" />
-        <Column field="node_id" :header="t('website.nodeId')" style="width: 80px" />
-        <Column :header="t('website.status')" style="width: 100px">
-          <template #body="{ data }">
-            <FpTag :severity="data.status === 'active' ? 'success' : 'info'">
-              {{ data.status === 'active' ? t('website.active') : t('website.inactive') }}
-            </FpTag>
-          </template>
-        </Column>
-        <Column field="created_at" :header="t('website.createdAt')" style="width: 180px" />
-        <Column :header="t('common.operation')" style="width: 260px" frozen>
-          <template #body="{ data }">
-            <div class="row-actions">
-              <FpButton variant="link" @click="handleEdit(data)">{{ t('common.edit') }}</FpButton>
-              <FpButton variant="link" @click="openSwitchEngine(data)">{{
-                t('website.switchEngine')
-              }}</FpButton>
-              <FpButton variant="link" @click="confirmDelete(data)">{{ t('common.delete') }}</FpButton>
-            </div>
-          </template>
-        </Column>
-      </FpTable>
-      <Paginator
-        v-if="total > pageSize"
-        :first="(currentPage - 1) * pageSize"
-        :rows="pageSize"
-        :total-records="total"
-        :rows-per-page-options="[20, 50, 100]"
-        @update:first="(f) => goPage(f)"
-      />
+        <FpTable
+          :rows="filteredWebsites"
+          :loading="loading"
+          :empty-text="t('common.noData')"
+          :first="(currentPage - 1) * pageSize"
+          striped-rows
+        >
+          <FpColumn field="id" :header="t('website.id')" style="width: 60px" />
+          <FpColumn field="name" :header="t('website.name')" />
+          <FpColumn field="domain" :header="t('website.domain')" />
+          <FpColumn field="root_path" :header="t('website.rootPath')" />
+          <FpColumn field="node_id" :header="t('website.nodeId')" style="width: 80px" />
+          <FpColumn :header="t('website.status')" style="width: 100px">
+            <template #body="{ data }">
+              <FpTag :severity="data.status === 'active' ? 'success' : 'info'">
+                {{ data.status === 'active' ? t('website.active') : t('website.inactive') }}
+              </FpTag>
+            </template>
+          </FpColumn>
+          <FpColumn field="created_at" :header="t('website.createdAt')" style="width: 180px" />
+          <FpColumn :header="t('common.operation')" style="width: 260px" frozen>
+            <template #body="{ data }">
+              <div class="row-actions">
+                <FpButton v-permission="{ perm: 'website:update', mode: 'view' }" variant="link" @click="handleEdit(data)">{{ t('common.edit') }}</FpButton>
+                <FpButton v-permission="{ perm: 'website:update', mode: 'view' }" variant="link" @click="openSwitchEngine(data)">{{
+                  t('website.switchEngine')
+                }}</FpButton>
+                <FpButton v-permission="{ perm: 'website:delete', mode: 'view' }" variant="link" @click="confirmDelete(data)">{{ t('common.delete') }}</FpButton>
+              </div>
+            </template>
+          </FpColumn>
+        </FpTable>
+        <FpPagination
+          v-if="total > pageSize"
+          :first="(currentPage - 1) * pageSize"
+          :rows="pageSize"
+          :total="total"
+          :rows-per-page-options="[20, 50, 100]"
+          @update:first="(f) => goPage(f)"
+        />
+      </FpStatePanel>
     </div>
 
     <FpModal v-model="showCreate" :header="t('website.create')" style="width: 500px">
@@ -56,7 +80,7 @@
         <FpInput v-model="form.root_path" :label="t('website.rootPath')" />
         <div class="field-col">
           <label class="field-label">{{ t('website.nodeId') }}</label>
-          <InputNumber v-model="form.node_id" :min="1" class="w-full" />
+          <FpNumber v-model="form.node_id" :min="1" class="w-full" />
         </div>
         <FpSelect
           v-model="form.engine"
@@ -67,11 +91,11 @@
         />
         <div class="field-col field-row">
           <label class="field-label">{{ t('website.sslEnabled') }}</label>
-          <ToggleSwitch v-model="form.ssl_enabled" />
+          <FpSwitch v-model="form.ssl_enabled" />
         </div>
         <div class="field-col field-row">
           <label class="field-label">{{ t('website.proxyEnabled') }}</label>
-          <ToggleSwitch v-model="form.proxy_enabled" />
+          <FpSwitch v-model="form.proxy_enabled" />
         </div>
         <FpInput v-if="form.proxy_enabled" v-model="form.proxy_pass" :label="t('website.proxyPass')" />
       </div>
@@ -90,7 +114,7 @@
         <FpInput v-model="editForm.root_path" :label="t('website.rootPath')" />
         <div class="field-col">
           <label class="field-label">{{ t('website.nodeId') }}</label>
-          <InputNumber v-model="editForm.node_id" :min="1" class="w-full" />
+          <FpNumber v-model="editForm.node_id" :min="1" class="w-full" />
         </div>
         <FpSelect
           v-model="editForm.engine"
@@ -101,11 +125,11 @@
         />
         <div class="field-col field-row">
           <label class="field-label">{{ t('website.sslEnabled') }}</label>
-          <ToggleSwitch v-model="editForm.ssl_enabled" />
+          <FpSwitch v-model="editForm.ssl_enabled" />
         </div>
         <div class="field-col field-row">
           <label class="field-label">{{ t('website.proxyEnabled') }}</label>
-          <ToggleSwitch v-model="editForm.proxy_enabled" />
+          <FpSwitch v-model="editForm.proxy_enabled" />
         </div>
         <FpInput
           v-if="editForm.proxy_enabled"
@@ -142,12 +166,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Column from 'openvue/column'
-import Paginator from 'openvue/paginator'
-import InputNumber from 'openvue/inputnumber'
-import ToggleSwitch from 'openvue/toggleswitch'
+
+
+
+
 import { listWebsites, createWebsite, updateWebsite, deleteWebsite, switchWebsiteEngine } from '@/api/websites'
 import { listEngines } from '@/api/webServers'
 import type { Website, EngineInfo } from '@/types'
@@ -159,16 +183,21 @@ import FpButton from '@/components/ui/FpButton.vue'
 import FpTag from '@/components/ui/FpTag.vue'
 import { useFpToast } from '@/components/ui/FpToast'
 import { useFpConfirm } from '@/components/ui/FpConfirm'
+import FpColumn from '@/components/ui/FpColumn.vue'
+import FpNumber from '@/components/ui/FpNumber.vue'
+import FpPagination from '@/components/ui/FpPagination.vue'
+import FpStatePanel from '@/components/ui/FpStatePanel.vue'
+import FpSwitch from '@/components/ui/FpSwitch.vue'
+import { useApiQuery } from '@/composables/useApiQuery'
+import { queryKeys } from '@/api/queryKeys'
+import type { Page } from '@/api/generated'
 
 const { t } = useI18n()
 const toast = useFpToast()
 const { confirmAction } = useFpConfirm()
 
-const websites = ref<Website[]>([])
-const loading = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(20)
-const total = ref(0)
 const showCreate = ref(false)
 const editVisible = ref(false)
 const submitting = ref(false)
@@ -204,20 +233,47 @@ const engineOptions = [
   { label: 'caddy', value: 'caddy' },
 ]
 
-async function fetch() {
-  loading.value = true
-  try {
+// Modernization M2：分页走统一数据获取层，切换页保留上一页数据（keepPreviousData）
+const websitesQuery = useApiQuery<Page<Website>>(
+  () => queryKeys.websites.list(currentPage.value, pageSize.value),
+  async () => {
     const res = await listWebsites(currentPage.value, pageSize.value)
-    websites.value = res.data.data
-    total.value = res.data.total
-  } finally {
-    loading.value = false
-  }
+    return { data: res.data }
+  },
+  { keepPrevious: true },
+)
+const websites = computed<Page<Website>['data']>(() => websitesQuery.data.value?.data ?? [])
+const total = computed(() => websitesQuery.data.value?.total ?? 0)
+const loading = websitesQuery.loading
+const websitesError = websitesQuery.error
+
+// M9：搜索 + 状态筛选（当前页客户端过滤）
+const searchText = ref('')
+const statusFilter = ref<string>('')
+const statusOptions = computed(() => [
+  { label: t('website.active'), value: 'active' },
+  { label: t('website.inactive'), value: 'inactive' },
+])
+const filteredWebsites = computed(() => {
+  const kw = searchText.value.trim().toLowerCase()
+  return websites.value.filter((w) => {
+    if (statusFilter.value && w.status !== statusFilter.value) return false
+    if (!kw) return true
+    return (
+      w.name.toLowerCase().includes(kw) ||
+      w.domain.toLowerCase().includes(kw) ||
+      w.root_path.toLowerCase().includes(kw)
+    )
+  })
+})
+
+async function fetch() {
+  await websitesQuery.refresh()
 }
 
 function goPage(first: number) {
   currentPage.value = first / pageSize.value + 1
-  fetch()
+  void fetch()
 }
 
 function openCreate() {
@@ -362,21 +418,27 @@ async function handleSwitchEngine() {
     submitting.value = false
   }
 }
-
-onMounted(fetch)
 </script>
 
 <style scoped>
 .page-toolbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--fp-space-3);
   margin-bottom: var(--fp-space-4);
 }
-.panel {
-  padding: var(--fp-space-4);
-  border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
-  border: 1px solid var(--fp-border);
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-2);
+  flex-wrap: wrap;
+}
+.toolbar-search {
+  width: 240px;
+}
+.toolbar-filter {
+  width: 160px;
 }
 .row-actions {
   display: flex;

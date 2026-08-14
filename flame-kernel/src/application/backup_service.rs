@@ -25,6 +25,7 @@ impl BackupService {
     }
 
     /// 创建备份：复制当前数据库文件到备份目录（时间戳命名）
+    /// 安全：备份文件权限收紧为 600（仅属主可读写，防其他用户读取数据库内容）
     pub async fn create_backup(&self) -> Result<BackupEntry, AppError> {
         if !self.db_path.exists() {
             return Err(AppError::NotFound(format!(
@@ -38,6 +39,12 @@ impl BackupService {
         let filename = format!("flamepanel-{stamp}.db");
         let target = self.backup_dir.join(&filename);
         std::fs::copy(&self.db_path, &target)?;
+        // 备份文件权限 600：仅属主可读（数据库含用户/密码哈希等敏感数据）
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600));
+        }
 
         tracing::info!(
             "Backup created: {} -> {}",
@@ -92,6 +99,8 @@ impl BackupService {
     }
 
     /// 恢复备份：用备份文件覆盖当前数据库（需重启面板生效）
+    /// 安全：恢复前自动为当前数据库创建一次二次备份（`pre-restore-*`），
+    /// 防止恢复失败/误操作导致数据不可逆丢失。
     pub async fn restore_backup(&self, filename: &str) -> Result<(), AppError> {
         let backup = self.get_backup_path(filename).await?;
         if !self.db_path.exists() {
@@ -100,6 +109,18 @@ impl BackupService {
                 self.db_path.display()
             )));
         }
+        // 恢复前二次备份当前库
+        let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+        let pre_name = format!("pre-restore-{stamp}.db");
+        let pre_path = self.backup_dir.join(&pre_name);
+        std::fs::copy(&self.db_path, &pre_path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&pre_path, std::fs::Permissions::from_mode(0o600));
+        }
+        tracing::warn!("Pre-restore safety backup created: {}", pre_path.display());
+
         std::fs::copy(&backup, &self.db_path)?;
         tracing::warn!("Database restored from backup {filename}; restart required");
         Ok(())

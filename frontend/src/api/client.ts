@@ -1,4 +1,5 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
+import { STORAGE_KEYS } from '@/utils/storage'
 import { refreshToken } from './auth'
 
 /** 后端统一错误响应（见 flame-kernel/src/core/error.rs） */
@@ -8,17 +9,26 @@ export interface ApiError {
   status: number
 }
 
+/** 需要强制修改密码的错误码（后端登录/鉴权返回） */
+export const PASSWORD_CHANGE_REQUIRED = 'PASSWORD_CHANGE_REQUIRED'
+
 const api = axios.create({
   baseURL: '/api',
   timeout: 15000,
 })
 
-const TOKEN_KEYS = ['token', 'username', 'role'] as const
+const TOKEN_KEYS = [
+  STORAGE_KEYS.token,
+  STORAGE_KEYS.refreshToken,
+  STORAGE_KEYS.username,
+  STORAGE_KEYS.role,
+] as const
 
-function persistAuth(token: string, username?: string, role?: string) {
-  localStorage.setItem('token', token)
-  if (username !== undefined) localStorage.setItem('username', username)
-  if (role !== undefined) localStorage.setItem('role', role)
+function persistAuth(token: string, refreshToken?: string, username?: string, role?: string) {
+  localStorage.setItem(STORAGE_KEYS.token, token)
+  if (refreshToken !== undefined) localStorage.setItem(STORAGE_KEYS.refreshToken, refreshToken)
+  if (username !== undefined) localStorage.setItem(STORAGE_KEYS.username, username)
+  if (role !== undefined) localStorage.setItem(STORAGE_KEYS.role, role)
 }
 
 function clearAuth() {
@@ -28,8 +38,20 @@ function clearAuth() {
   }
 }
 
+/** 是否为无网络/超时等非 HTTP 错误（断网、CORS、服务未启动） */
+export function isNetworkError(e: unknown): boolean {
+  const err = e as { isAxiosError?: boolean; code?: string; response?: unknown } | null
+  return Boolean(
+    err?.isAxiosError &&
+      (!err.response ||
+        err.code === 'ECONNABORTED' ||
+        err.code === 'ERR_NETWORK' ||
+        err.code === 'ERR_CANCELED'),
+  )
+}
+
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem(STORAGE_KEYS.token)
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -43,7 +65,7 @@ async function doRefresh(): Promise<string | null> {
   try {
     const res = await refreshToken()
     const token = res.data.token
-    persistAuth(token, res.data.username, res.data.role)
+    persistAuth(token, res.data.refresh_token, res.data.username, res.data.role)
     return token
   } catch {
     clearAuth()
@@ -89,6 +111,11 @@ api.interceptors.response.use(
       normalized.message = data.message || error.message
       normalized.status = error.response?.status ?? 0
       return Promise.reject(normalized)
+    }
+
+    // 无 HTTP 响应（断网/超时/服务未启动）——保留 AxiosError，isNetworkError 可识别
+    if (!error.response) {
+      return Promise.reject(error)
     }
 
     return Promise.reject(error)

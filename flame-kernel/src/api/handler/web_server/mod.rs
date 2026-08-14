@@ -89,6 +89,7 @@ pub async fn create(
         binary_path: req.binary_path.clone(),
         port: req.port.unwrap_or(engine.default_port() as i32),
         created_at: Utc::now(),
+        resource_version: 0,
     };
     let id = state.web_server_service.create_server(&instance).await?;
     let created = state.web_server_service.get_server(id).await?;
@@ -101,6 +102,11 @@ pub async fn update(
     ApiJson(req): ApiJson<serde_json::Value>,
 ) -> Result<Json<WebServerResponse>, AppError> {
     let mut server = state.web_server_service.get_server(id).await?;
+    // 乐观并发控制：请求携带的 resource_version 作为客户端基准版本；
+    // 未携带时使用当前版本（保持向后兼容），冲突返回稳定 `CONFLICT`。
+    if let Some(version) = req.get("resource_version").and_then(|v| v.as_i64()) {
+        server.resource_version = version;
+    }
     if let Some(engine) = req.get("engine").and_then(|v| v.as_str()) {
         server.engine = engine.to_string();
     }
@@ -212,6 +218,7 @@ fn to_response(instance: WebServerInstance) -> WebServerResponse {
         binary_path: instance.binary_path,
         port: instance.port,
         created_at: instance.created_at.to_rfc3339(),
+        resource_version: instance.resource_version,
     }
 }
 
@@ -382,31 +389,34 @@ pub fn routes() -> Router<AppState> {
         .route("/api/web-servers/engines", axum::routing::get(list_engines))
         .route("/api/web-servers", axum::routing::get(list))
         .route("/api/web-servers", axum::routing::post(create))
-        .route("/api/web-servers/:id", axum::routing::get(get))
-        .route("/api/web-servers/:id", axum::routing::put(update))
-        .route("/api/web-servers/:id", axum::routing::delete(delete))
-        .route("/api/web-servers/:id/start", axum::routing::post(start))
-        .route("/api/web-servers/:id/stop", axum::routing::post(stop))
-        .route("/api/web-servers/:id/restart", axum::routing::post(restart))
-        .route("/api/web-servers/:id/reload", axum::routing::post(reload))
+        .route("/api/web-servers/{id}", axum::routing::get(get))
+        .route("/api/web-servers/{id}", axum::routing::put(update))
+        .route("/api/web-servers/{id}", axum::routing::delete(delete))
+        .route("/api/web-servers/{id}/start", axum::routing::post(start))
+        .route("/api/web-servers/{id}/stop", axum::routing::post(stop))
         .route(
-            "/api/web-servers/:id/configtest",
+            "/api/web-servers/{id}/restart",
+            axum::routing::post(restart),
+        )
+        .route("/api/web-servers/{id}/reload", axum::routing::post(reload))
+        .route(
+            "/api/web-servers/{id}/configtest",
             axum::routing::post(config_test),
         )
         .route(
-            "/api/web-servers/:id/config",
+            "/api/web-servers/{id}/config",
             axum::routing::get(get_config),
         )
         .route(
-            "/api/web-servers/:id/config",
+            "/api/web-servers/{id}/config",
             axum::routing::post(update_config),
         )
         .route(
-            "/api/web-servers/:id/switch-engine",
+            "/api/web-servers/{id}/switch-engine",
             axum::routing::post(switch_engine),
         )
         .route(
-            "/api/web-servers/:id/preset",
+            "/api/web-servers/{id}/preset",
             axum::routing::post(apply_preset),
         )
         .route("/api/web-servers/presets", axum::routing::get(list_presets))
@@ -427,11 +437,11 @@ pub fn routes() -> Router<AppState> {
             axum::routing::post(native_autostart),
         )
         .route(
-            "/api/web-servers/:id/autostart",
+            "/api/web-servers/{id}/autostart",
             axum::routing::post(set_autostart),
         )
         .route(
-            "/api/web-servers/:id/native-status",
+            "/api/web-servers/{id}/native-status",
             axum::routing::get(native_status),
         )
 }

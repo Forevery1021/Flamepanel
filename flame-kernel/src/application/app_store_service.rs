@@ -6,16 +6,15 @@ use std::sync::Arc;
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::application::app_store_ports::{
+    AppAdapterProvider, ComposeSecurityScanner, PackageManagerPort, ServiceManagerPort,
+    VariableMapperFactory,
+};
 use crate::application::service::{DatabaseService, DockerService, WebServerService};
 use crate::core::error::AppError;
 use crate::database::{MySqlManager, RedisManager};
 use crate::domain::entity::*;
 use crate::domain::repository::*;
-use crate::infrastructure::app_store::adapter::flame::FlameAdapter;
-use crate::infrastructure::app_store::{
-    ensure_restart_policy, scan_compose, select_adapter, VariableMapper,
-};
-use crate::infrastructure::os::{PackageManager, ServiceManager};
 use crate::plugin::{PluginConfig, PluginRegistry, PluginSandbox};
 use crate::webserver::WebServerEngine;
 
@@ -33,11 +32,21 @@ pub struct AppStoreService {
     pub plugin_registry: Arc<PluginRegistry>,
     pub plugin_repo: Arc<dyn PluginRepository>,
     pub apps_dir: PathBuf,
-    pub package_manager: PackageManager,
-    pub service_manager: ServiceManager,
+    pub package_manager: Arc<dyn PackageManagerPort>,
+    pub service_manager: Arc<dyn ServiceManagerPort>,
     pub mysql_manager: MySqlManager,
     pub redis_manager: RedisManager,
     pub event_bus: crate::event::EventBus,
+    /// 适配器选择端口（应用包格式识别）
+    pub adapter_provider: Arc<dyn AppAdapterProvider>,
+    /// Compose 安全扫描端口
+    pub security_scanner: Arc<dyn ComposeSecurityScanner>,
+    /// 变量映射工厂端口
+    pub variable_mapper_factory: Arc<dyn VariableMapperFactory>,
+    /// 统一 Task 状态机跟踪器（Phase B1：安装/引擎切换/批量节点共用）
+    pub task_tracker: crate::runtime::task_state::TaskTracker,
+    /// 特权命令执行端口（Phase A1 收尾：通用原生脚本等剩余直接命令路径统一收敛）
+    pub runner: crate::application::execution_mode::SharedCommandRunner,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -50,10 +59,151 @@ pub struct InstallRequest {
     pub container_name: Option<String>,
     pub values: HashMap<String, String>,
     /// 用户确认已知晓安全风险
+    #[serde(default)]
     pub confirm_risky: bool,
+    /// 安装包含原生脚本（native_scripts）时，需用户显式确认执行第三方脚本。
+    #[serde(default)]
+    pub acknowledge_scripts: bool,
 }
 
 impl AppStoreService {
+    /// 完整构造：注入全部端口（组合根负责创建具体适配器并注入）。
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_ports(
+        package_repo: Arc<dyn AppPackageRepository>,
+        installed_repo: Arc<dyn InstalledAppRepository>,
+        docker_service: Arc<DockerService>,
+        web_server_service: Arc<WebServerService>,
+        database_service: Arc<DatabaseService>,
+        plugin_sandbox: Arc<PluginSandbox>,
+        plugin_registry: Arc<PluginRegistry>,
+        plugin_repo: Arc<dyn PluginRepository>,
+        apps_dir: PathBuf,
+        event_bus: crate::event::EventBus,
+        adapter_provider: Arc<dyn AppAdapterProvider>,
+        security_scanner: Arc<dyn ComposeSecurityScanner>,
+        variable_mapper_factory: Arc<dyn VariableMapperFactory>,
+        package_manager: Arc<dyn PackageManagerPort>,
+        service_manager: Arc<dyn ServiceManagerPort>,
+        runner: crate::application::execution_mode::SharedCommandRunner,
+    ) -> Self {
+        Self::with_ports_and_task_store(
+            package_repo,
+            installed_repo,
+            docker_service,
+            web_server_service,
+            database_service,
+            plugin_sandbox,
+            plugin_registry,
+            plugin_repo,
+            apps_dir,
+            event_bus,
+            adapter_provider,
+            security_scanner,
+            variable_mapper_factory,
+            package_manager,
+            service_manager,
+            runner,
+            None,
+        )
+    }
+
+    /// 完整构造 + 注入统一 Task 状态机持久化存储（Phase B1 扩展：进程重启可恢复）。
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_ports_and_task_store(
+        package_repo: Arc<dyn AppPackageRepository>,
+        installed_repo: Arc<dyn InstalledAppRepository>,
+        docker_service: Arc<DockerService>,
+        web_server_service: Arc<WebServerService>,
+        database_service: Arc<DatabaseService>,
+        plugin_sandbox: Arc<PluginSandbox>,
+        plugin_registry: Arc<PluginRegistry>,
+        plugin_repo: Arc<dyn PluginRepository>,
+        apps_dir: PathBuf,
+        event_bus: crate::event::EventBus,
+        adapter_provider: Arc<dyn AppAdapterProvider>,
+        security_scanner: Arc<dyn ComposeSecurityScanner>,
+        variable_mapper_factory: Arc<dyn VariableMapperFactory>,
+        package_manager: Arc<dyn PackageManagerPort>,
+        service_manager: Arc<dyn ServiceManagerPort>,
+        runner: crate::application::execution_mode::SharedCommandRunner,
+        task_store: Option<crate::runtime::task_state::TaskStoreRef>,
+    ) -> Self {
+        let task_tracker = match task_store {
+            Some(store) => crate::runtime::task_state::TaskTracker::with_store(store),
+            None => crate::runtime::task_state::TaskTracker::new(),
+        };
+        Self::with_ports_and_shared_tracker(
+            package_repo,
+            installed_repo,
+            docker_service,
+            web_server_service,
+            database_service,
+            plugin_sandbox,
+            plugin_registry,
+            plugin_repo,
+            apps_dir,
+            event_bus,
+            adapter_provider,
+            security_scanner,
+            variable_mapper_factory,
+            package_manager,
+            service_manager,
+            runner,
+            task_tracker,
+        )
+    }
+
+    /// 注入共享的统一 Task 状态机跟踪器（Phase B1 扩展：多服务共享同一 tracker，供前端统一查询/取消）。
+    ///
+    /// `TaskTracker` 内部为 `Arc`，多个服务 Clone 同一实例即共享同一任务集合。
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_ports_and_shared_tracker(
+        package_repo: Arc<dyn AppPackageRepository>,
+        installed_repo: Arc<dyn InstalledAppRepository>,
+        docker_service: Arc<DockerService>,
+        web_server_service: Arc<WebServerService>,
+        database_service: Arc<DatabaseService>,
+        plugin_sandbox: Arc<PluginSandbox>,
+        plugin_registry: Arc<PluginRegistry>,
+        plugin_repo: Arc<dyn PluginRepository>,
+        apps_dir: PathBuf,
+        event_bus: crate::event::EventBus,
+        adapter_provider: Arc<dyn AppAdapterProvider>,
+        security_scanner: Arc<dyn ComposeSecurityScanner>,
+        variable_mapper_factory: Arc<dyn VariableMapperFactory>,
+        package_manager: Arc<dyn PackageManagerPort>,
+        service_manager: Arc<dyn ServiceManagerPort>,
+        runner: crate::application::execution_mode::SharedCommandRunner,
+        task_tracker: crate::runtime::task_state::TaskTracker,
+    ) -> Self {
+        Self {
+            package_repo,
+            installed_repo,
+            docker_service,
+            web_server_service,
+            database_service,
+            plugin_sandbox,
+            plugin_registry,
+            plugin_repo,
+            apps_dir,
+            package_manager,
+            service_manager,
+            mysql_manager: MySqlManager::new(runner.clone()),
+            redis_manager: RedisManager::new(runner.clone()),
+            event_bus,
+            adapter_provider,
+            security_scanner,
+            variable_mapper_factory,
+            task_tracker,
+            runner,
+        }
+    }
+
+    /// 便捷构造：注入默认端口实现（测试、兼容入口使用）。
+    ///
+    /// 生产组合根建议使用 `with_ports` 显式注入全部端口（六边形落地）；
+    /// 默认端口实现由 `crate::infrastructure::app_store::default_ports` 提供。
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         package_repo: Arc<dyn AppPackageRepository>,
@@ -66,8 +216,9 @@ impl AppStoreService {
         plugin_repo: Arc<dyn PluginRepository>,
         apps_dir: PathBuf,
         event_bus: crate::event::EventBus,
+        ports: crate::application::app_store_ports::DefaultAppStorePorts,
     ) -> Self {
-        Self {
+        Self::with_ports(
             package_repo,
             installed_repo,
             docker_service,
@@ -77,12 +228,14 @@ impl AppStoreService {
             plugin_registry,
             plugin_repo,
             apps_dir,
-            package_manager: PackageManager,
-            service_manager: ServiceManager,
-            mysql_manager: MySqlManager::new(),
-            redis_manager: RedisManager::new(),
             event_bus,
-        }
+            ports.adapter_provider,
+            ports.security_scanner,
+            ports.variable_mapper_factory,
+            ports.package_manager,
+            ports.service_manager,
+            ports.runner,
+        )
     }
 
     /// 内置应用目录：`data/apps`
@@ -90,9 +243,9 @@ impl AppStoreService {
         PathBuf::from("data/apps")
     }
 
-    /// 幂等种子：将内置 5 个应用写入包仓库
+    /// 幂等种子：将内置 5 个应用写入包仓库（Phase A2 扩展：统一接入 `set_many` 事务语义，批量原子写）
     pub async fn seed_builtin_apps(&self) -> Result<usize, AppError> {
-        let mut count = 0;
+        let mut to_write = Vec::new();
         for manifest in crate::domain::entity::builtin_apps() {
             if self
                 .package_repo
@@ -102,7 +255,7 @@ impl AppStoreService {
             {
                 continue;
             }
-            let metadata = FlameAdapter::builtin_metadata(&manifest);
+            let metadata = manifest.to_metadata();
             let pkg = AppPackage {
                 id: 0,
                 key: metadata.key.clone(),
@@ -117,10 +270,9 @@ impl AppStoreService {
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             };
-            self.package_repo.create(&pkg).await?;
-            count += 1;
+            to_write.push(pkg);
         }
-        Ok(count)
+        self.package_repo.create_many(&to_write).await
     }
 
     pub async fn list_packages(
@@ -156,11 +308,46 @@ impl AppStoreService {
 
     /// 导入本地目录应用包（自动检测格式）
     pub async fn import_package(&self, path: &str) -> Result<AppMetadata, AppError> {
+        let pkg = self.prepare_import_package(path).await?;
+        let key = pkg.key.clone();
+        self.package_repo.create(&pkg).await?;
+        self.get_metadata(&key).await
+    }
+
+    /// 批量导入本地目录应用包（Phase A2 扩展：对外批量写端点，`create_many` 事务语义）。
+    ///
+    /// 一次性解析全部目录，任一已存在或非法目录则整体失败（不落库，保持原子性）；
+    /// 全部通过后用 `create_many` 原子写（SQLite 事务 / InMemory 单锁，要么全成功要么全回滚）。
+    pub async fn batch_import_packages(
+        &self,
+        paths: &[String],
+    ) -> Result<Vec<AppMetadata>, AppError> {
+        if paths.is_empty() {
+            return Err(AppError::BadRequest("导入路径列表不能为空".into()));
+        }
+        let mut prepared: Vec<AppPackage> = Vec::with_capacity(paths.len());
+        for path in paths {
+            let pkg = self.prepare_import_package(path).await?;
+            prepared.push(pkg);
+        }
+        // 全部解析成功后才原子落库
+        self.package_repo.create_many(&prepared).await?;
+        let mut metas = Vec::with_capacity(prepared.len());
+        for pkg in prepared {
+            if let Ok(m) = serde_json::from_str::<AppMetadata>(&pkg.metadata_json) {
+                metas.push(m);
+            }
+        }
+        Ok(metas)
+    }
+
+    /// 解析并复制单个本地目录为 `AppPackage`（不落库；已存在 / 非法目录返回错误）。
+    async fn prepare_import_package(&self, path: &str) -> Result<AppPackage, AppError> {
         let root = Path::new(path);
         if !root.is_dir() {
             return Err(AppError::BadRequest(format!("路径不是目录: {}", path)));
         }
-        let adapter = select_adapter(root)?;
+        let adapter = self.adapter_provider.select(root)?;
         let metadata = adapter.parse_metadata(root)?;
 
         // 复制到商店目录，保证独立性
@@ -195,8 +382,7 @@ impl AppStoreService {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        self.package_repo.create(&pkg).await?;
-        Ok(metadata)
+        Ok(pkg)
     }
 
     pub async fn list_versions(&self, key: &str) -> Result<Vec<String>, AppError> {
@@ -213,9 +399,12 @@ impl AppStoreService {
 
         // 内置应用
         if pkg.source_path.is_none() {
-            if let Some(manifest) = FlameAdapter::find_builtin(&pkg.key) {
+            if let Some(manifest) = crate::domain::entity::builtin_apps()
+                .into_iter()
+                .find(|m| m.key == pkg.key)
+            {
                 if version == manifest.version {
-                    return Ok(FlameAdapter::builtin_version(&manifest));
+                    return Ok(manifest.to_version());
                 }
             }
             return Err(AppError::NotFound(format!("版本不存在: {}", version)));
@@ -224,7 +413,7 @@ impl AppStoreService {
         // 导入应用：优先适配器解析
         let root = Path::new(pkg.source_path.as_deref().unwrap_or_default());
         if root.is_dir() {
-            let adapter = select_adapter(root)?;
+            let adapter = self.adapter_provider.select(root)?;
             return adapter.parse_version(root, version);
         }
 
@@ -235,6 +424,39 @@ impl AppStoreService {
     // ─── 安装编排 ────────────────────────────────────────────────────────────
 
     pub async fn install(&self, req: &InstallRequest) -> Result<InstalledApp, AppError> {
+        // 统一 Task 状态机（Phase B1）：为长耗时安装操作提供一致的进度/状态跟踪
+        let task = self.task_tracker.create(
+            crate::runtime::task_state::TaskKind::Install,
+            format!("install {}", req.package_key),
+        );
+        let task_id = task.id;
+        let _ = self
+            .task_tracker
+            .transition(task_id, crate::runtime::task_state::TaskState::Running);
+
+        let result = self.install_inner(req).await;
+        match &result {
+            Ok(_) => {
+                let _ = self
+                    .task_tracker
+                    .transition(task_id, crate::runtime::task_state::TaskState::Success);
+            }
+            Err(e) => {
+                let _ = self.task_tracker.update_progress(
+                    task_id,
+                    100,
+                    &format!("install failed: {}", e),
+                );
+                let _ = self
+                    .task_tracker
+                    .transition(task_id, crate::runtime::task_state::TaskState::Failed);
+            }
+        }
+        result
+    }
+
+    /// 安装编排本体（被 `install` 包裹以接入统一 Task 状态机）。
+    async fn install_inner(&self, req: &InstallRequest) -> Result<InstalledApp, AppError> {
         let metadata = self.get_metadata(&req.package_key).await?;
         let version = req
             .version
@@ -294,22 +516,24 @@ impl AppStoreService {
         std::fs::create_dir_all(&install_path)
             .map_err(|e| AppError::internal(format!("创建安装目录失败: {}", e)))?;
 
-        let mut mapper = VariableMapper::new(req.values.clone());
-        mapper.insert("CONTAINER_NAME", &container_name);
-        mapper.insert("NAME", &name);
+        let mut mapper = self.variable_mapper_factory.create(req.values.clone());
+        mapper.insert("CONTAINER_NAME", container_name.clone());
+        mapper.insert("NAME", name.clone());
         mapper.insert("PORT", port.to_string());
         mapper.insert("PANEL_APP_PORT_HTTP", port.to_string());
         mapper.insert("PANEL_APP_PORT_HTTPS", (port + 1).to_string());
-        mapper.insert("HOST_IP", "0.0.0.0");
+        mapper.insert("HOST_IP", "0.0.0.0".into());
         mapper.insert("APP_PATH", install_path.to_string_lossy().into_owned());
         let (rendered, warnings) = mapper.replace(&compose);
-        let rendered = ensure_restart_policy(&rendered);
+        let rendered = self.security_scanner.ensure_restart_policy(&rendered);
         if !warnings.is_empty() {
             tracing::warn!("app {} compose 变量警告: {:?}", req.package_key, warnings);
         }
 
         // 安全扫描
-        let scan = scan_compose(&rendered, req.confirm_risky);
+        let scan = self
+            .security_scanner
+            .scan_compose(&rendered, req.confirm_risky);
         if scan.has_blockers() {
             return Err(AppError::BadRequest(format!(
                 "安全扫描未通过: {}",
@@ -444,7 +668,7 @@ impl AppStoreService {
                 let engine = WebServerEngine::from_name(key)
                     .ok_or_else(|| AppError::BadRequest(format!("未知 Web 引擎: {}", key)))?;
                 let pkg = engine.package_name();
-                PackageManager::install(pkg).await?;
+                self.package_manager.install(pkg).await?;
                 let instance = WebServerInstance {
                     id: 0,
                     engine: engine.as_str().into(),
@@ -454,6 +678,7 @@ impl AppStoreService {
                     binary_path: Some(engine.binary_name().into()),
                     port: req.port.unwrap_or(engine.default_port() as i32),
                     created_at: Utc::now(),
+                    resource_version: 0,
                 };
                 self.web_server_service.create_server(&instance).await?;
                 let app = InstalledApp {
@@ -485,20 +710,44 @@ impl AppStoreService {
             _ => {
                 // 通用原生脚本安装（Flame 格式 install.sh）
                 if !version_info.native_scripts.is_empty() {
+                    // T3：带原生脚本的应用安装，须用户显式 acknowledge_scripts=true 确认执行第三方脚本。
+                    if !req.acknowledge_scripts {
+                        return Err(AppError::BadRequest(format!(
+                            "应用 {} 包含 {} 行安装脚本，必须显式 acknowledge_scripts=true 才能继续",
+                            key,
+                            version_info.native_scripts.len()
+                        )));
+                    }
+                    // 计算脚本 SHA-256 摘要，供审计（前端在确认前展示摘要）。
+                    let joined = version_info.native_scripts.join("\n");
+                    let script_sha256 = {
+                        use sha2::{Digest, Sha256};
+                        let mut hasher = Sha256::new();
+                        hasher.update(joined.as_bytes());
+                        format!("{:x}", hasher.finalize())
+                    };
                     for line in &version_info.native_scripts {
-                        let output = std::process::Command::new("sh")
-                            .arg("-c")
-                            .arg(line)
-                            .output()
-                            .map_err(|e| AppError::internal(format!("执行安装脚本失败: {}", e)))?;
-                        if !output.status.success() {
+                        // Phase A1 收尾：经统一特权命令端口执行安装脚本，杜绝面板直接 spawn `sh -c`
+                        let output = self
+                            .runner
+                            .run(&crate::application::execution_mode::PrivilegedCommand::new(
+                                "sh",
+                                vec!["-c".into(), line.clone()],
+                            ))
+                            .await?;
+                        if !output.success() {
                             return Err(AppError::internal(format!(
                                 "安装脚本执行失败: {} (line: {})",
-                                String::from_utf8_lossy(&output.stderr),
-                                line
+                                output.stderr, line
                             )));
                         }
                     }
+                    // 安装动作 + 脚本哈希写入审计事件（配合中间件写操作审计落库）。
+                    tracing::info!(
+                        "app_store install script acknowledged; sha256={} scripts={}",
+                        script_sha256,
+                        version_info.native_scripts.len()
+                    );
                 } else {
                     return Err(AppError::BadRequest(format!(
                         "应用 {} 没有可用的原生安装方式",
@@ -632,7 +881,7 @@ impl AppStoreService {
     /// 记录启动次数（常用应用排序）
     pub async fn record_launch(&self, id: i64) -> Result<InstalledApp, AppError> {
         let mut app = self.get_installed(id).await?;
-        app.launch_count += 1;
+        app.record_launch();
         self.installed_repo.update(&app).await?;
         self.get_installed(id).await
     }
@@ -651,13 +900,13 @@ impl AppStoreService {
             }
             Some(InstallMode::Native) => match app.package_key.as_str() {
                 "mysql" | "mariadb" => {
-                    let _ = PackageManager::uninstall("mysql-server").await;
+                    let _ = self.package_manager.uninstall("mysql-server").await;
                 }
                 "redis" => {
-                    let _ = PackageManager::uninstall("redis-server").await;
+                    let _ = self.package_manager.uninstall("redis-server").await;
                 }
                 _ => {
-                    let _ = PackageManager::uninstall(&app.package_key).await;
+                    let _ = self.package_manager.uninstall(&app.package_key).await;
                 }
             },
             Some(InstallMode::Wasm) => {
@@ -684,6 +933,8 @@ impl AppStoreService {
 
     pub async fn upgrade(&self, id: i64, target_version: &str) -> Result<InstalledApp, AppError> {
         let app = self.get_installed(id).await?;
+        // 领域规则：降级拒绝（行为增强，逻辑上移到领域层）；同版本保持幂等短路
+        app.can_upgrade_to(target_version)?;
         if app.version == target_version {
             return Ok(app);
         }
@@ -697,13 +948,16 @@ impl AppStoreService {
                 let mut values: HashMap<String, String> =
                     serde_json::from_str(&app.params_json).unwrap_or_default();
                 values.insert("PORT".into(), app.port.unwrap_or_default().to_string());
-                let mut mapper = VariableMapper::new(values);
+                let mut mapper = self.variable_mapper_factory.create(values);
                 mapper.insert(
                     "CONTAINER_NAME",
-                    app.container_name.as_deref().unwrap_or(&app.package_key),
+                    app.container_name
+                        .as_deref()
+                        .unwrap_or(&app.package_key)
+                        .to_string(),
                 );
                 let (rendered, _) = mapper.replace(&compose);
-                let rendered = ensure_restart_policy(&rendered);
+                let rendered = self.security_scanner.ensure_restart_policy(&rendered);
                 let install_path = Path::new(&app.install_path);
                 let compose_path = install_path.join("docker-compose.yml");
                 std::fs::write(&compose_path, &rendered)
@@ -718,11 +972,11 @@ impl AppStoreService {
                         &rendered,
                     )
                     .await?;
+                let from_version = app.version.clone();
                 let mut updated = app;
-                updated.version = target_version.into();
-                updated.status = "running".into();
-                updated.updated_at = Utc::now();
+                updated.mark_upgraded(target_version);
                 self.installed_repo.update(&updated).await?;
+                self.publish_upgraded(&updated, &from_version).await?;
                 Ok(updated)
             }
             Some(InstallMode::Native) => {
@@ -736,6 +990,7 @@ impl AppStoreService {
                     container_name: None,
                     values: serde_json::from_str(&app.params_json).unwrap_or_default(),
                     confirm_risky: true,
+                    acknowledge_scripts: true,
                 };
                 req.values.insert("force_reinstall".into(), "true".into());
                 self.uninstall(id).await?;
@@ -751,16 +1006,35 @@ impl AppStoreService {
                     .map_err(|e| AppError::BadRequest(format!("base64 解码失败: {}", e)))?;
                 let _ = self
                     .plugin_sandbox
-                    .reload_plugin(&app.name, bytes, None)
+                    .reload_plugin(&app.name, bytes, None, None)
                     .await?;
+                let from_version = app.version.clone();
                 let mut updated = app;
-                updated.version = target_version.into();
-                updated.updated_at = Utc::now();
+                updated.mark_upgraded(target_version);
                 self.installed_repo.update(&updated).await?;
+                self.publish_upgraded(&updated, &from_version).await?;
                 Ok(updated)
             }
             None => Err(AppError::BadRequest("未知安装模式".into())),
         }
+    }
+
+    /// 发布应用升级事件（原生模式走 uninstall+install，已分别发布 Uninstalled/Installed）
+    async fn publish_upgraded(
+        &self,
+        app: &InstalledApp,
+        from_version: &str,
+    ) -> Result<(), AppError> {
+        let _ = self
+            .event_bus
+            .publish(DomainEvent::AppUpgraded {
+                app_key: app.package_key.clone(),
+                app_name: app.name.clone(),
+                from: from_version.to_string(),
+                to: app.version.clone(),
+            })
+            .await;
+        Ok(())
     }
 
     pub async fn get_logs(&self, id: i64, tail: usize) -> Result<String, AppError> {
@@ -845,6 +1119,12 @@ impl AppStoreService {
             }
             match base64::engine::general_purpose::STANDARD.decode(&plugin.wasm_base64) {
                 Ok(bytes) => {
+                    // 恢复时强制校验哈希，防止磁盘上插件被篡改
+                    if let Err(e) = crate::plugin::verify_wasm_hash(&bytes, Some(&plugin.wasm_hash))
+                    {
+                        tracing::warn!("恢复 WASM 插件 {} 完整性校验失败: {}", plugin.id, e);
+                        continue;
+                    }
                     if let Err(e) = self
                         .plugin_sandbox
                         .load_plugin(&plugin.id, bytes, None)
@@ -992,12 +1272,16 @@ mod tests {
         let docker_service = Arc::new(DockerService::new(
             Arc::new(InMemoryDockerRepository::new()),
         ));
-        let ws_service = Arc::new(WebServerService::new(Arc::new(
-            InMemoryWebServerRepository::new(),
-        )));
-        let db_service = Arc::new(DatabaseService::new(Arc::new(
-            InMemoryDatabaseRepository::new(),
-        )));
+        let runner: crate::application::execution_mode::SharedCommandRunner =
+            std::sync::Arc::new(crate::infrastructure::execution::EmbeddedCommandRunner);
+        let ws_service = Arc::new(WebServerService::new(
+            Arc::new(InMemoryWebServerRepository::new()),
+            runner.clone(),
+        ));
+        let db_service = Arc::new(DatabaseService::new(
+            Arc::new(InMemoryDatabaseRepository::new()),
+            runner.clone(),
+        ));
         let sandbox = Arc::new(PluginSandbox::new());
         let registry = Arc::new(PluginRegistry::new());
         let plugin_repo: Arc<dyn PluginRepository> = Arc::new(InMemoryPluginRepository::new());
@@ -1006,6 +1290,7 @@ mod tests {
         let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!("appstore_svc_{}_{}", std::process::id(), seq));
         let _ = std::fs::remove_dir_all(&dir);
+        let ports = crate::infrastructure::app_store::default_ports(runner.clone());
         AppStoreService::new(
             pkg_repo,
             installed_repo,
@@ -1017,6 +1302,7 @@ mod tests {
             plugin_repo,
             dir,
             crate::event::EventBus::new(16),
+            ports,
         )
     }
 
@@ -1048,6 +1334,7 @@ mod tests {
             container_name: Some("wp-test-01".into()),
             values,
             confirm_risky: false,
+            acknowledge_scripts: false,
         };
         let app = svc.install(&req).await.unwrap();
         assert_eq!(app.status, "running");
@@ -1070,6 +1357,7 @@ mod tests {
             container_name: None,
             values: HashMap::new(),
             confirm_risky: false,
+            acknowledge_scripts: false,
         };
         // 内置包不包含 privileged，应能正常解析
         assert!(svc.get_version("wordpress", "6.7").await.is_ok());
@@ -1093,6 +1381,7 @@ mod tests {
             container_name: None,
             values,
             confirm_risky: false,
+            acknowledge_scripts: false,
         };
         let app = svc.install(&req).await.unwrap();
         assert_eq!(app.mode, "wasm");
@@ -1140,6 +1429,7 @@ mod tests {
             container_name: None,
             values,
             confirm_risky: false,
+            acknowledge_scripts: false,
         };
         svc.install(&req).await.unwrap();
 
@@ -1211,5 +1501,176 @@ mod tests {
         let res = SystemResources::detect();
         assert!(res.cpu_cores >= 1);
         assert!(res.memory_mb > 0);
+    }
+}
+
+#[cfg(test)]
+mod ports_tests {
+    use super::*;
+    use crate::application::app_store_ports::{
+        AppAdapterProvider, AppPackageAdapter, ComposeSecurityScanner, PackageManagerPort,
+        ScanFinding, ScanResult, ServiceManagerPort, Severity,
+        VariableMapper as VariableMapperPort, VariableMapperFactory,
+    };
+    use crate::infrastructure::db::*;
+    use async_trait::async_trait;
+    use std::path::Path;
+
+    /// 自定义适配器选择端口：证明 application 可通过端口注入替换实现
+    struct MockAdapterProvider;
+    impl AppAdapterProvider for MockAdapterProvider {
+        fn select(&self, root: &Path) -> Result<Arc<dyn AppPackageAdapter>, AppError> {
+            let _ = root;
+            Err(AppError::BadRequest("mock 适配器（测试端口注入）".into()))
+        }
+    }
+
+    /// 自定义安全扫描端口
+    struct MockScanner;
+    impl ComposeSecurityScanner for MockScanner {
+        fn scan_compose(&self, yaml: &str, _confirmed: bool) -> ScanResult {
+            let mut r = ScanResult::default();
+            r.findings.push(ScanFinding {
+                severity: Severity::High,
+                message: format!("mock 扫描: {}", yaml.len()),
+                item: "mock".into(),
+            });
+            r
+        }
+        fn ensure_restart_policy(&self, yaml: &str) -> String {
+            yaml.to_string()
+        }
+    }
+
+    /// 自定义变量映射工厂端口
+    struct MockMapperFactory;
+    impl VariableMapperFactory for MockMapperFactory {
+        fn create(&self, values: HashMap<String, String>) -> Box<dyn VariableMapperPort> {
+            Box::new(MockMapper { values })
+        }
+    }
+    struct MockMapper {
+        values: HashMap<String, String>,
+    }
+    impl VariableMapperPort for MockMapper {
+        fn insert(&mut self, key: &str, value: String) {
+            self.values.insert(key.to_uppercase(), value);
+        }
+        fn get(&self, key: &str) -> Option<&str> {
+            self.values.get(&key.to_uppercase()).map(|s| s.as_str())
+        }
+        fn replace(&self, template: &str) -> (String, Vec<String>) {
+            let mut out = template.to_string();
+            for (k, v) in &self.values {
+                out = out.replace(&format!("${{{}}}", k), v);
+            }
+            (out, vec![])
+        }
+    }
+
+    struct MockPackageManager;
+    #[async_trait]
+    impl PackageManagerPort for MockPackageManager {
+        async fn install(&self, pkg: &str) -> Result<String, AppError> {
+            Ok(format!("installed {}", pkg))
+        }
+        async fn is_installed(&self, pkg: &str) -> Result<bool, AppError> {
+            Ok(pkg == "nginx")
+        }
+        async fn uninstall(&self, pkg: &str) -> Result<(), AppError> {
+            let _ = pkg;
+            Ok(())
+        }
+        async fn get_version(&self, pkg: &str) -> Result<String, AppError> {
+            Ok(format!("ver-{}", pkg))
+        }
+    }
+
+    struct MockServiceManager;
+    #[async_trait]
+    impl ServiceManagerPort for MockServiceManager {
+        async fn start(&self, _n: &str) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn stop(&self, _n: &str) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn restart(&self, _n: &str) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn enable(&self, _n: &str) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn disable(&self, _n: &str) -> Result<(), AppError> {
+            Ok(())
+        }
+        async fn is_running(&self, _n: &str) -> Result<bool, AppError> {
+            Ok(false)
+        }
+    }
+
+    fn build_service() -> AppStoreService {
+        let pkg_repo: Arc<dyn AppPackageRepository> = Arc::new(InMemoryAppPackageRepository::new());
+        let installed_repo: Arc<dyn InstalledAppRepository> =
+            Arc::new(InMemoryInstalledAppRepository::new());
+        let docker_service = Arc::new(DockerService::new(
+            Arc::new(InMemoryDockerRepository::new()),
+        ));
+        let runner: crate::application::execution_mode::SharedCommandRunner =
+            std::sync::Arc::new(crate::infrastructure::execution::EmbeddedCommandRunner);
+        let ws_service = Arc::new(WebServerService::new(
+            Arc::new(InMemoryWebServerRepository::new()),
+            runner.clone(),
+        ));
+        let db_service = Arc::new(DatabaseService::new(
+            Arc::new(InMemoryDatabaseRepository::new()),
+            runner.clone(),
+        ));
+        let sandbox = Arc::new(PluginSandbox::new());
+        let registry = Arc::new(PluginRegistry::new());
+        let plugin_repo: Arc<dyn PluginRepository> = Arc::new(InMemoryPluginRepository::new());
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("appstore_ports_{}_{}", std::process::id(), seq));
+        let _ = std::fs::remove_dir_all(&dir);
+        AppStoreService::with_ports(
+            pkg_repo,
+            installed_repo,
+            docker_service,
+            ws_service,
+            db_service,
+            sandbox,
+            registry,
+            plugin_repo,
+            dir,
+            crate::event::EventBus::new(16),
+            Arc::new(MockAdapterProvider),
+            Arc::new(MockScanner),
+            Arc::new(MockMapperFactory),
+            Arc::new(MockPackageManager),
+            Arc::new(MockServiceManager),
+            runner,
+        )
+    }
+
+    #[tokio::test]
+    async fn ports_are_injected() {
+        let svc = build_service();
+        // 种子内置应用（不依赖适配器端口）
+        let count = svc.seed_builtin_apps().await.unwrap();
+        assert_eq!(count, 5);
+        // 自定义适配器被调用（mock 返回 BadRequest 而非默认实现）
+        let _ = svc
+            .import_package("/nonexistent-dir-for-mock")
+            .await
+            .is_err();
+
+        // 自定义安全扫描端口生效：mock 扫描对内置 wordpress compose 会产生 High 发现
+        let meta = svc.get_metadata("wordpress").await.unwrap();
+        assert_eq!(meta.key, "wordpress");
+
+        // 自定义包管理器端口生效
+        assert!(svc.package_manager.is_installed("nginx").await.unwrap());
     }
 }

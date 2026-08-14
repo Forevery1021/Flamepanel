@@ -1,7 +1,7 @@
 use super::{field_type_from_str, form_field, is_version_dir, AppPackageAdapter};
 use crate::core::error::AppError;
 use crate::domain::entity::{
-    AppFormat, AppManifest, AppMetadata, AppVersionInfo, FieldType, FormField, InstallMode,
+    AppFormat, AppManifest, AppMetadata, AppVersionInfo, FormField, InstallMode,
 };
 use base64::Engine;
 use serde::Deserialize;
@@ -78,76 +78,14 @@ impl FlameAdapter {
             .find(|m| m.key == key)
     }
 
-    /// 从内置 AppManifest 生成元数据
+    /// 从内置 AppManifest 生成元数据（委托领域方法）
     pub fn builtin_metadata(manifest: &AppManifest) -> AppMetadata {
-        AppMetadata {
-            key: manifest.key.clone(),
-            name: manifest.name.clone(),
-            category: manifest.category.clone(),
-            short_desc_zh: manifest.description.clone(),
-            short_desc_en: None,
-            tags: vec![],
-            format: AppFormat::Flame,
-            modes: vec![InstallMode::Container],
-            versions: vec![manifest.version.clone()],
-            default_version: manifest.version.clone(),
-            logo: Some(manifest.icon.clone()),
-            min_memory_mb: None,
-            architectures: vec![],
-            readme: None,
-            recommended: matches!(
-                manifest.key.as_str(),
-                "wordpress" | "portainer" | "uptime-kuma"
-            ),
-        }
+        manifest.to_metadata()
     }
 
-    /// 从内置 AppManifest 生成版本信息（含默认表单字段）
+    /// 从内置 AppManifest 生成版本信息（含默认表单字段）（委托领域方法）
     pub fn builtin_version(manifest: &AppManifest) -> AppVersionInfo {
-        AppVersionInfo {
-            version: manifest.version.clone(),
-            mode: InstallMode::Container,
-            default_port: Some(manifest.default_port),
-            form_fields: vec![
-                FormField {
-                    env_key: "PORT".into(),
-                    label_zh: "服务端口".into(),
-                    label_en: Some("Port".into()),
-                    field_type: FieldType::Port,
-                    default: Some(manifest.default_port.to_string()),
-                    required: true,
-                    pattern: None,
-                    min: Some(1),
-                    max: Some(65535),
-                    min_length: None,
-                    max_length: None,
-                    options: vec![],
-                    description: None,
-                    group: Some("基础".into()),
-                },
-                FormField {
-                    env_key: "NAME".into(),
-                    label_zh: "实例名称".into(),
-                    label_en: Some("Instance name".into()),
-                    field_type: FieldType::Text,
-                    default: Some(manifest.key.clone()),
-                    required: true,
-                    pattern: Some(r"^[a-zA-Z0-9_-]+$".into()),
-                    min: None,
-                    max: None,
-                    min_length: Some(2),
-                    max_length: Some(32),
-                    options: vec![],
-                    description: None,
-                    group: Some("基础".into()),
-                },
-            ],
-            compose_template: Some(manifest.compose.clone()),
-            native_scripts: vec![],
-            wasm_base64: None,
-            min_memory_mb: None,
-            architectures: vec![],
-        }
+        manifest.to_version()
     }
 }
 

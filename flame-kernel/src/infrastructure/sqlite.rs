@@ -1,8 +1,29 @@
 use crate::core::error::AppError;
 use crate::domain::entity::*;
 use crate::domain::repository::*;
+use crate::infrastructure::db_models::*;
 use async_trait::async_trait;
 use sqlx::{Row, SqlitePool};
+
+/// SQLite 运行时加固：WAL 日志 + busy_timeout 5s + synchronous=NORMAL
+/// 减少并发写锁冲突（database is locked），并提升崩溃恢复能力。
+pub async fn configure_sqlite_pragmas(pool: &SqlitePool) -> Result<(), AppError> {
+    // journal_mode 返回结果行，使用 execute 需要 query 消费
+    sqlx::query("PRAGMA journal_mode=WAL")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to set journal_mode=WAL: {}", e)))?;
+    sqlx::query("PRAGMA busy_timeout=5000")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to set busy_timeout: {}", e)))?;
+    sqlx::query("PRAGMA synchronous=NORMAL")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to set synchronous=NORMAL: {}", e)))?;
+    tracing::info!("SQLite runtime hardening applied: WAL, busy_timeout=5000, synchronous=NORMAL");
+    Ok(())
+}
 
 /// 幂等迁移：若表中不存在指定列则 ALTER TABLE 添加（SQLite 无 ADD COLUMN IF NOT EXISTS）
 async fn add_column_if_missing(
@@ -43,24 +64,24 @@ impl SqliteUserRepository {
 #[async_trait]
 impl UserRepository for SqliteUserRepository {
     async fn find_by_id(&self, id: i64) -> Result<Option<User>, AppError> {
-        let user = sqlx::query_as::<_, User>(
+        let user = sqlx::query_as::<_, UserRow>(
             "SELECT id, username, password_hash, role, created_at, must_change_password FROM users WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(User::from);
         Ok(user)
     }
 
     async fn find_by_username(&self, username: &str) -> Result<Option<User>, AppError> {
-        let user = sqlx::query_as::<_, User>(
+        let user = sqlx::query_as::<_, UserRow>(
             "SELECT id, username, password_hash, role, created_at, must_change_password FROM users WHERE username = ?",
         )
         .bind(username)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(User::from);
         Ok(user)
     }
 
@@ -78,7 +99,10 @@ impl UserRepository for SqliteUserRepository {
             .await
             .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
             .last_insert_rowid();
-        self.find_by_id(id).await.map(|u| u.unwrap())
+        // T14：消除 TOCTOU unwrap。新行创建后若查不到，返回错误而非 panic。
+        self.find_by_id(id)
+            .await?
+            .ok_or_else(|| AppError::internal("User created but not found"))
     }
 
     async fn update(&self, user: &User) -> Result<(), AppError> {
@@ -101,12 +125,12 @@ impl UserRepository for SqliteUserRepository {
     }
 
     async fn list(&self) -> Result<Vec<User>, AppError> {
-        let users = sqlx::query_as::<_, User>(
+        let users = sqlx::query_as::<_, UserRow>(
             "SELECT id, username, password_hash, role, created_at, must_change_password FROM users ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(User::from).collect();
         Ok(users)
     }
 
@@ -128,6 +152,28 @@ impl UserRepository for SqliteUserRepository {
             .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<User>, AppError> {
+        let limit = limit.clamp(1, 200);
+        let users = sqlx::query_as::<_, UserRow>(
+            "SELECT id, username, password_hash, role, created_at, must_change_password FROM users ORDER BY id DESC LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(User::from).collect();
+        Ok(users)
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        let (c,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(c)
+    }
 }
 
 pub struct SqliteNodeRepository {
@@ -143,36 +189,37 @@ impl SqliteNodeRepository {
 #[async_trait]
 impl NodeRepository for SqliteNodeRepository {
     async fn find_by_id(&self, id: i64) -> Result<Option<ServerNode>, AppError> {
-        let node = sqlx::query_as::<_, ServerNode>(
-            "SELECT id, name, hostname, ip_address, status, created_at, last_heartbeat_at, metrics_json, auth_token FROM nodes WHERE id = ?",
+        let node = sqlx::query_as::<_, ServerNodeRow>(
+            "SELECT id, name, hostname, ip_address, status, created_at, last_heartbeat_at, metrics_json, auth_token, agent_port FROM nodes WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(ServerNode::from);
         Ok(node)
     }
 
     async fn find_by_hostname(&self, hostname: &str) -> Result<Option<ServerNode>, AppError> {
-        let node = sqlx::query_as::<_, ServerNode>(
-            "SELECT id, name, hostname, ip_address, status, created_at, last_heartbeat_at, metrics_json, auth_token FROM nodes WHERE hostname = ?",
+        let node = sqlx::query_as::<_, ServerNodeRow>(
+            "SELECT id, name, hostname, ip_address, status, created_at, last_heartbeat_at, metrics_json, auth_token, agent_port FROM nodes WHERE hostname = ?",
         )
         .bind(hostname)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(ServerNode::from);
         Ok(node)
     }
 
     async fn create(&self, node: &ServerNode) -> Result<i64, AppError> {
         let id = sqlx::query(
-            "INSERT INTO nodes (name, hostname, ip_address, status, auth_token) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO nodes (name, hostname, ip_address, status, auth_token, agent_port) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&node.name)
         .bind(&node.hostname)
         .bind(&node.ip_address)
         .bind(&node.status)
         .bind(&node.auth_token)
+        .bind(node.agent_port as i64)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
@@ -182,12 +229,13 @@ impl NodeRepository for SqliteNodeRepository {
 
     async fn update(&self, node: &ServerNode) -> Result<(), AppError> {
         let result = sqlx::query(
-            "UPDATE nodes SET name = ?, hostname = ?, ip_address = ?, status = ? WHERE id = ?",
+            "UPDATE nodes SET name = ?, hostname = ?, ip_address = ?, status = ?, agent_port = ? WHERE id = ?",
         )
         .bind(&node.name)
         .bind(&node.hostname)
         .bind(&node.ip_address)
         .bind(&node.status)
+        .bind(node.agent_port as i64)
         .bind(node.id)
         .execute(&self.pool)
         .await
@@ -199,12 +247,12 @@ impl NodeRepository for SqliteNodeRepository {
     }
 
     async fn list_all(&self) -> Result<Vec<ServerNode>, AppError> {
-        let nodes = sqlx::query_as::<_, ServerNode>(
-            "SELECT id, name, hostname, ip_address, status, created_at, last_heartbeat_at, metrics_json, auth_token FROM nodes ORDER BY id",
+        let nodes = sqlx::query_as::<_, ServerNodeRow>(
+            "SELECT id, name, hostname, ip_address, status, created_at, last_heartbeat_at, metrics_json, auth_token, agent_port FROM nodes ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(ServerNode::from).collect();
         Ok(nodes)
     }
 
@@ -231,6 +279,43 @@ impl NodeRepository for SqliteNodeRepository {
         }
         Ok(())
     }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<ServerNode>, AppError> {
+        let limit = limit.clamp(1, 200);
+        let nodes = sqlx::query_as::<_, ServerNodeRow>(
+            "SELECT id, name, hostname, ip_address, status, created_at, last_heartbeat_at, metrics_json, auth_token, agent_port FROM nodes ORDER BY id DESC LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(ServerNode::from).collect();
+        Ok(nodes)
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        let (c,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM nodes")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(c)
+    }
+
+    /// 离线扫描条件化：直接按 last_heartbeat_at 早于阈值的条件查询，避免全量加载后过滤。
+    async fn list_stale_heartbeats(
+        &self,
+        before: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<ServerNode>, AppError> {
+        let nodes = sqlx::query_as::<_, ServerNodeRow>(
+            "SELECT id, name, hostname, ip_address, status, created_at, last_heartbeat_at, metrics_json, auth_token, agent_port FROM nodes WHERE last_heartbeat_at IS NULL OR last_heartbeat_at < ?",
+        )
+        .bind(before)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(ServerNode::from).collect();
+        Ok(nodes)
+    }
 }
 
 pub struct SqliteWebsiteRepository {
@@ -246,30 +331,30 @@ impl SqliteWebsiteRepository {
 #[async_trait]
 impl WebsiteRepository for SqliteWebsiteRepository {
     async fn find_by_id(&self, id: i64) -> Result<Option<Website>, AppError> {
-        let site = sqlx::query_as::<_, Website>(
-            "SELECT id, name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass, created_at FROM websites WHERE id = ?",
+        let site = sqlx::query_as::<_, WebsiteRow>(
+            "SELECT id, name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass, created_at, resource_version FROM websites WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(Website::from);
         Ok(site)
     }
 
     async fn find_by_domain(&self, domain: &str) -> Result<Option<Website>, AppError> {
-        let site = sqlx::query_as::<_, Website>(
-            "SELECT id, name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass, created_at FROM websites WHERE domain = ?",
+        let site = sqlx::query_as::<_, WebsiteRow>(
+            "SELECT id, name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass, created_at, resource_version FROM websites WHERE domain = ?",
         )
         .bind(domain)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(Website::from);
         Ok(site)
     }
 
     async fn create(&self, website: &Website) -> Result<i64, AppError> {
         let id = sqlx::query(
-            "INSERT INTO websites (name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO websites (name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass, resource_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
         )
         .bind(&website.name)
         .bind(&website.domain)
@@ -288,8 +373,9 @@ impl WebsiteRepository for SqliteWebsiteRepository {
     }
 
     async fn update(&self, website: &Website) -> Result<(), AppError> {
-        sqlx::query(
-            "UPDATE websites SET name=?, domain=?, root_path=?, node_id=?, engine=?, ssl_enabled=?, proxy_enabled=?, proxy_pass=? WHERE id=?",
+        // 乐观并发控制（OCC）：仅当 resource_version 匹配时才更新，并将版本号自增。
+        let result = sqlx::query(
+            "UPDATE websites SET name=?, domain=?, root_path=?, node_id=?, engine=?, ssl_enabled=?, proxy_enabled=?, proxy_pass=?, resource_version=resource_version+1 WHERE id=? AND resource_version=?",
         )
         .bind(&website.name)
         .bind(&website.domain)
@@ -300,9 +386,29 @@ impl WebsiteRepository for SqliteWebsiteRepository {
         .bind(website.proxy_enabled)
         .bind(&website.proxy_pass)
         .bind(website.id)
+        .bind(website.resource_version)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            // 区分“不存在”与“版本冲突”
+            let exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM websites WHERE id = ?")
+                .bind(website.id)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+            if exists == 0 {
+                return Err(AppError::NotFound(format!(
+                    "Website {} not found",
+                    website.id
+                )));
+            }
+            return Err(AppError::Conflict(format!(
+                "Website {} 已被其他会话修改，resource_version 冲突（期望 {}）",
+                website.id, website.resource_version
+            )));
+        }
         Ok(())
     }
 
@@ -316,13 +422,35 @@ impl WebsiteRepository for SqliteWebsiteRepository {
     }
 
     async fn list_all(&self) -> Result<Vec<Website>, AppError> {
-        let sites = sqlx::query_as::<_, Website>(
-            "SELECT id, name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass, created_at FROM websites ORDER BY id",
+        let sites = sqlx::query_as::<_, WebsiteRow>(
+            "SELECT id, name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass, created_at, resource_version FROM websites ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(Website::from).collect();
         Ok(sites)
+    }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<Website>, AppError> {
+        let limit = limit.clamp(1, 200);
+        let sites = sqlx::query_as::<_, WebsiteRow>(
+            "SELECT id, name, domain, root_path, status, node_id, engine, ssl_enabled, proxy_enabled, proxy_pass, created_at, resource_version FROM websites ORDER BY id DESC LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(Website::from).collect();
+        Ok(sites)
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        let (c,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM websites")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(c)
     }
 }
 
@@ -339,30 +467,30 @@ impl SqliteWebServerRepository {
 #[async_trait]
 impl WebServerRepository for SqliteWebServerRepository {
     async fn find_by_id(&self, id: i64) -> Result<Option<WebServerInstance>, AppError> {
-        let instance = sqlx::query_as::<_, WebServerInstance>(
-            "SELECT id, engine, version, status, config_path, binary_path, port, created_at FROM web_servers WHERE id = ?",
+        let instance = sqlx::query_as::<_, WebServerInstanceRow>(
+            "SELECT id, engine, version, status, config_path, binary_path, port, created_at, resource_version FROM web_servers WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(WebServerInstance::from);
         Ok(instance)
     }
 
     async fn find_by_engine(&self, engine: &str) -> Result<Vec<WebServerInstance>, AppError> {
-        let instances = sqlx::query_as::<_, WebServerInstance>(
-            "SELECT id, engine, version, status, config_path, binary_path, port, created_at FROM web_servers WHERE engine = ? ORDER BY id",
+        let instances = sqlx::query_as::<_, WebServerInstanceRow>(
+            "SELECT id, engine, version, status, config_path, binary_path, port, created_at, resource_version FROM web_servers WHERE engine = ? ORDER BY id",
         )
         .bind(engine)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(WebServerInstance::from).collect();
         Ok(instances)
     }
 
     async fn create(&self, instance: &WebServerInstance) -> Result<i64, AppError> {
         let result = sqlx::query(
-            "INSERT INTO web_servers (engine, version, status, config_path, binary_path, port) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO web_servers (engine, version, status, config_path, binary_path, port, resource_version) VALUES (?, ?, ?, ?, ?, ?, 0)",
         )
         .bind(&instance.engine)
         .bind(&instance.version)
@@ -377,8 +505,9 @@ impl WebServerRepository for SqliteWebServerRepository {
     }
 
     async fn update(&self, instance: &WebServerInstance) -> Result<(), AppError> {
-        sqlx::query(
-            "UPDATE web_servers SET engine = ?, version = ?, status = ?, config_path = ?, binary_path = ?, port = ? WHERE id = ?",
+        // 乐观并发控制（OCC）：仅当 resource_version 匹配时才更新，并将版本号自增。
+        let result = sqlx::query(
+            "UPDATE web_servers SET engine = ?, version = ?, status = ?, config_path = ?, binary_path = ?, port = ?, resource_version = resource_version + 1 WHERE id = ? AND resource_version = ?",
         )
         .bind(&instance.engine)
         .bind(&instance.version)
@@ -387,9 +516,30 @@ impl WebServerRepository for SqliteWebServerRepository {
         .bind(&instance.binary_path)
         .bind(instance.port)
         .bind(instance.id)
+        .bind(instance.resource_version)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            // 区分“不存在”与“版本冲突”
+            let exists =
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM web_servers WHERE id = ?")
+                    .bind(instance.id)
+                    .fetch_one(&self.pool)
+                    .await
+                    .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+            if exists == 0 {
+                return Err(AppError::NotFound(format!(
+                    "Web server {} not found",
+                    instance.id
+                )));
+            }
+            return Err(AppError::Conflict(format!(
+                "Web server {} 已被其他会话修改，resource_version 冲突（期望 {}）",
+                instance.id, instance.resource_version
+            )));
+        }
         Ok(())
     }
 
@@ -403,13 +553,35 @@ impl WebServerRepository for SqliteWebServerRepository {
     }
 
     async fn list_all(&self) -> Result<Vec<WebServerInstance>, AppError> {
-        let instances = sqlx::query_as::<_, WebServerInstance>(
-            "SELECT id, engine, version, status, config_path, binary_path, port, created_at FROM web_servers ORDER BY id",
+        let instances = sqlx::query_as::<_, WebServerInstanceRow>(
+            "SELECT id, engine, version, status, config_path, binary_path, port, created_at, resource_version FROM web_servers ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(WebServerInstance::from).collect();
         Ok(instances)
+    }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<WebServerInstance>, AppError> {
+        let limit = limit.clamp(1, 200);
+        let instances = sqlx::query_as::<_, WebServerInstanceRow>(
+            "SELECT id, engine, version, status, config_path, binary_path, port, created_at, resource_version FROM web_servers ORDER BY id DESC LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(WebServerInstance::from).collect();
+        Ok(instances)
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        let (c,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM web_servers")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(c)
     }
 }
 
@@ -454,6 +626,13 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     add_column_if_missing(pool, "nodes", "last_heartbeat_at", "TEXT").await?;
     add_column_if_missing(pool, "nodes", "metrics_json", "TEXT").await?;
     add_column_if_missing(pool, "nodes", "auth_token", "TEXT").await?;
+    add_column_if_missing(pool, "nodes", "agent_port", "INTEGER NOT NULL DEFAULT 9527").await?;
+
+    // T13：节点离线扫描按 last_heartbeat_at 过滤，补索引避免全表扫描。
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_nodes_heartbeat ON nodes(last_heartbeat_at)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS websites (
@@ -474,6 +653,15 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .await
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
+    // 幂等迁移：为 websites 表补充 resource_version 乐观并发版本列（旧库升级）
+    add_column_if_missing(
+        pool,
+        "websites",
+        "resource_version",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+    .await?;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS web_servers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -490,6 +678,15 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .await
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
+    // 幂等迁移：为 web_servers 表补充 resource_version 乐观并发版本列（旧库升级）
+    add_column_if_missing(
+        pool,
+        "web_servers",
+        "resource_version",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+    .await?;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS operation_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -503,6 +700,41 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .execute(pool)
     .await
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+
+    // T13：operation_logs 按 username/action 过滤、按 id 倒序分页，补索引避免全表扫描。
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_operation_logs_username ON operation_logs(username)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_operation_logs_action ON operation_logs(action)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_operation_logs_created ON operation_logs(created_at)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS outbox_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}',
+            published INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_outbox_events_type ON outbox_events(event_type)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS permissions (
@@ -554,6 +786,20 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .await
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
+    // T13：logs 按 source/level 过滤、按 id 倒序分页，补索引避免全表扫描。
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_logs_source ON logs(source)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS databases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -573,6 +819,15 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
     .execute(pool)
     .await
     .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+
+    // 幂等迁移：为 databases 表补充 resource_version 乐观并发版本列（旧库升级）
+    add_column_if_missing(
+        pool,
+        "databases",
+        "resource_version",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS panel_settings (
@@ -723,6 +978,23 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
         .await
         .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
 
+    // 统一 Task 状态机持久化（Phase B1 扩展：TaskTracker 任务记录落库）
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY,
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            state TEXT NOT NULL,
+            progress INTEGER NOT NULL DEFAULT 0,
+            message TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::internal(format!("Migration error: {}", e)))?;
+
     Ok(())
 }
 
@@ -739,51 +1011,51 @@ impl SqliteDatabaseRepository {
 #[async_trait]
 impl DatabaseRepository for SqliteDatabaseRepository {
     async fn list_all(&self) -> Result<Vec<DatabaseInstance>, AppError> {
-        let rows = sqlx::query_as::<_, DatabaseInstance>(
-            "SELECT id, db_type, name, version, port, status, install_path, data_dir, config_file, root_user, created_at, updated_at FROM databases ORDER BY id",
+        let rows = sqlx::query_as::<_, DatabaseInstanceRow>(
+            "SELECT id, db_type, name, version, port, status, install_path, data_dir, config_file, root_user, created_at, updated_at, resource_version FROM databases ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(DatabaseInstance::from).collect();
         Ok(rows)
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<DatabaseInstance>, AppError> {
-        let row = sqlx::query_as::<_, DatabaseInstance>(
-            "SELECT id, db_type, name, version, port, status, install_path, data_dir, config_file, root_user, created_at, updated_at FROM databases WHERE id = ?",
+        let row = sqlx::query_as::<_, DatabaseInstanceRow>(
+            "SELECT id, db_type, name, version, port, status, install_path, data_dir, config_file, root_user, created_at, updated_at, resource_version FROM databases WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(DatabaseInstance::from);
         Ok(row)
     }
 
     async fn find_by_name(&self, name: &str) -> Result<Option<DatabaseInstance>, AppError> {
-        let row = sqlx::query_as::<_, DatabaseInstance>(
-            "SELECT id, db_type, name, version, port, status, install_path, data_dir, config_file, root_user, created_at, updated_at FROM databases WHERE name = ?",
+        let row = sqlx::query_as::<_, DatabaseInstanceRow>(
+            "SELECT id, db_type, name, version, port, status, install_path, data_dir, config_file, root_user, created_at, updated_at, resource_version FROM databases WHERE name = ?",
         )
         .bind(name)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(DatabaseInstance::from);
         Ok(row)
     }
 
     async fn find_by_type(&self, db_type: &str) -> Result<Vec<DatabaseInstance>, AppError> {
-        let rows = sqlx::query_as::<_, DatabaseInstance>(
-            "SELECT id, db_type, name, version, port, status, install_path, data_dir, config_file, root_user, created_at, updated_at FROM databases WHERE db_type = ? ORDER BY id",
+        let rows = sqlx::query_as::<_, DatabaseInstanceRow>(
+            "SELECT id, db_type, name, version, port, status, install_path, data_dir, config_file, root_user, created_at, updated_at, resource_version FROM databases WHERE db_type = ? ORDER BY id",
         )
         .bind(db_type)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(DatabaseInstance::from).collect();
         Ok(rows)
     }
 
     async fn create(&self, instance: &DatabaseInstance) -> Result<i64, AppError> {
         let id = sqlx::query(
-            "INSERT INTO databases (db_type, name, version, port, status, install_path, data_dir, config_file, root_user) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO databases (db_type, name, version, port, status, install_path, data_dir, config_file, root_user, resource_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
         )
         .bind(&instance.db_type)
         .bind(&instance.name)
@@ -802,8 +1074,9 @@ impl DatabaseRepository for SqliteDatabaseRepository {
     }
 
     async fn update(&self, instance: &DatabaseInstance) -> Result<(), AppError> {
-        sqlx::query(
-            "UPDATE databases SET version=?, port=?, status=?, install_path=?, data_dir=?, config_file=?, root_user=?, updated_at=datetime('now') WHERE id=?",
+        // 乐观并发控制（OCC）：仅当 resource_version 匹配时才更新，并将版本号自增。
+        let result = sqlx::query(
+            "UPDATE databases SET version=?, port=?, status=?, install_path=?, data_dir=?, config_file=?, root_user=?, updated_at=datetime('now'), resource_version=resource_version+1 WHERE id=? AND resource_version=?",
         )
         .bind(&instance.version)
         .bind(instance.port)
@@ -813,9 +1086,30 @@ impl DatabaseRepository for SqliteDatabaseRepository {
         .bind(&instance.config_file)
         .bind(&instance.root_user)
         .bind(instance.id)
+        .bind(instance.resource_version)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            // 区分“不存在”与“版本冲突”
+            let exists =
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM databases WHERE id = ?")
+                    .bind(instance.id)
+                    .fetch_one(&self.pool)
+                    .await
+                    .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+            if exists == 0 {
+                return Err(AppError::NotFound(format!(
+                    "Database instance {} not found",
+                    instance.id
+                )));
+            }
+            return Err(AppError::Conflict(format!(
+                "Database instance {} 已被其他会话修改，resource_version 冲突（期望 {}）",
+                instance.id, instance.resource_version
+            )));
+        }
         Ok(())
     }
 
@@ -836,6 +1130,51 @@ impl DatabaseRepository for SqliteDatabaseRepository {
             .await
             .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
+    }
+
+    async fn update_status_batch(&self, updates: &[(i64, String)]) -> Result<(), AppError> {
+        if updates.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::internal(format!("DB begin tx error: {}", e)))?;
+        for (id, status) in updates {
+            sqlx::query("UPDATE databases SET status=?, updated_at=datetime('now') WHERE id=?")
+                .bind(status)
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| AppError::internal(format!("DB commit error: {}", e)))?;
+        Ok(())
+    }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<DatabaseInstance>, AppError> {
+        let limit = limit.clamp(1, 200);
+        let rows = sqlx::query_as::<_, DatabaseInstanceRow>(
+            "SELECT id, db_type, name, version, port, status, install_path, data_dir, config_file, root_user, created_at, updated_at, resource_version FROM databases ORDER BY id DESC LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(DatabaseInstance::from).collect();
+        Ok(rows)
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        let (c,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM databases")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(c)
     }
 }
 
@@ -890,13 +1229,42 @@ impl SettingsRepository for SqliteSettingsRepository {
         Ok(())
     }
 
+    async fn set_many(&self, entries: &[(String, String)]) -> Result<(), AppError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::internal(format!("DB begin tx error: {}", e)))?;
+        for (key, value) in entries {
+            sqlx::query(
+                "INSERT INTO panel_settings (key, value, description, updated_at) VALUES (?, ?, '', datetime('now'))
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
+            )
+            .bind(key)
+            .bind(value)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| AppError::internal(format!("DB commit error: {}", e)))?;
+        Ok(())
+    }
+
     async fn list_all(&self) -> Result<Vec<PanelSetting>, AppError> {
-        let rows = sqlx::query_as::<_, PanelSetting>(
+        let rows = sqlx::query_as::<_, PanelSettingRow>(
             "SELECT key, value, description, updated_at FROM panel_settings ORDER BY key",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        .into_iter()
+        .map(PanelSetting::from)
+        .collect();
         Ok(rows)
     }
 
@@ -909,6 +1277,28 @@ impl SettingsRepository for SqliteSettingsRepository {
             .iter()
             .map(|r| (r.get::<String, _>("key"), r.get::<String, _>("value")))
             .collect())
+    }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<PanelSetting>, AppError> {
+        let limit = limit.clamp(1, 200);
+        let rows = sqlx::query_as::<_, PanelSettingRow>(
+            "SELECT key, value, description, updated_at FROM panel_settings ORDER BY key DESC LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(PanelSetting::from).collect();
+        Ok(rows)
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        let (c,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM panel_settings")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(c)
     }
 }
 
@@ -925,23 +1315,27 @@ impl SqlitePermissionRepository {
 #[async_trait]
 impl PermissionRepository for SqlitePermissionRepository {
     async fn list_all(&self) -> Result<Vec<Permission>, AppError> {
-        let perms = sqlx::query_as::<_, Permission>(
+        let perms = sqlx::query_as::<_, PermissionRow>(
             "SELECT id, resource, action, description FROM permissions ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        .into_iter()
+        .map(Permission::from)
+        .collect();
         Ok(perms)
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<Permission>, AppError> {
-        let perm = sqlx::query_as::<_, Permission>(
+        let perm = sqlx::query_as::<_, PermissionRow>(
             "SELECT id, resource, action, description FROM permissions WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        .map(Permission::from);
         Ok(perm)
     }
 
@@ -950,14 +1344,14 @@ impl PermissionRepository for SqlitePermissionRepository {
         resource: &str,
         action: &str,
     ) -> Result<Option<Permission>, AppError> {
-        let perm = sqlx::query_as::<_, Permission>(
+        let perm = sqlx::query_as::<_, PermissionRow>(
             "SELECT id, resource, action, description FROM permissions WHERE resource = ? AND action = ?",
         )
         .bind(resource)
         .bind(action)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(Permission::from);
         Ok(perm)
     }
 
@@ -998,30 +1392,35 @@ impl SqliteRoleRepository {
 impl RoleRepository for SqliteRoleRepository {
     async fn list_all(&self) -> Result<Vec<Role>, AppError> {
         let roles =
-            sqlx::query_as::<_, Role>("SELECT id, name, description FROM roles ORDER BY id")
+            sqlx::query_as::<_, RoleRow>("SELECT id, name, description FROM roles ORDER BY id")
                 .fetch_all(&self.pool)
                 .await
-                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+                .into_iter()
+                .map(Role::from)
+                .collect();
         Ok(roles)
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<Role>, AppError> {
         let role =
-            sqlx::query_as::<_, Role>("SELECT id, name, description FROM roles WHERE id = ?")
+            sqlx::query_as::<_, RoleRow>("SELECT id, name, description FROM roles WHERE id = ?")
                 .bind(id)
                 .fetch_optional(&self.pool)
                 .await
-                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+                .map(Role::from);
         Ok(role)
     }
 
     async fn find_by_name(&self, name: &str) -> Result<Option<Role>, AppError> {
         let role =
-            sqlx::query_as::<_, Role>("SELECT id, name, description FROM roles WHERE name = ?")
+            sqlx::query_as::<_, RoleRow>("SELECT id, name, description FROM roles WHERE name = ?")
                 .bind(name)
                 .fetch_optional(&self.pool)
                 .await
-                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+                .map(Role::from);
         Ok(role)
     }
 
@@ -1076,19 +1475,28 @@ impl RoleRepository for SqliteRoleRepository {
         role_id: i64,
         permission_ids: &[i64],
     ) -> Result<(), AppError> {
+        // T7：DELETE + INSERT 循环放入同一事务，避免半截状态；DELETE 错误不再吞掉。
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::internal(format!("DB begin tx error: {}", e)))?;
         sqlx::query("DELETE FROM role_permissions WHERE role_id = ?")
             .bind(role_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
-            .ok();
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         for pid in permission_ids {
             sqlx::query("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)")
                 .bind(role_id)
                 .bind(pid)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         }
+        tx.commit()
+            .await
+            .map_err(|e| AppError::internal(format!("DB commit error: {}", e)))?;
         Ok(())
     }
 }
@@ -1134,34 +1542,35 @@ impl OperationLogRepository for SqliteOperationLogRepository {
     }
 
     async fn list(&self) -> Result<Vec<OperationLog>, AppError> {
-        let rows = sqlx::query_as::<_, OperationLog>(
+        let rows = sqlx::query_as::<_, OperationLogRow>(
             "SELECT id, username, action, target, ip, created_at FROM operation_logs ORDER BY id DESC LIMIT 100",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(OperationLog::from).collect();
         Ok(rows)
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<OperationLog>, AppError> {
-        let row = sqlx::query_as::<_, OperationLog>(
+        let row = sqlx::query_as::<_, OperationLogRow>(
             "SELECT id, username, action, target, ip, created_at FROM operation_logs WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        .map(OperationLog::from);
         Ok(row)
     }
 
     async fn list_by_username(&self, username: &str) -> Result<Vec<OperationLog>, AppError> {
-        let rows = sqlx::query_as::<_, OperationLog>(
+        let rows = sqlx::query_as::<_, OperationLogRow>(
             "SELECT id, username, action, target, ip, created_at FROM operation_logs WHERE username = ? ORDER BY id DESC LIMIT 100",
         )
         .bind(username)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(OperationLog::from).collect();
         Ok(rows)
     }
 
@@ -1173,6 +1582,162 @@ impl OperationLogRepository for SqliteOperationLogRepository {
             .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
+
+    async fn list_page(
+        &self,
+        limit: i64,
+        offset: i64,
+        action_prefix: Option<&str>,
+    ) -> Result<Vec<OperationLog>, AppError> {
+        let rows = match action_prefix {
+            Some(prefix) if !prefix.is_empty() => {
+                sqlx::query_as::<_, OperationLogRow>(
+                    "SELECT id, username, action, target, ip, created_at FROM operation_logs \
+                     WHERE action LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ? OFFSET ?",
+                )
+                .bind(escape_like(prefix))
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await
+            }
+            _ => {
+                sqlx::query_as::<_, OperationLogRow>(
+                    "SELECT id, username, action, target, ip, created_at FROM operation_logs \
+                     ORDER BY id DESC LIMIT ? OFFSET ?",
+                )
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await
+            }
+        }
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        .into_iter()
+        .map(OperationLog::from)
+        .collect();
+        Ok(rows)
+    }
+
+    async fn count(&self, action_prefix: Option<&str>) -> Result<i64, AppError> {
+        let count: i64 = match action_prefix {
+            Some(prefix) if !prefix.is_empty() => {
+                sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM operation_logs WHERE action LIKE ? ESCAPE '\\'",
+                )
+                .bind(escape_like(prefix))
+                .fetch_one(&self.pool)
+                .await
+            }
+            _ => {
+                sqlx::query_scalar("SELECT COUNT(*) FROM operation_logs")
+                    .fetch_one(&self.pool)
+                    .await
+            }
+        }
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(count)
+    }
+}
+
+pub struct SqliteOutboxRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteOutboxRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl OutboxRepository for SqliteOutboxRepository {
+    async fn append(
+        &self,
+        event_type: &str,
+        payload: &str,
+        published: bool,
+    ) -> Result<OutboxEvent, AppError> {
+        let result = sqlx::query(
+            "INSERT INTO outbox_events (event_type, payload, published, created_at) VALUES (?, ?, ?, datetime('now'))",
+        )
+        .bind(event_type)
+        .bind(payload)
+        .bind(published as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        let id = result.last_insert_rowid();
+        Ok(OutboxEvent {
+            id: id as i64,
+            event_type: event_type.into(),
+            payload: payload.into(),
+            published,
+            created_at: chrono::Utc::now(),
+        })
+    }
+
+    async fn list_page(
+        &self,
+        limit: i64,
+        offset: i64,
+        event_type: Option<&str>,
+    ) -> Result<Vec<OutboxEvent>, AppError> {
+        let sql = match event_type {
+            Some(_) => {
+                "SELECT id, event_type, payload, published, created_at FROM outbox_events \
+                 WHERE event_type = ? ORDER BY id DESC LIMIT ? OFFSET ?"
+            }
+            None => {
+                "SELECT id, event_type, payload, published, created_at FROM outbox_events \
+                 ORDER BY id DESC LIMIT ? OFFSET ?"
+            }
+        };
+        let rows = if let Some(et) = event_type {
+            sqlx::query_as::<_, OutboxEventRow>(sql)
+                .bind(et)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        } else {
+            sqlx::query_as::<_, OutboxEventRow>(sql)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        };
+        Ok(rows.into_iter().map(OutboxEvent::from).collect())
+    }
+
+    async fn count(&self, event_type: Option<&str>) -> Result<i64, AppError> {
+        let sql = match event_type {
+            Some(_) => "SELECT COUNT(*) FROM outbox_events WHERE event_type = ?",
+            None => "SELECT COUNT(*) FROM outbox_events",
+        };
+        let count: (i64,) = if let Some(et) = event_type {
+            sqlx::query_as(sql)
+                .bind(et)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        } else {
+            sqlx::query_as(sql)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        };
+        Ok(count.0)
+    }
+}
+
+/// 转义 LIKE 通配符（`%` / `_` / 转义符 `\`），使前缀过滤退化为字面前缀匹配。
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 pub struct SqliteLogRepository {
@@ -1216,45 +1781,46 @@ impl LogRepository for SqliteLogRepository {
     }
 
     async fn list(&self) -> Result<Vec<LogEntry>, AppError> {
-        let rows = sqlx::query_as::<_, LogEntry>(
+        let rows = sqlx::query_as::<_, LogEntryRow>(
             "SELECT id, source, level, message, metadata, created_at FROM logs ORDER BY id DESC LIMIT 200",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(LogEntry::from).collect();
         Ok(rows)
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<LogEntry>, AppError> {
-        let row = sqlx::query_as::<_, LogEntry>(
+        let row = sqlx::query_as::<_, LogEntryRow>(
             "SELECT id, source, level, message, metadata, created_at FROM logs WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        .map(LogEntry::from);
         Ok(row)
     }
 
     async fn list_by_source(&self, source: &str) -> Result<Vec<LogEntry>, AppError> {
-        let rows = sqlx::query_as::<_, LogEntry>(
+        let rows = sqlx::query_as::<_, LogEntryRow>(
             "SELECT id, source, level, message, metadata, created_at FROM logs WHERE source = ? ORDER BY id DESC LIMIT 200",
         )
         .bind(source)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(LogEntry::from).collect();
         Ok(rows)
     }
 
     async fn list_by_level(&self, level: &str) -> Result<Vec<LogEntry>, AppError> {
-        let rows = sqlx::query_as::<_, LogEntry>(
+        let rows = sqlx::query_as::<_, LogEntryRow>(
             "SELECT id, source, level, message, metadata, created_at FROM logs WHERE level = ? ORDER BY id DESC LIMIT 200",
         )
         .bind(level)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(LogEntry::from).collect();
         Ok(rows)
     }
 
@@ -1265,6 +1831,30 @@ impl LogRepository for SqliteLogRepository {
             .await
             .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
+    }
+
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<LogEntry>, AppError> {
+        let rows = sqlx::query_as::<_, LogEntryRow>(
+            "SELECT id, source, level, message, metadata, created_at FROM logs \
+             ORDER BY id DESC LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        .into_iter()
+        .map(LogEntry::from)
+        .collect();
+        Ok(rows)
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM logs")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(count)
     }
 }
 
@@ -1281,23 +1871,23 @@ impl SqliteFirewallRepository {
 #[async_trait]
 impl FirewallRepository for SqliteFirewallRepository {
     async fn list_all(&self) -> Result<Vec<FirewallRule>, AppError> {
-        let rows = sqlx::query_as::<_, FirewallRule>(
+        let rows = sqlx::query_as::<_, FirewallRuleRow>(
             "SELECT id, name, description, protocol, port, source, destination, action, enabled, priority, direction, created_at, updated_at FROM firewall_rules ORDER BY priority, id",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(FirewallRule::from).collect();
         Ok(rows)
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<FirewallRule>, AppError> {
-        let row = sqlx::query_as::<_, FirewallRule>(
+        let row = sqlx::query_as::<_, FirewallRuleRow>(
             "SELECT id, name, description, protocol, port, source, destination, action, enabled, priority, direction, created_at, updated_at FROM firewall_rules WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(FirewallRule::from);
         Ok(row)
     }
 
@@ -1363,6 +1953,12 @@ impl FirewallRepository for SqliteFirewallRepository {
     }
 
     async fn reorder(&self, ids: &[i64]) -> Result<(), AppError> {
+        // T7：循环写放入单事务，避免批量重排中途失败留下半截优先级。
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::internal(format!("DB begin tx error: {}", e)))?;
         let mut priority = 10i32;
         for id in ids {
             sqlx::query(
@@ -1370,12 +1966,37 @@ impl FirewallRepository for SqliteFirewallRepository {
             )
             .bind(priority)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
             priority += 10;
         }
+        tx.commit()
+            .await
+            .map_err(|e| AppError::internal(format!("DB commit error: {}", e)))?;
         Ok(())
+    }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<FirewallRule>, AppError> {
+        let limit = limit.clamp(1, 200);
+        let rows = sqlx::query_as::<_, FirewallRuleRow>(
+            "SELECT id, name, description, protocol, port, source, destination, action, enabled, priority, direction, created_at, updated_at FROM firewall_rules ORDER BY id DESC LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(FirewallRule::from).collect();
+        Ok(rows)
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        let (c,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM firewall_rules")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(c)
     }
 }
 // ─── 应用商店仓储 ────────────────────────────────────────────────────────────
@@ -1393,23 +2014,23 @@ impl SqliteAppPackageRepository {
 #[async_trait]
 impl AppPackageRepository for SqliteAppPackageRepository {
     async fn list_all(&self) -> Result<Vec<AppPackage>, AppError> {
-        let rows = sqlx::query_as::<_, AppPackage>(
+        let rows = sqlx::query_as::<_, AppPackageRow>(
             "SELECT id, key, name, category, format, description, logo, metadata_json, source_path, created_at, updated_at FROM app_packages ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(AppPackage::from).collect();
         Ok(rows)
     }
 
     async fn find_by_key(&self, key: &str) -> Result<Option<AppPackage>, AppError> {
-        let row = sqlx::query_as::<_, AppPackage>(
+        let row = sqlx::query_as::<_, AppPackageRow>(
             "SELECT id, key, name, category, format, description, logo, metadata_json, source_path, created_at, updated_at FROM app_packages WHERE key = ?",
         )
         .bind(key)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(AppPackage::from);
         Ok(row)
     }
 
@@ -1439,6 +2060,49 @@ impl AppPackageRepository for SqliteAppPackageRepository {
             .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
+
+    async fn create_many(&self, pkgs: &[AppPackage]) -> Result<usize, AppError> {
+        if pkgs.is_empty() {
+            return Ok(0);
+        }
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| AppError::internal(format!("DB begin tx error: {}", e)))?;
+        let mut count = 0usize;
+        for pkg in pkgs {
+            // 幂等：已存在则跳过，不视为失败
+            let exists = sqlx::query("SELECT 1 FROM app_packages WHERE key=?")
+                .bind(&pkg.key)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+                .is_some();
+            if exists {
+                continue;
+            }
+            sqlx::query(
+                "INSERT INTO app_packages (key, name, category, format, description, logo, metadata_json, source_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&pkg.key)
+            .bind(&pkg.name)
+            .bind(&pkg.category)
+            .bind(&pkg.format)
+            .bind(&pkg.description)
+            .bind(&pkg.logo)
+            .bind(&pkg.metadata_json)
+            .bind(&pkg.source_path)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+            count += 1;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| AppError::internal(format!("DB commit error: {}", e)))?;
+        Ok(count)
+    }
 }
 
 pub struct SqliteInstalledAppRepository {
@@ -1454,23 +2118,23 @@ impl SqliteInstalledAppRepository {
 #[async_trait]
 impl InstalledAppRepository for SqliteInstalledAppRepository {
     async fn list_all(&self) -> Result<Vec<InstalledApp>, AppError> {
-        let rows = sqlx::query_as::<_, InstalledApp>(
+        let rows = sqlx::query_as::<_, InstalledAppRow>(
             "SELECT id, package_key, name, version, mode, status, access_url, install_path, container_name, port, params_json, created_at, updated_at, launch_count FROM installed_apps ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(InstalledApp::from).collect();
         Ok(rows)
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<InstalledApp>, AppError> {
-        let row = sqlx::query_as::<_, InstalledApp>(
+        let row = sqlx::query_as::<_, InstalledAppRow>(
             "SELECT id, package_key, name, version, mode, status, access_url, install_path, container_name, port, params_json, created_at, updated_at, launch_count FROM installed_apps WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(InstalledApp::from);
         Ok(row)
     }
 
@@ -1644,23 +2308,23 @@ impl SqliteScheduledTaskRepository {
 #[async_trait]
 impl ScheduledTaskRepository for SqliteScheduledTaskRepository {
     async fn list_all(&self) -> Result<Vec<ScheduledTask>, AppError> {
-        let rows = sqlx::query_as::<_, ScheduledTask>(
+        let rows = sqlx::query_as::<_, ScheduledTaskRow>(
             "SELECT id, name, command, schedule, enabled, last_status, last_output, last_run_at, next_run_at, created_at, updated_at FROM scheduled_tasks ORDER BY id",
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.into_iter().map(ScheduledTask::from).collect();
         Ok(rows)
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<ScheduledTask>, AppError> {
-        let row = sqlx::query_as::<_, ScheduledTask>(
+        let row = sqlx::query_as::<_, ScheduledTaskRow>(
             "SELECT id, name, command, schedule, enabled, last_status, last_output, last_run_at, next_run_at, created_at, updated_at FROM scheduled_tasks WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?.map(ScheduledTask::from);
         Ok(row)
     }
 
@@ -1710,6 +2374,30 @@ impl ScheduledTaskRepository for SqliteScheduledTaskRepository {
             .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
         Ok(())
     }
+
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<ScheduledTask>, AppError> {
+        let rows = sqlx::query_as::<_, ScheduledTaskRow>(
+            "SELECT id, name, command, schedule, enabled, last_status, last_output, last_run_at, next_run_at, created_at, updated_at FROM scheduled_tasks \
+             ORDER BY id DESC LIMIT ? OFFSET ?",
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        .into_iter()
+        .map(ScheduledTask::from)
+        .collect();
+        Ok(rows)
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scheduled_tasks")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        Ok(count)
+    }
 }
 
 pub struct SqliteMemoRepository {
@@ -1741,21 +2429,25 @@ impl MemoRepository for SqliteMemoRepository {
             sql.push_str(&conds.join(" AND "));
         }
         sql.push_str(" ORDER BY done ASC, id DESC");
-        let memos = sqlx::query_as::<_, Memo>(sqlx::AssertSqlSafe(sql))
+        let memos = sqlx::query_as::<_, MemoRow>(sqlx::AssertSqlSafe(sql))
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+            .into_iter()
+            .map(Memo::from)
+            .collect();
         Ok(memos)
     }
 
     async fn find_by_id(&self, id: i64) -> Result<Option<Memo>, AppError> {
-        let memo = sqlx::query_as::<_, Memo>(
+        let memo = sqlx::query_as::<_, MemoRow>(
             "SELECT id, content, kind, done, created_at, updated_at FROM memos WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
+        .map(Memo::from);
         Ok(memo)
     }
 
@@ -1796,6 +2488,144 @@ impl MemoRepository for SqliteMemoRepository {
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound("Memo not found".into()));
         }
+        Ok(())
+    }
+}
+
+// ─── 统一 Task 状态机持久化（Phase B1 扩展）────────────────────────────────
+
+/// SQLite TaskStore 的行模型。
+#[derive(sqlx::FromRow)]
+struct TaskDbRow {
+    id: i64,
+    kind: String,
+    name: String,
+    state: String,
+    progress: i32,
+    message: String,
+    created_at: String,
+    updated_at: String,
+}
+
+/// SQLite TaskStore：将统一 Task 记录落库（进程重启可恢复）。
+pub struct SqliteTaskStore {
+    pool: SqlitePool,
+}
+
+impl SqliteTaskStore {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+fn task_state_str(s: &crate::runtime::task_state::TaskState) -> &'static str {
+    match s {
+        crate::runtime::task_state::TaskState::Pending => "pending",
+        crate::runtime::task_state::TaskState::Running => "running",
+        crate::runtime::task_state::TaskState::Success => "success",
+        crate::runtime::task_state::TaskState::Failed => "failed",
+        crate::runtime::task_state::TaskState::Cancelled => "cancelled",
+    }
+}
+
+fn task_kind_str(k: &crate::runtime::task_state::TaskKind) -> &'static str {
+    k.as_str()
+}
+
+fn parse_task_state(s: &str) -> crate::runtime::task_state::TaskState {
+    match s {
+        "running" => crate::runtime::task_state::TaskState::Running,
+        "success" => crate::runtime::task_state::TaskState::Success,
+        "failed" => crate::runtime::task_state::TaskState::Failed,
+        "cancelled" => crate::runtime::task_state::TaskState::Cancelled,
+        _ => crate::runtime::task_state::TaskState::Pending,
+    }
+}
+
+fn parse_task_kind(s: &str) -> crate::runtime::task_state::TaskKind {
+    match s {
+        "install" => crate::runtime::task_state::TaskKind::Install,
+        "engine_switch" => crate::runtime::task_state::TaskKind::EngineSwitch,
+        "batch_node" => crate::runtime::task_state::TaskKind::BatchNode,
+        _ => crate::runtime::task_state::TaskKind::Generic,
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::runtime::task_state::TaskStore for SqliteTaskStore {
+    async fn insert(&self, record: &crate::runtime::task_state::TaskRecord) -> Result<(), String> {
+        sqlx::query(
+            "INSERT INTO tasks (id, kind, name, state, progress, message, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+               kind=excluded.kind, name=excluded.name, state=excluded.state,
+               progress=excluded.progress, message=excluded.message,
+               created_at=excluded.created_at, updated_at=excluded.updated_at",
+        )
+        .bind(record.id as i64)
+        .bind(task_kind_str(&record.kind))
+        .bind(&record.name)
+        .bind(task_state_str(&record.state))
+        .bind(record.progress as i32)
+        .bind(&record.message)
+        .bind(record.created_at.to_rfc3339())
+        .bind(record.updated_at.to_rfc3339())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("insert task: {}", e))?;
+        Ok(())
+    }
+
+    async fn update(&self, record: &crate::runtime::task_state::TaskRecord) -> Result<(), String> {
+        sqlx::query(
+            "UPDATE tasks SET kind=?, name=?, state=?, progress=?, message=?, updated_at=?
+             WHERE id=?",
+        )
+        .bind(task_kind_str(&record.kind))
+        .bind(&record.name)
+        .bind(task_state_str(&record.state))
+        .bind(record.progress as i32)
+        .bind(&record.message)
+        .bind(record.updated_at.to_rfc3339())
+        .bind(record.id as i64)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("update task: {}", e))?;
+        Ok(())
+    }
+
+    async fn load_all(&self) -> Result<Vec<crate::runtime::task_state::TaskRecord>, String> {
+        let rows = sqlx::query_as::<_, TaskDbRow>(
+            "SELECT id, kind, name, state, progress, message, created_at, updated_at FROM tasks ORDER BY id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("load tasks: {}", e))?;
+        Ok(rows
+            .into_iter()
+            .map(|r| crate::runtime::task_state::TaskRecord {
+                id: r.id as u64,
+                kind: parse_task_kind(&r.kind),
+                name: r.name,
+                state: parse_task_state(&r.state),
+                progress: r.progress.clamp(0, 100) as u8,
+                message: r.message,
+                created_at: chrono::DateTime::parse_from_rfc3339(&r.created_at)
+                    .map(|t| t.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|_| chrono::Utc::now()),
+                updated_at: chrono::DateTime::parse_from_rfc3339(&r.updated_at)
+                    .map(|t| t.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|_| chrono::Utc::now()),
+            })
+            .collect())
+    }
+
+    async fn remove(&self, id: u64) -> Result<(), String> {
+        sqlx::query("DELETE FROM tasks WHERE id=?")
+            .bind(id as i64)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| format!("delete task: {}", e))?;
         Ok(())
     }
 }

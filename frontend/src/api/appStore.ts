@@ -1,4 +1,9 @@
 import api from './client'
+import type {
+  AppMetadata as GenAppMetadata,
+  AppStoreListResponse as GenAppStoreListResponse,
+  InstalledApp as GenInstalledApp,
+} from '@/api/generated'
 
 export interface AppFormField {
   env_key: string
@@ -29,45 +34,14 @@ export interface AppVersionInfo {
   architectures: string[]
 }
 
-export interface AppMetadata {
-  key: string
-  name: string
-  category: string
-  short_desc_zh: string
-  short_desc_en?: string
-  tags: string[]
-  format: string
-  modes: string[]
-  versions: string[]
-  default_version: string
-  logo?: string
-  min_memory_mb?: number
-  architectures: string[]
-  readme?: string
-  recommended?: boolean
-}
+/** 应用元数据（后端 OpenAPI 已覆盖：src/api/generated） */
+export type AppMetadata = GenAppMetadata
 
-export interface InstalledApp {
-  id: number
-  package_key: string
-  name: string
-  version: string
-  mode: string
-  status: string
-  access_url?: string
-  install_path?: string
-  container_name?: string
-  port?: number
-  params_json?: string
-  created_at: string
-  updated_at: string
-  launch_count?: number
-}
+/** 已安装应用（后端 OpenAPI 已覆盖） */
+export type InstalledApp = GenInstalledApp
 
-export interface AppStoreListResponse {
-  packages: AppMetadata[]
-  total: number
-}
+/** 应用商店列表响应（后端 OpenAPI 已覆盖） */
+export type AppStoreListResponse = GenAppStoreListResponse
 
 export function listPackages(category?: string) {
   return api.get<AppStoreListResponse>('/app-store/packages', {
@@ -98,6 +72,13 @@ export function installApp(key: string, data: {
 
 export function importPackage(path: string) {
   return api.post<AppMetadata>('/app-store/packages/import', { path })
+}
+
+export function batchImportPackages(paths: string[]) {
+  return api.post<{ imported: AppMetadata[]; count: number }>(
+    '/app-store/packages/batch-import',
+    { paths },
+  )
 }
 
 export function listInstalledApps() {

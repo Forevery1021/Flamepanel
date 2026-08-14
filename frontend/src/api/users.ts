@@ -1,8 +1,9 @@
 import api from './client'
-import type { User, PaginatedResponse } from '@/types'
+import type { User } from '@/api/generated'
+import type { Page } from '@/api/generated'
 
 export function listUsers(page = 1, pageSize = 20) {
-  return api.get<PaginatedResponse<User>>('/users', { params: { page, page_size: pageSize } })
+  return api.get<Page<User>>('/users', { params: { page, page_size: pageSize } })
 }
 
 export function createUser(username: string, password_hash: string, role: string) {

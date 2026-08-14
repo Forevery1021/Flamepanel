@@ -9,6 +9,19 @@ use axum::{
     Json,
 };
 
+/// 网站列表（分页）
+#[utoipa::path(
+    get,
+    path = "/api/websites",
+    tag = "websites",
+    operation_id = "list_websites",
+    params(PaginationParams),
+    responses(
+        (status = 200, description = "网站列表", body = PaginatedResponse<Website>),
+        (status = 401, description = "未认证"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
@@ -20,6 +33,19 @@ pub async fn list(
     Ok(Json(result))
 }
 
+/// 获取网站详情
+#[utoipa::path(
+    get,
+    path = "/api/websites/{id}",
+    tag = "websites",
+    operation_id = "get_website",
+    params(("id" = i64, Path, description = "网站 ID")),
+    responses(
+        (status = 200, description = "网站详情", body = Website),
+        (status = 404, description = "网站不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn get(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -28,6 +54,19 @@ pub async fn get(
     Ok(Json(website))
 }
 
+/// 创建网站
+#[utoipa::path(
+    post,
+    path = "/api/websites",
+    tag = "websites",
+    operation_id = "create_website",
+    request_body = CreateWebsiteRequest,
+    responses(
+        (status = 200, description = "创建成功，返回网站 ID", body = i64),
+        (status = 400, description = "参数错误"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn create(
     State(state): State<AppState>,
     ApiJson(payload): ApiJson<CreateWebsiteRequest>,
@@ -39,6 +78,20 @@ pub async fn create(
     Ok(Json(id))
 }
 
+/// 更新网站
+#[utoipa::path(
+    put,
+    path = "/api/websites/{id}",
+    tag = "websites",
+    operation_id = "update_website",
+    params(("id" = i64, Path, description = "网站 ID")),
+    request_body = CreateWebsiteRequest,
+    responses(
+        (status = 200, description = "更新成功", body = Website),
+        (status = 404, description = "网站不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -51,6 +104,19 @@ pub async fn update(
     Ok(Json(updated))
 }
 
+/// 删除网站
+#[utoipa::path(
+    delete,
+    path = "/api/websites/{id}",
+    tag = "websites",
+    operation_id = "delete_website",
+    params(("id" = i64, Path, description = "网站 ID")),
+    responses(
+        (status = 200, description = "删除成功"),
+        (status = 404, description = "网站不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -79,11 +145,11 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/websites", axum::routing::get(list))
         .route("/api/websites", axum::routing::post(create))
-        .route("/api/websites/:id", axum::routing::get(get))
-        .route("/api/websites/:id", axum::routing::put(update))
-        .route("/api/websites/:id", axum::routing::delete(delete))
+        .route("/api/websites/{id}", axum::routing::get(get))
+        .route("/api/websites/{id}", axum::routing::put(update))
+        .route("/api/websites/{id}", axum::routing::delete(delete))
         .route(
-            "/api/websites/:id/switch-engine",
+            "/api/websites/{id}/switch-engine",
             axum::routing::post(switch_engine),
         )
 }

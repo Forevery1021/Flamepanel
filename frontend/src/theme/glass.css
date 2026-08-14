@@ -1,8 +1,11 @@
-/* ═══════════ Glass Material Utilities ═══════════ */
+/* ═══════════ Glass Material Utilities ═══════════
+ * F2.1 玻璃降级：`glass-enabled` 类（设置项/背景联动）、prefers-reduced-transparency、
+ *     表格/表单密集区使用 dense 低 blur（--fp-glass-blur-dense）保证对比度。
+ */
 
 /* 轻玻璃：顶栏/卡片悬浮 */
 .glass {
-  background: oklch(1 0 0 / 0.62);
+  background: var(--fp-glass-bg);
   backdrop-filter: blur(var(--fp-glass-blur)) saturate(1.4);
   -webkit-backdrop-filter: blur(var(--fp-glass-blur)) saturate(1.4);
   border: 1px solid oklch(1 0 0 / 0.5);
@@ -11,7 +14,7 @@
 
 /* 重玻璃：Modal / Command Palette */
 .glass-heavy {
-  background: oklch(1 0 0 / 0.72);
+  background: var(--fp-glass-bg-heavy);
   backdrop-filter: blur(calc(var(--fp-glass-blur) * 2)) saturate(1.5);
   -webkit-backdrop-filter: blur(calc(var(--fp-glass-blur) * 2)) saturate(1.5);
   border: 1px solid oklch(1 0 0 / 0.6);
@@ -21,17 +24,30 @@
 }
 
 .dark .glass {
-  background: oklch(0.2 0.014 250 / 0.55);
+  background: var(--fp-glass-bg);
   border-color: oklch(1 0 0 / 0.08);
   box-shadow: 0 1px 0 0 oklch(1 0 0 / 0.06) inset;
 }
 
 .dark .glass-heavy {
-  background: oklch(0.18 0.014 250 / 0.7);
+  background: var(--fp-glass-bg-heavy);
   border-color: oklch(1 0 0 / 0.1);
   box-shadow:
     0 1px 0 0 oklch(1 0 0 / 0.08) inset,
     0 20px 40px -12px rgb(0 0 0 / 0.6);
+}
+
+/* ── 玻璃总开关：关闭 → 全部回退实色（低端设备 / 用户偏好）── */
+.glass-disabled .glass,
+.glass-disabled .glass-heavy,
+.glass-disabled .app-bg-enabled .app-header,
+.glass-disabled .app-bg-enabled .app-tabs,
+.glass-disabled .app-bg-enabled .panel,
+.glass-disabled .app-bg-enabled .fp-table .p-datatable-header {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: var(--fp-bg-elevated) !important;
+  border-color: var(--fp-border) !important;
 }
 
 /* 无障碍：禁用透明度时回退纯色 */
@@ -54,6 +70,12 @@
   background: color-mix(in srgb, var(--fp-bg-elevated) 78%, transparent);
   backdrop-filter: blur(var(--fp-glass-blur)) saturate(1.3);
   -webkit-backdrop-filter: blur(var(--fp-glass-blur)) saturate(1.3);
+}
+/* 表格/表单密集区降低 blur，保证对比度 */
+.app-bg-enabled .fp-table .p-datatable-header,
+.app-bg-enabled .p-paginator {
+  backdrop-filter: blur(var(--fp-glass-blur-dense)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--fp-glass-blur-dense)) saturate(1.2);
 }
 .app-bg-enabled .main {
   background: transparent;

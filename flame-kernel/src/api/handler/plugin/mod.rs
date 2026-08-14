@@ -196,9 +196,8 @@ pub async fn load_plugin(
         updated_at: now,
     };
     state.plugin_registry.register(plugin.clone())?;
-    if let Err(e) = state.plugin_repo.save(&plugin).await {
-        tracing::warn!("Failed to persist plugin {}: {}", plugin.id, e);
-    }
+    // T10/A2：持久化失败向上返回错误，不在 handler 层吞掉。
+    state.plugin_repo.save(&plugin).await?;
 
     Ok(Json(PluginResponse {
         id: plugin.id,
@@ -237,7 +236,7 @@ pub async fn reload_plugin(
 
     let sandbox_plugin = state
         .plugin_sandbox
-        .reload_plugin(&id, wasm_bytes, Some(config))
+        .reload_plugin(&id, wasm_bytes, Some(config), None)
         .await?;
     let plugin = state.plugin_registry.get(&id)?;
 
@@ -460,42 +459,42 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/plugins", axum::routing::get(list_plugins))
         .route("/api/plugins", axum::routing::post(load_plugin))
-        .route("/api/plugins/:id", axum::routing::get(get_plugin))
-        .route("/api/plugins/:id", axum::routing::post(unload_plugin))
+        .route("/api/plugins/{id}", axum::routing::get(get_plugin))
+        .route("/api/plugins/{id}", axum::routing::post(unload_plugin))
         .route(
-            "/api/plugins/:id/enable",
+            "/api/plugins/{id}/enable",
             axum::routing::post(enable_plugin),
         )
         .route(
-            "/api/plugins/:id/disable",
+            "/api/plugins/{id}/disable",
             axum::routing::post(disable_plugin),
         )
         .route(
-            "/api/plugins/:id/execute/:function",
+            "/api/plugins/{id}/execute/{function}",
             axum::routing::post(execute_plugin),
         )
         .route(
-            "/api/plugins/:id/reload",
+            "/api/plugins/{id}/reload",
             axum::routing::post(reload_plugin),
         )
         .route(
-            "/api/plugins/:id/metrics",
+            "/api/plugins/{id}/metrics",
             axum::routing::get(get_plugin_metrics),
         )
         .route(
-            "/api/plugins/:id/metrics",
+            "/api/plugins/{id}/metrics",
             axum::routing::delete(reset_plugin_metrics),
         )
         .route(
-            "/api/plugins/:id/settings",
+            "/api/plugins/{id}/settings",
             axum::routing::get(list_plugin_settings),
         )
         .route(
-            "/api/plugins/:id/settings",
+            "/api/plugins/{id}/settings",
             axum::routing::post(set_plugin_setting),
         )
         .route(
-            "/api/plugins/:id/settings/:key",
+            "/api/plugins/{id}/settings/{key}",
             axum::routing::get(get_plugin_setting),
         )
 }

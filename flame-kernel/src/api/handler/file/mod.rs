@@ -1,14 +1,19 @@
 use crate::api::extract::ApiJson;
-use crate::api::types::AppState;
+use crate::api::types::{AppState, Username};
 use crate::core::error::AppError;
 use crate::file::{FileInfo, FileService};
 use axum::Router;
 use axum::{
     body::Bytes,
-    extract::{Query, State},
+    extract::{Extension, Query, State},
     Json,
 };
 use serde::Deserialize;
+
+/// 从 AppState 构造沙箱文件服务（白名单根目录取自 OP_FILE_ROOT）
+fn file_service(state: &AppState) -> FileService {
+    FileService::new(state.file_root.clone())
+}
 
 #[derive(Deserialize)]
 pub struct ListParams {
@@ -55,77 +60,89 @@ pub struct UploadQuery {
     pub name: String,
 }
 
-async fn log_file_op(state: &AppState, action: &str, target: &str) {
-    // Extract username from user context if available (fallback to "system")
+async fn log_file_op(state: &AppState, username: &str, action: &str, target: &str) {
+    // T10/A2：审计用户名从 JWT 认证上下文取，不再硬编码 "system"。
     state
         .operation_log_service
-        .log("system", action, Some(target), None)
+        .log(username, action, Some(target), None)
         .await
         .ok();
 }
 
 pub async fn list(
     State(state): State<AppState>,
+    Extension(username): Extension<Username>,
     Query(params): Query<ListParams>,
 ) -> Result<Json<Vec<FileInfo>>, AppError> {
     let path = params.path.unwrap_or_else(|| "/".into());
-    let entries = FileService::list(&path).await?;
-    log_file_op(&state, "file_list", &path).await;
+    let entries = file_service(&state).list(&path).await?;
+    log_file_op(&state, &username.0, "file_list", &path).await;
     Ok(Json(entries))
 }
 
 pub async fn read(
     State(state): State<AppState>,
+    Extension(username): Extension<Username>,
     Query(params): Query<ReadParams>,
 ) -> Result<Json<String>, AppError> {
-    let content = FileService::read(&params.path).await?;
-    log_file_op(&state, "file_read", &params.path).await;
+    let content = file_service(&state).read(&params.path).await?;
+    log_file_op(&state, &username.0, "file_read", &params.path).await;
     Ok(Json(content))
 }
 
 pub async fn write(
     State(state): State<AppState>,
+    Extension(username): Extension<Username>,
     ApiJson(req): ApiJson<WriteRequest>,
 ) -> Result<Json<&'static str>, AppError> {
-    FileService::write(&req.path, &req.content).await?;
-    log_file_op(&state, "file_write", &req.path).await;
+    file_service(&state).write(&req.path, &req.content).await?;
+    log_file_op(&state, &username.0, "file_write", &req.path).await;
     Ok(Json("written"))
 }
 
 pub async fn create_file(
     State(state): State<AppState>,
+    Extension(username): Extension<Username>,
     ApiJson(req): ApiJson<CreateRequest>,
 ) -> Result<Json<&'static str>, AppError> {
-    FileService::create_file(&req.path).await?;
-    log_file_op(&state, "file_create_file", &req.path).await;
+    file_service(&state).create_file(&req.path).await?;
+    log_file_op(&state, &username.0, "file_create_file", &req.path).await;
     Ok(Json("created"))
 }
 
 pub async fn create_dir(
     State(state): State<AppState>,
+    Extension(username): Extension<Username>,
     ApiJson(req): ApiJson<CreateRequest>,
 ) -> Result<Json<&'static str>, AppError> {
-    FileService::create_dir(&req.path).await?;
-    log_file_op(&state, "file_create_dir", &req.path).await;
+    file_service(&state).create_dir(&req.path).await?;
+    log_file_op(&state, &username.0, "file_create_dir", &req.path).await;
     Ok(Json("created"))
 }
 
 pub async fn delete(
     State(state): State<AppState>,
+    Extension(username): Extension<Username>,
     Query(params): Query<DeleteParams>,
 ) -> Result<Json<&'static str>, AppError> {
-    FileService::delete(&params.path, params.recursive.unwrap_or(false)).await?;
-    log_file_op(&state, "file_delete", &params.path).await;
+    file_service(&state)
+        .delete(&params.path, params.recursive.unwrap_or(false))
+        .await?;
+    log_file_op(&state, &username.0, "file_delete", &params.path).await;
     Ok(Json("deleted"))
 }
 
 pub async fn rename(
     State(state): State<AppState>,
+    Extension(username): Extension<Username>,
     ApiJson(req): ApiJson<RenameRequest>,
 ) -> Result<Json<&'static str>, AppError> {
-    FileService::rename(&req.old_path, &req.new_path).await?;
+    file_service(&state)
+        .rename(&req.old_path, &req.new_path)
+        .await?;
     log_file_op(
         &state,
+        &username.0,
         "file_rename",
         &format!("{} -> {}", req.old_path, req.new_path),
     )
@@ -135,21 +152,32 @@ pub async fn rename(
 
 pub async fn chmod(
     State(state): State<AppState>,
+    Extension(username): Extension<Username>,
     ApiJson(req): ApiJson<ChmodRequest>,
 ) -> Result<Json<&'static str>, AppError> {
-    FileService::chmod(&req.path, &req.mode).await?;
-    log_file_op(&state, "file_chmod", &format!("{} {}", req.path, req.mode)).await;
+    file_service(&state).chmod(&req.path, &req.mode).await?;
+    log_file_op(
+        &state,
+        &username.0,
+        "file_chmod",
+        &format!("{} {}", req.path, req.mode),
+    )
+    .await;
     Ok(Json("ok"))
 }
 
 pub async fn upload(
     State(state): State<AppState>,
+    Extension(username): Extension<Username>,
     Query(params): Query<UploadQuery>,
     body: Bytes,
 ) -> Result<Json<&'static str>, AppError> {
-    FileService::upload(&params.path, &params.name, &body).await?;
+    file_service(&state)
+        .upload(&params.path, &params.name, &body)
+        .await?;
     log_file_op(
         &state,
+        &username.0,
         "file_upload",
         &format!("{}/{}", params.path, params.name),
     )
@@ -159,10 +187,11 @@ pub async fn upload(
 
 pub async fn download(
     State(state): State<AppState>,
+    Extension(username): Extension<Username>,
     Query(params): Query<ReadParams>,
 ) -> Result<(axum::http::StatusCode, [(String, String); 3], Vec<u8>), AppError> {
-    let (name, content, mime) = FileService::download(&params.path).await?;
-    log_file_op(&state, "file_download", &params.path).await;
+    let (name, content, mime) = file_service(&state).download(&params.path).await?;
+    log_file_op(&state, &username.0, "file_download", &params.path).await;
     Ok((
         axum::http::StatusCode::OK,
         [

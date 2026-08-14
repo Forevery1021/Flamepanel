@@ -222,11 +222,11 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/firewall/rules", axum::routing::get(list))
         .route("/api/firewall/rules", axum::routing::post(create))
-        .route("/api/firewall/rules/:id", axum::routing::get(get))
-        .route("/api/firewall/rules/:id", axum::routing::put(update))
-        .route("/api/firewall/rules/:id", axum::routing::delete(delete))
+        .route("/api/firewall/rules/{id}", axum::routing::get(get))
+        .route("/api/firewall/rules/{id}", axum::routing::put(update))
+        .route("/api/firewall/rules/{id}", axum::routing::delete(delete))
         .route(
-            "/api/firewall/rules/:id/toggle",
+            "/api/firewall/rules/{id}/toggle",
             axum::routing::post(toggle),
         )
         .route("/api/firewall/apply", axum::routing::post(apply_all))

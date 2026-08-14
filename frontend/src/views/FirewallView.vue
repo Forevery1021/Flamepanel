@@ -1,80 +1,98 @@
 <template>
   <LayoutContent :title="t('firewall.title')" reload @reload="loadData">
     <template #toolbar>
-      <FpTag :severity="statusTag" :value="backendInfo" class="status-tag" />
-      <FpButton variant="primary" icon="oi oi-plus" @click="openCreate">
-        {{ t('firewall.add') }}
-      </FpButton>
-      <FpButton variant="ghost" icon="oi oi-sync" @click="handleApply">
-        {{ t('firewall.apply') }}
-      </FpButton>
-      <FpButton
-        :variant="firewallEnabled ? 'danger' : 'success'"
-        icon="oi oi-power-off"
-        @click="handleToggleFirewall"
-      >
-        {{ firewallEnabled ? t('firewall.disable') : t('firewall.enable') }}
-      </FpButton>
+      <div class="toolbar-left">
+        <FpInput
+          v-model="searchText"
+          :placeholder="t('common.searchPlaceholder')"
+          class="toolbar-search"
+        />
+        <FpSelect
+          v-model="protoFilter"
+          :options="protoFilterOptions"
+          option-label="label"
+          option-value="value"
+          show-clear
+          class="toolbar-filter"
+        />
+      </div>
+      <div class="toolbar-right">
+        <FpTag :severity="statusTag" :value="backendInfo" class="status-tag" />
+        <FpButton v-permission="{ perm: 'firewall:create', mode: 'view' }" variant="primary" icon="oi oi-plus" @click="openCreate">
+          {{ t('firewall.add') }}
+        </FpButton>
+        <FpButton v-permission="{ perm: 'firewall:apply', mode: 'view' }" variant="ghost" icon="oi oi-sync" @click="handleApply">
+          {{ t('firewall.apply') }}
+        </FpButton>
+        <FpButton
+          v-permission="{ perm: 'firewall:enable', mode: 'view' }"
+          :variant="firewallEnabled ? 'danger' : 'success'"
+          icon="oi oi-power-off"
+          @click="handleToggleFirewall"
+        >
+          {{ firewallEnabled ? t('firewall.disable') : t('firewall.enable') }}
+        </FpButton>
+      </div>
     </template>
 
     <div class="panel">
       <FpTable
-        :rows="rules"
+        :rows="filteredRules"
         :loading="loading"
         :first="(currentPage - 1) * pageSize"
         :rows-per-page="pageSize"
         :empty-text="t('common.noData')"
         @update:first="goPage"
       >
-        <Column header="#" style="width: 50px">
+        <FpColumn header="#" style="width: 50px">
           <template #body="{ index }">{{ index + 1 }}</template>
-        </Column>
-        <Column field="name" :header="t('firewall.name')" />
-        <Column :header="t('firewall.protocol')" style="width: 90px">
+        </FpColumn>
+        <FpColumn field="name" :header="t('firewall.name')" />
+        <FpColumn :header="t('firewall.protocol')" style="width: 90px">
           <template #body="{ data }">
             <FpTag
               :severity="data.protocol === 'any' ? 'neutral' : 'info'"
               :value="data.protocol.toUpperCase()"
             />
           </template>
-        </Column>
-        <Column :header="t('firewall.port')" style="width: 120px">
+        </FpColumn>
+        <FpColumn :header="t('firewall.port')" style="width: 120px">
           <template #body="{ data }">{{ data.port || t('firewall.any') }}</template>
-        </Column>
-        <Column :header="t('firewall.source')" style="width: 150px">
+        </FpColumn>
+        <FpColumn :header="t('firewall.source')" style="width: 150px">
           <template #body="{ data }">{{ data.source || '0.0.0.0/0' }}</template>
-        </Column>
-        <Column :header="t('firewall.action')" style="width: 100px">
+        </FpColumn>
+        <FpColumn :header="t('firewall.action')" style="width: 100px">
           <template #body="{ data }">
             <FpTag
               :severity="data.action === 'allow' ? 'success' : 'danger'"
               :value="actionLabel(data.action)"
             />
           </template>
-        </Column>
-        <Column :header="t('firewall.direction')" style="width: 90px">
+        </FpColumn>
+        <FpColumn :header="t('firewall.direction')" style="width: 90px">
           <template #body="{ data }">
             {{ data.direction === 'in' ? t('firewall.in') : t('firewall.out') }}
           </template>
-        </Column>
-        <Column :header="t('firewall.enabled')" style="width: 90px">
+        </FpColumn>
+        <FpColumn :header="t('firewall.enabled')" style="width: 90px">
           <template #body="{ data }">
-            <ToggleSwitch
+            <FpSwitch
               :model-value="data.enabled"
               @update:model-value="(v: boolean) => handleToggle(data.id, v)"
             />
           </template>
-        </Column>
-        <Column :header="t('firewall.actions')" style="width: 150px" frozen>
+        </FpColumn>
+        <FpColumn :header="t('firewall.actions')" style="width: 150px" frozen>
           <template #body="{ data }">
             <div class="row-actions">
-              <FpButton variant="link" @click="handleEdit(data)">{{ t('common.edit') }}</FpButton>
-              <FpButton variant="link" @click="handleDelete(data.id)">
+              <FpButton v-permission="{ perm: 'firewall:update', mode: 'view' }" variant="link" @click="handleEdit(data)">{{ t('common.edit') }}</FpButton>
+              <FpButton v-permission="{ perm: 'firewall:delete', mode: 'view' }" variant="link" @click="handleDelete(data.id)">
                 {{ t('firewall.delete') }}
               </FpButton>
             </div>
           </template>
-        </Column>
+        </FpColumn>
       </FpTable>
     </div>
 
@@ -120,7 +138,7 @@
         />
         <div class="field-col">
           <label class="field-label">{{ t('firewall.priority') }}</label>
-          <InputNumber v-model="form.priority" :min="1" :max="999" class="w-full" />
+          <FpNumber v-model="form.priority" :min="1" :max="999" class="w-full" />
         </div>
       </div>
       <template #footer>
@@ -162,7 +180,7 @@
         />
         <div class="field-col">
           <label class="field-label">{{ t('firewall.priority') }}</label>
-          <InputNumber v-model="editForm.priority" :min="1" :max="999" class="w-full" />
+          <FpNumber v-model="editForm.priority" :min="1" :max="999" class="w-full" />
         </div>
       </div>
       <template #footer>
@@ -180,9 +198,9 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Column from 'openvue/column'
-import InputNumber from 'openvue/inputnumber'
-import ToggleSwitch from 'openvue/toggleswitch'
+
+
+
 import {
   listFirewallRules,
   createFirewallRule,
@@ -204,6 +222,9 @@ import FpButton from '@/components/ui/FpButton.vue'
 import FpTag from '@/components/ui/FpTag.vue'
 import { useFpToast } from '@/components/ui/FpToast'
 import { useFpConfirm } from '@/components/ui/FpConfirm'
+import FpColumn from '@/components/ui/FpColumn.vue'
+import FpNumber from '@/components/ui/FpNumber.vue'
+import FpSwitch from '@/components/ui/FpSwitch.vue'
 
 type TagSeverity = 'success' | 'warning' | 'danger' | 'info' | 'neutral'
 
@@ -216,6 +237,28 @@ const loading = ref(false)
 const saving = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(10)
+
+// M9：搜索 + 协议筛选（客户端过滤）
+const searchText = ref('')
+const protoFilter = ref<string>('')
+const protoFilterOptions = computed(() => [
+  { label: 'TCP', value: 'tcp' },
+  { label: 'UDP', value: 'udp' },
+  { label: 'ICMP', value: 'icmp' },
+])
+const filteredRules = computed(() => {
+  const kw = searchText.value.trim().toLowerCase()
+  return rules.value.filter((r) => {
+    if (protoFilter.value && r.protocol !== protoFilter.value) return false
+    if (!kw) return true
+    return (
+      r.name.toLowerCase().includes(kw) ||
+      (r.description ?? '').toLowerCase().includes(kw) ||
+      (r.port ?? '').toLowerCase().includes(kw) ||
+      (r.source ?? '').toLowerCase().includes(kw)
+    )
+  })
+})
 const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
 const firewallStatus = ref<FirewallStatus | null>(null)
@@ -454,11 +497,23 @@ onMounted(loadData)
 </script>
 
 <style scoped>
-.panel {
-  padding: var(--fp-space-4);
-  border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
-  border: 1px solid var(--fp-border);
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-2);
+  flex-wrap: wrap;
+}
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-2);
+  flex-wrap: wrap;
+}
+.toolbar-search {
+  width: 240px;
+}
+.toolbar-filter {
+  width: 160px;
 }
 .status-tag {
   max-width: 300px;

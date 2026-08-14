@@ -3,6 +3,8 @@ use serde::Serialize;
 use thiserror::Error;
 use tracing::error;
 
+use crate::domain::error::DomainError;
+
 /// 稳定错误码（客户端可据此做国际化提示或分支处理）。
 /// 与 HTTP 状态码一一对应，但语义更精确，跨版本保持稳定。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +16,7 @@ pub enum ErrorCode {
     BadRequest,
     ValidationError,
     Conflict,
+    RateLimited,
     ServiceUnavailable,
     Internal,
 }
@@ -28,6 +31,7 @@ impl ErrorCode {
             ErrorCode::BadRequest => "BAD_REQUEST",
             ErrorCode::ValidationError => "VALIDATION_ERROR",
             ErrorCode::Conflict => "CONFLICT",
+            ErrorCode::RateLimited => "RATE_LIMITED",
             ErrorCode::ServiceUnavailable => "SERVICE_UNAVAILABLE",
             ErrorCode::Internal => "INTERNAL_ERROR",
         }
@@ -41,6 +45,7 @@ impl ErrorCode {
             ErrorCode::NotFound => StatusCode::NOT_FOUND,
             ErrorCode::BadRequest | ErrorCode::ValidationError => StatusCode::BAD_REQUEST,
             ErrorCode::Conflict => StatusCode::CONFLICT,
+            ErrorCode::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             ErrorCode::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
             ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -63,6 +68,8 @@ pub enum AppError {
     ValidationError(String),
     #[error("Conflict: {0}")]
     Conflict(String),
+    #[error("Rate limited: {0}")]
+    RateLimited(String),
     #[error("Service unavailable: {0}")]
     ServiceUnavailable(String),
     #[error("Internal error: {message}")]
@@ -100,6 +107,7 @@ impl AppError {
             AppError::BadRequest(_) => ErrorCode::BadRequest,
             AppError::ValidationError(_) => ErrorCode::ValidationError,
             AppError::Conflict(_) => ErrorCode::Conflict,
+            AppError::RateLimited(_) => ErrorCode::RateLimited,
             AppError::ServiceUnavailable(_) => ErrorCode::ServiceUnavailable,
             AppError::Internal { .. } => ErrorCode::Internal,
         }
@@ -107,6 +115,18 @@ impl AppError {
 
     pub fn status_code(&self) -> StatusCode {
         self.code().status_code()
+    }
+}
+
+impl From<DomainError> for AppError {
+    fn from(e: DomainError) -> Self {
+        match e {
+            DomainError::NotFound(m) => AppError::NotFound(m),
+            DomainError::Validation(m) => AppError::ValidationError(m),
+            DomainError::Conflict(m) => AppError::Conflict(m),
+            DomainError::Forbidden(m) => AppError::Forbidden(m),
+            DomainError::RuleViolation(m) => AppError::BadRequest(m),
+        }
     }
 }
 
@@ -128,9 +148,16 @@ impl From<std::num::ParseIntError> for AppError {
     }
 }
 
+#[cfg(feature = "sqlite")]
 impl From<sqlx::Error> for AppError {
     fn from(e: sqlx::Error) -> Self {
-        AppError::internal_with_source("Database operation failed", e)
+        match &e {
+            sqlx::Error::RowNotFound => AppError::NotFound("Resource not found".into()),
+            sqlx::Error::Database(db) if db.is_unique_violation() => {
+                AppError::Conflict("Resource already exists".into())
+            }
+            _ => AppError::internal_with_source("Database operation failed", e),
+        }
     }
 }
 

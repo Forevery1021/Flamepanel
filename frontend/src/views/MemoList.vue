@@ -9,24 +9,25 @@
       />
       <FpButton variant="primary" :loading="adding" @click="add">{{ t('common.add') }}</FpButton>
       <label class="memo-filter">
-        <Checkbox v-model="showDone" size="small" />
+        <FpCheckbox v-model="showDone" size="small" />
         {{ t('memo.showDone') }}
       </label>
     </div>
 
     <div v-if="loading" class="memo-skeleton">
-      <Skeleton v-for="i in 5" :key="i" height="36px" />
+      <FpSkeleton v-for="i in 5" :key="i" height="36px" />
     </div>
     <div v-else class="memo-items">
       <div v-for="m in items" :key="m.id" class="memo-item" :class="{ done: m.done }">
-        <Checkbox :model-value="m.done" @change="(v) => toggle(m, Boolean(v))" />
+        <FpCheckbox :model-value="m.done" @change="(v) => toggle(m, Boolean(v))" />
         <span class="memo-content" @dblclick="startEdit(m)">{{ m.content }}</span>
         <span class="memo-time mono">{{ shortTime(m.created_at) }}</span>
-        <FpButton variant="link" icon="oi oi-pencil" @click="startEdit(m)" />
+        <FpButton variant="link" icon="oi oi-pencil" :aria-label="t('memo.edit')" @click="startEdit(m)" />
         <FpButton
           variant="link"
           icon="oi oi-trash"
           class="danger-link"
+          :aria-label="t('common.delete')"
           @click="confirmDelete(m)"
         />
       </div>
@@ -34,7 +35,7 @@
     </div>
 
     <FpModal v-model="editVisible" :header="t('memo.edit')">
-      <Textarea v-model="editContent" :rows="4" class="w-full" />
+      <FpTextarea v-model="editContent" :rows="4" class="w-full" />
       <template #footer>
         <FpButton variant="ghost" @click="editVisible = false">{{ t('common.cancel') }}</FpButton>
         <FpButton variant="primary" @click="saveEdit">{{ t('common.save') }}</FpButton>
@@ -46,15 +47,18 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Checkbox from 'openvue/checkbox'
-import Skeleton from 'openvue/skeleton'
-import Textarea from 'openvue/textarea'
+
+
+
 import { listMemos, createMemo, updateMemo, deleteMemo } from '@/api/memos'
 import FpInput from '@/components/ui/FpInput.vue'
 import FpButton from '@/components/ui/FpButton.vue'
 import FpModal from '@/components/ui/FpModal.vue'
 import { useFpToast } from '@/components/ui/FpToast'
 import { useFpConfirm } from '@/components/ui/FpConfirm'
+import FpCheckbox from '@/components/ui/FpCheckbox.vue'
+import FpSkeleton from '@/components/ui/FpSkeleton.vue'
+import FpTextarea from '@/components/ui/FpTextarea.vue'
 import type { Memo } from '@/types'
 
 const props = defineProps<{ kind: string }>()

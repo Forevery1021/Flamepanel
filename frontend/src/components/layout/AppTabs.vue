@@ -17,9 +17,10 @@
           class="tab-close"
           role="button"
           tabindex="-1"
+          :aria-label="t('tabs.closeTab', { title: tab.title })"
           @click.stop="tabsStore.close(tab.path)"
         >
-          <i class="oi oi-times" />
+          <i class="oi oi-times" aria-hidden="true" />
         </span>
       </button>
     </div>

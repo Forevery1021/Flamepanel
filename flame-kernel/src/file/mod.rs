@@ -1,6 +1,6 @@
 use crate::core::error::AppError;
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 
 #[derive(Debug, Clone, Serialize)]
@@ -27,23 +27,132 @@ fn get_permissions_string(metadata: &std::fs::Metadata) -> String {
     }
 }
 
-pub struct FileService;
+/// 词法规范化路径（处理 `.`/`..`，不访问文件系统），用于校验尚未创建的路径
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// 文件沙箱服务：所有路径都必须落在白名单根目录（OP_FILE_ROOT）内。
+///
+/// 安全规则（Stage0.2）：
+/// - 已存在路径：`canonicalize` 解析符号链接后再校验，防止符号链接穿越白名单
+/// - 未创建路径（写/新建/改名目标）：词法规范化父目录 + 文件名后校验
+/// - `..` 穿越、指向白名单外的符号链接一律拒绝
+#[derive(Debug, Clone)]
+pub struct FileService {
+    root: PathBuf,
+}
+
+impl Default for FileService {
+    fn default() -> Self {
+        Self {
+            root: PathBuf::from("."),
+        }
+    }
+}
 
 impl FileService {
-    fn sanitize(requested: &str) -> Result<PathBuf, AppError> {
-        let path = PathBuf::from(requested);
-        let canonical = path.canonicalize().map_err(|e| {
+    pub fn new(root: PathBuf) -> Self {
+        Self { root }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    fn root_canonical(&self) -> PathBuf {
+        self.root
+            .canonicalize()
+            .unwrap_or_else(|_| self.root.clone())
+    }
+
+    /// 词法解析并校验：目标（可能不存在）经规范化后必须位于白名单根内。
+    /// 所有 API 路径按 chroot 语义解释：`/a.txt` 与 `a.txt` 均指根目录下的 a.txt。
+    fn resolve_in_root(&self, requested: &str) -> Result<PathBuf, AppError> {
+        let root = self.root_canonical();
+        let raw = PathBuf::from(requested);
+        // 去除前导 `/`，避免绝对路径逃逸到文件系统根
+        let raw = if raw.is_absolute() {
+            raw.strip_prefix("/").unwrap_or(&raw).to_path_buf()
+        } else {
+            raw
+        };
+        let joined = root.join(&raw);
+        let normalized = normalize_path(&joined);
+        if !normalized.starts_with(&root) {
+            return Err(AppError::Forbidden(format!(
+                "Path is outside the allowed root: {}",
+                requested
+            )));
+        }
+        Ok(normalized)
+    }
+
+    /// 解析并校验已存在的路径：canonicalize 后（解析符号链接）必须位于白名单根内
+    fn sanitize(&self, requested: &str) -> Result<PathBuf, AppError> {
+        let root = self.root_canonical();
+        let target = self.resolve_in_root(requested)?;
+        let canonical = target.canonicalize().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 AppError::NotFound(format!("Path not found: {}", requested))
             } else {
                 AppError::internal(format!("Path error: {}", e))
             }
         })?;
+        if !canonical.starts_with(&root) {
+            return Err(AppError::Forbidden(format!(
+                "Path escapes the allowed root via symlink: {}",
+                requested
+            )));
+        }
         Ok(canonical)
     }
 
-    pub async fn list(path: &str) -> Result<Vec<FileInfo>, AppError> {
-        let dir = Self::sanitize(path)?;
+    /// 写操作路径校验：父目录必须已存在且位于根内，目标文件名合法（不含分隔符/..）
+    fn sanitize_write_target(&self, requested: &str) -> Result<PathBuf, AppError> {
+        let root = self.root_canonical();
+        let target = self.resolve_in_root(requested)?;
+        if let Some(name) = target.file_name() {
+            if name == ".." {
+                return Err(AppError::BadRequest(format!("Invalid path: {}", requested)));
+            }
+        } else {
+            return Err(AppError::BadRequest(format!("Invalid path: {}", requested)));
+        }
+        let parent = target
+            .parent()
+            .ok_or_else(|| AppError::BadRequest(format!("Invalid path: {}", requested)))?;
+        let canonical_parent = parent.canonicalize().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                AppError::BadRequest(format!(
+                    "Parent directory does not exist: {}",
+                    parent.display()
+                ))
+            } else {
+                AppError::internal(format!("Path error: {}", e))
+            }
+        })?;
+        if !canonical_parent.starts_with(&root) {
+            return Err(AppError::Forbidden(format!(
+                "Path escapes the allowed root: {}",
+                requested
+            )));
+        }
+        Ok(target)
+    }
+
+    pub async fn list(&self, path: &str) -> Result<Vec<FileInfo>, AppError> {
+        let dir = self.sanitize(path)?;
         if !dir.is_dir() {
             return Err(AppError::BadRequest(format!("Not a directory: {}", path)));
         }
@@ -89,8 +198,8 @@ impl FileService {
         Ok(entries)
     }
 
-    pub async fn read(path: &str) -> Result<String, AppError> {
-        let file_path = Self::sanitize(path)?;
+    pub async fn read(&self, path: &str) -> Result<String, AppError> {
+        let file_path = self.sanitize(path)?;
         if !file_path.is_file() {
             return Err(AppError::BadRequest(format!("Not a file: {}", path)));
         }
@@ -109,8 +218,8 @@ impl FileService {
         Ok(content)
     }
 
-    pub async fn write(path: &str, content: &str) -> Result<(), AppError> {
-        let file_path = Self::sanitize(path)?;
+    pub async fn write(&self, path: &str, content: &str) -> Result<(), AppError> {
+        let file_path = self.sanitize_write_target(path)?;
         if !file_path.is_file() {
             return Err(AppError::BadRequest(format!("Not a file: {}", path)));
         }
@@ -120,16 +229,8 @@ impl FileService {
         Ok(())
     }
 
-    pub async fn create_file(path: &str) -> Result<(), AppError> {
-        let file_path = PathBuf::from(path);
-        if let Some(parent) = file_path.parent() {
-            if !parent.exists() {
-                return Err(AppError::BadRequest(format!(
-                    "Parent directory does not exist: {}",
-                    parent.display()
-                )));
-            }
-        }
+    pub async fn create_file(&self, path: &str) -> Result<(), AppError> {
+        let file_path = self.sanitize_write_target(path)?;
         if file_path.exists() {
             return Err(AppError::BadRequest(format!(
                 "File already exists: {}",
@@ -142,16 +243,8 @@ impl FileService {
         Ok(())
     }
 
-    pub async fn create_dir(path: &str) -> Result<(), AppError> {
-        let dir_path = PathBuf::from(path);
-        if let Some(parent) = dir_path.parent() {
-            if !parent.exists() {
-                return Err(AppError::BadRequest(format!(
-                    "Parent directory does not exist: {}",
-                    parent.display()
-                )));
-            }
-        }
+    pub async fn create_dir(&self, path: &str) -> Result<(), AppError> {
+        let dir_path = self.sanitize_write_target(path)?;
         if dir_path.exists() {
             return Err(AppError::BadRequest(format!(
                 "Directory already exists: {}",
@@ -164,8 +257,8 @@ impl FileService {
         Ok(())
     }
 
-    pub async fn delete(path: &str, recursive: bool) -> Result<(), AppError> {
-        let target = Self::sanitize(path)?;
+    pub async fn delete(&self, path: &str, recursive: bool) -> Result<(), AppError> {
+        let target = self.sanitize(path)?;
         if target.is_dir() {
             if recursive {
                 fs::remove_dir_all(&target).await.map_err(|e| {
@@ -197,22 +290,14 @@ impl FileService {
         Ok(())
     }
 
-    pub async fn rename(old_path: &str, new_path: &str) -> Result<(), AppError> {
-        let old = Self::sanitize(old_path)?;
-        let new = PathBuf::from(new_path);
+    pub async fn rename(&self, old_path: &str, new_path: &str) -> Result<(), AppError> {
+        let old = self.sanitize(old_path)?;
+        let new = self.sanitize_write_target(new_path)?;
         if new.exists() {
             return Err(AppError::BadRequest(format!(
                 "Target already exists: {}",
                 new_path
             )));
-        }
-        if let Some(parent) = new.parent() {
-            if !parent.exists() {
-                return Err(AppError::BadRequest(format!(
-                    "Target parent directory does not exist: {}",
-                    parent.display()
-                )));
-            }
         }
         fs::rename(&old, &new)
             .await
@@ -220,10 +305,10 @@ impl FileService {
         Ok(())
     }
 
-    pub async fn chmod(path: &str, mode: &str) -> Result<(), AppError> {
+    pub async fn chmod(&self, path: &str, mode: &str) -> Result<(), AppError> {
         #[cfg(unix)]
         {
-            let target = Self::sanitize(path)?;
+            let target = self.sanitize(path)?;
             let mode_int = u32::from_str_radix(mode, 8)
                 .map_err(|_| AppError::BadRequest(format!("Invalid mode: {}", mode)))?;
             use std::os::unix::fs::PermissionsExt;
@@ -241,8 +326,25 @@ impl FileService {
         }
     }
 
-    pub async fn upload(parent_dir: &str, file_name: &str, content: &[u8]) -> Result<(), AppError> {
-        let dir = Self::sanitize(parent_dir)?;
+    pub async fn upload(
+        &self,
+        parent_dir: &str,
+        file_name: &str,
+        content: &[u8],
+    ) -> Result<(), AppError> {
+        // 文件名不允许包含路径分隔符或 `..`，防止上传覆盖白名单外文件
+        if file_name.is_empty()
+            || file_name == "."
+            || file_name == ".."
+            || file_name.contains('/')
+            || file_name.contains('\\')
+        {
+            return Err(AppError::BadRequest(format!(
+                "Invalid file name: {}",
+                file_name
+            )));
+        }
+        let dir = self.sanitize(parent_dir)?;
         if !dir.is_dir() {
             return Err(AppError::BadRequest(format!(
                 "Not a directory: {}",
@@ -262,8 +364,8 @@ impl FileService {
         Ok(())
     }
 
-    pub async fn download(path: &str) -> Result<(String, Vec<u8>, String), AppError> {
-        let file_path = Self::sanitize(path)?;
+    pub async fn download(&self, path: &str) -> Result<(String, Vec<u8>, String), AppError> {
+        let file_path = self.sanitize(path)?;
         if !file_path.is_file() {
             return Err(AppError::BadRequest(format!("Not a file: {}", path)));
         }

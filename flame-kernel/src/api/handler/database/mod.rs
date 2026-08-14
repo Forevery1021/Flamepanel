@@ -23,6 +23,7 @@ pub struct DatabaseInstanceResponse {
     pub root_user: String,
     pub created_at: String,
     pub updated_at: String,
+    pub resource_version: i64,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +55,13 @@ pub struct CreateUserRequest {
     pub host: Option<String>,
 }
 
+/// Phase A2 扩展：数据库实例批量状态更新请求体（批量原子写事务）。
+#[derive(Deserialize)]
+pub struct BatchStatusRequest {
+    /// 每项为 (instance_id, 目标状态)
+    pub updates: Vec<(i64, String)>,
+}
+
 fn to_response(inst: DatabaseInstance) -> DatabaseInstanceResponse {
     DatabaseInstanceResponse {
         id: inst.id,
@@ -68,6 +76,7 @@ fn to_response(inst: DatabaseInstance) -> DatabaseInstanceResponse {
         root_user: inst.root_user,
         created_at: inst.created_at.to_rfc3339(),
         updated_at: inst.updated_at.to_rfc3339(),
+        resource_version: inst.resource_version,
     }
 }
 
@@ -226,12 +235,27 @@ pub async fn uninstall(
     Ok(Json("uninstalled"))
 }
 
+/// Phase A2 扩展：数据库实例批量状态原子更新（批量写事务，PATCH /api/databases/batch-status）。
+pub async fn update_batch_status(
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<BatchStatusRequest>,
+) -> Result<Json<&'static str>, AppError> {
+    if req.updates.is_empty() {
+        return Err(AppError::BadRequest("updates 不能为空".into()));
+    }
+    state
+        .database_service
+        .update_instances_status_batch(&req.updates)
+        .await?;
+    Ok(Json("updated"))
+}
+
 /// 路由表（集中注册于 routes.rs 组合根）
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/databases", axum::routing::get(list))
-        .route("/api/databases/:id", axum::routing::get(get))
-        .route("/api/databases/:id", axum::routing::delete(delete))
+        .route("/api/databases/{id}", axum::routing::get(get))
+        .route("/api/databases/{id}", axum::routing::delete(delete))
         .route(
             "/api/databases/mysql/install",
             axum::routing::post(install_mysql),
@@ -240,32 +264,39 @@ pub fn routes() -> Router<AppState> {
             "/api/databases/redis/install",
             axum::routing::post(install_redis),
         )
-        .route("/api/databases/:id/start", axum::routing::post(start))
-        .route("/api/databases/:id/stop", axum::routing::post(stop))
-        .route("/api/databases/:id/restart", axum::routing::post(restart))
+        .route("/api/databases/{id}/start", axum::routing::post(start))
+        .route("/api/databases/{id}/stop", axum::routing::post(stop))
+        .route("/api/databases/{id}/restart", axum::routing::post(restart))
         .route(
-            "/api/databases/:id/status",
+            "/api/databases/{id}/status",
             axum::routing::get(check_status),
         )
         .route(
-            "/api/databases/:id/databases",
+            "/api/databases/{id}/databases",
             axum::routing::get(list_databases),
         )
         .route(
-            "/api/databases/:id/databases",
+            "/api/databases/{id}/databases",
             axum::routing::post(create_database),
         )
         .route(
-            "/api/databases/:id/databases/:db_name",
+            "/api/databases/{id}/databases/{db_name}",
             axum::routing::delete(drop_database),
         )
-        .route("/api/databases/:id/users", axum::routing::post(create_user))
         .route(
-            "/api/databases/:id/users/:username",
+            "/api/databases/{id}/users",
+            axum::routing::post(create_user),
+        )
+        .route(
+            "/api/databases/{id}/users/{username}",
             axum::routing::delete(drop_user),
         )
         .route(
-            "/api/databases/:id/uninstall",
+            "/api/databases/{id}/uninstall",
             axum::routing::post(uninstall),
+        )
+        .route(
+            "/api/databases/batch-status",
+            axum::routing::patch(update_batch_status),
         )
 }

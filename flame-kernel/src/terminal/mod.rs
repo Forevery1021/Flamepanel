@@ -16,24 +16,40 @@ pub struct TerminalSession {
 }
 
 impl TerminalSession {
-    pub fn new(shell: &str) -> (Self, mpsc::UnboundedReceiver<String>) {
+    pub fn new(
+        shell: &str,
+        cwd: &std::path::Path,
+    ) -> Result<(Self, mpsc::UnboundedReceiver<String>), AppError> {
         let (stdout_tx, stdout_rx) = mpsc::unbounded_channel();
         let (kill_tx, mut kill_rx) = tokio::sync::oneshot::channel::<()>();
 
         let id = NEXT_SESSION_ID.fetch_add(1, Ordering::SeqCst);
 
-        let mut child = Command::new(shell)
-            .arg("--norc")
+        // 强制 cwd 为允许目录（沙箱白名单内），并清理危险环境变量（LD_PRELOAD 等）
+        let mut cmd = Command::new(shell);
+        cmd.arg("--norc")
+            .current_dir(cwd)
             .kill_on_drop(true)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        for key in ["LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG"] {
+            cmd.env_remove(key);
+        }
+        // T14：spawn 失败（如 shell 缺失）返回 AppError 而非 panic。
+        let mut child = cmd
             .spawn()
-            .expect("Failed to spawn shell");
+            .map_err(|e| AppError::internal(format!("Failed to spawn terminal shell: {}", e)))?;
 
         let stdin = child.stdin.take().map(Mutex::new);
-        let mut stdout = child.stdout.take().expect("No stdout");
-        let mut stderr = child.stderr.take().expect("No stderr");
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| AppError::internal("Terminal stdout unavailable"))?;
+        let mut stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| AppError::internal("Terminal stderr unavailable"))?;
         let tx = stdout_tx.clone();
 
         tokio::spawn(async move {
@@ -72,7 +88,7 @@ impl TerminalSession {
             _kill_tx: kill_tx,
         };
 
-        (session, stdout_rx)
+        Ok((session, stdout_rx))
     }
 
     pub async fn write_input(&self, data: &str) -> Result<(), AppError> {
@@ -93,21 +109,29 @@ impl TerminalSession {
 
 pub struct TerminalManager {
     sessions: Mutex<HashMap<u64, TerminalSession>>,
+    /// 终端沙箱工作目录（OP_TERMINAL_CWD），所有会话强制以此为 cwd
+    cwd: std::path::PathBuf,
 }
 
 impl TerminalManager {
     pub fn new() -> Self {
+        Self::with_cwd(std::path::PathBuf::from("."))
+    }
+
+    /// 以指定沙箱工作目录创建管理器
+    pub fn with_cwd(cwd: std::path::PathBuf) -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            cwd,
         }
     }
 
-    pub async fn create_session(&self) -> (u64, mpsc::UnboundedReceiver<String>) {
+    pub async fn create_session(&self) -> Result<(u64, mpsc::UnboundedReceiver<String>), AppError> {
         let shell = if cfg!(windows) { "cmd.exe" } else { "bash" };
-        let (session, rx) = TerminalSession::new(shell);
+        let (session, rx) = TerminalSession::new(shell, &self.cwd)?;
         let id = session.id;
         self.sessions.lock().await.insert(id, session);
-        (id, rx)
+        Ok((id, rx))
     }
 
     pub async fn write(&self, id: u64, data: &str) -> Result<(), AppError> {

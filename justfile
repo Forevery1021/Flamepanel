@@ -50,8 +50,12 @@ fmt-fix:
 typecheck:
     cd frontend && npx vue-tsc --noEmit
 
+# 前端单元测试（vitest）
+test-unit:
+    cd frontend && npm run test:unit
+
 # 全量验证（发版前跑）：格式 + 测试 + lint + 类型检查 + 构建
-check-full: fmt test lint typecheck build
+check-full: fmt test lint typecheck test-unit build
 
 # 打包发行资产（release-assets/，自动读取版本号）
 release:

@@ -67,10 +67,11 @@
           <div v-else class="nav-group-collapsed">
             <button
               class="nav-group__btn"
+              :aria-label="t(group.labelKey)"
               :title="t(group.labelKey)"
               @click="toggleFlyout(group.key, $event)"
             >
-              <span class="nav-group__icon" :class="`menu-color-${group.key}`">
+              <span class="nav-group__icon" :class="`menu-color-${group.key}`" aria-hidden="true">
                 <i class="oi" :class="group.icon" />
               </span>
             </button>
@@ -109,7 +110,9 @@ import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppearanceStore } from '@/stores/appearance'
+import { useAuthStore } from '@/stores/auth'
 import { menuRoutes, type MenuGroup } from '@/router'
+import { isMenuHiddenForRole } from '@/directives/permission'
 
 defineProps<{ collapsed?: boolean }>()
 
@@ -117,6 +120,10 @@ const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
 const appearance = useAppearanceStore()
+const auth = useAuthStore()
+
+// Modernization M7：按角色默认折叠次要分组（仅当用户未手动自定义分组时生效）
+appearance.applyRoleDefaults(auth.role)
 
 const GROUP_LABELS: Record<MenuGroup, string> = {
   main: '',
@@ -137,12 +144,15 @@ const GROUP_ICONS: Record<MenuGroup, string> = {
   system: 'oi-cog',
 }
 
-/** 按分组聚合路由表（meta.group + 未隐藏） */
+/** 按分组聚合路由表（meta.group + 未隐藏 + 角色可见） */
 const visibleGroups = computed(() => {
+  const role = auth.role
   const byGroup = new Map<MenuGroup, typeof menuRoutes>()
   for (const r of menuRoutes) {
     const group = r.meta?.group
     if (!group || appearance.state.hideMenu.includes(group)) continue
+    // 按角色过滤菜单（viewer/operator 隐藏管理类入口）
+    if (isMenuHiddenForRole(role, r.path)) continue
     const list = byGroup.get(group) ?? []
     list.push(r)
     byGroup.set(group, list)
@@ -443,8 +453,8 @@ function toggleFlyout(key: MenuGroup, event: MouseEvent) {
   border-radius: var(--fp-radius-md);
   background: var(--fp-bg-elevated);
   border: 1px solid var(--fp-border);
-  box-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.35);
-  z-index: 30;
+  box-shadow: var(--fp-shadow-lg);
+  z-index: var(--fp-z-sidebar);
   display: flex;
   flex-direction: column;
   gap: 2px;

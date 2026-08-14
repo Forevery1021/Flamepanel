@@ -27,5 +27,5 @@ pub async fn delete(
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/logs", axum::routing::get(list))
-        .route("/api/logs/:id", axum::routing::delete(delete))
+        .route("/api/logs/{id}", axum::routing::delete(delete))
 }

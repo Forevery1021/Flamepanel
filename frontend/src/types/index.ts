@@ -1,21 +1,71 @@
-export interface User {
-  id: number
-  username: string
-  password_hash: string
-  role: string
-  created_at: string
+/**
+ * 前端业务类型（F4.1 类型收紧）。
+ *
+ * 规则：
+ * - 后端 OpenAPI 已覆盖的实体类型（User / ServerNode / Website / ScheduledTask /
+ *   SettingEntry / HealthDetail / ProcessEntry / LoginResponse / AppMetadata /
+ *   InstalledApp / BackupEntry ...）统一从 `@/api/generated` 导入，禁止在本文件重复定义
+ *   （避免与后端字段漂移）。见 `src/api/generated/index.ts`。
+ * - 本文件只保留后端 OpenAPI 未覆盖的端点类型（Docker / Files / Firewall / Memos /
+ *   Plugins / Databases / WebServers / Metrics / OperationLog / Log ...）。
+ */
+import type { User as GenUser } from '@/api/generated'
+
+/* ── 后端 OpenAPI 已覆盖实体（由 generated 导出，此处仅复导出） ── */
+export type {
+  User,
+  ServerNode,
+  Website,
+  ScheduledTask,
+  SettingEntry,
+  HealthDetail,
+  ProcessEntry,
+  LoginRequest,
+  LoginResponse,
+  AppMetadata,
+  AppStoreListResponse,
+  InstalledApp,
+  InstalledAppResponse,
+  BackupEntry,
+  Page as PaginatedResponse,
+  CreateUserRequest,
+  UpdateUserRequest,
+  CreateNodeRequest,
+  CreateWebsiteRequest,
+  UpdateSettingRequest,
+  CreateTaskRequest,
+  UpdateTaskRequest,
+  RemoteExecRequest,
+  RemoteBatchExecRequest,
+  RemoteUploadRequest,
+  HeartbeatRequest,
+  Schema,
+} from '@/api/generated'
+
+/** 兼容旧引用：User 从 generated 重导出（含 must_change_password） */
+export type GenUserAlias = GenUser
+
+/* ═══════════ 后端 OpenAPI 未覆盖的端点类型 ═══════════ */
+
+export interface RemoteFileEntry {
+  name: string
+  is_dir: boolean
+  size: number
+  modified: string
 }
 
-export interface ServerNode {
-  id: number
-  name: string
-  hostname: string
-  ip_address: string
-  status: string
-  created_at: string
-  last_heartbeat_at?: string | null
-  metrics_json?: string | null
-  auth_token?: string | null
+export interface RemoteExecResult {
+  node_id?: number
+  output: string
+  exit_code: number
+  duration_ms: number
+}
+
+export interface BatchExecItem {
+  node_id: number
+  node_name: string
+  success: boolean
+  result: { output?: string; exit_code?: number; duration_ms?: number; error?: string }
 }
 
 export interface NodeMetrics {
@@ -23,20 +73,6 @@ export interface NodeMetrics {
   memory_usage_percent?: number
   disk_usage_percent?: number
   load_one?: number
-}
-
-export interface Website {
-  id: number
-  name: string
-  domain: string
-  root_path: string
-  status: string
-  node_id: number
-  engine: string
-  ssl_enabled: boolean
-  proxy_enabled: boolean
-  proxy_pass: string | null
-  created_at: string
 }
 
 export interface DockerContainer {
@@ -164,32 +200,6 @@ export interface Memo {
   updated_at: string
 }
 
-export interface ProcessEntry {
-  pid: number
-  name: string
-  cpu: number
-  memory_mb: number
-  status: string
-}
-
-export interface HealthDetail {
-  status: string
-  version: string
-  uptime_secs: number
-  checks: {
-    database: { status: string; detail: string | null }
-    docker: { status: string; detail: string | null }
-    disk: { status: string; detail: string | null }
-  }
-}
-
-export interface LoginResponse {
-  token: string
-  username: string
-  role: string
-  must_change_password: boolean
-}
-
 export interface FileInfo {
   name: string
   path: string
@@ -213,12 +223,7 @@ export interface DatabaseInstance {
   root_user: string
   created_at: string
   updated_at: string
-}
-
-export interface SettingEntry {
-  key: string
-  value: string
-  description: string
+  resource_version: number
 }
 
 export interface FirewallRule {
@@ -263,6 +268,7 @@ export interface WebServerResponse {
   binary_path: string | null
   port: number
   created_at: string
+  resource_version: number
 }
 
 export interface PerformancePresetInfo {
@@ -281,12 +287,4 @@ export interface PluginMetricsResponse {
   min_execution_ms: number
   last_execution_ms: number
   peak_memory_bytes: number
-}
-
-export interface PaginatedResponse<T> {
-  data: T[]
-  page: number
-  page_size: number
-  total: number
-  total_pages: number
 }

@@ -6,6 +6,8 @@
         v-bind="$attrs"
         :model-value="model"
         :invalid="!!error || invalid"
+        :aria-invalid="!!error || invalid || undefined"
+        :aria-describedby="error ? `${uid}-error` : undefined"
         class="w-full"
         :class="{ 'text-right': align === 'right' }"
         @update:model-value="emit"
@@ -17,11 +19,13 @@
       v-bind="$attrs"
       :model-value="model"
       :invalid="!!error || invalid"
+      :aria-invalid="!!error || invalid || undefined"
+      :aria-describedby="error ? `${uid}-error` : undefined"
       class="w-full"
       :class="{ 'text-right': align === 'right' }"
       @update:model-value="emit"
     />
-    <small v-if="error" class="fp-field-error">{{ error }}</small>
+    <small v-if="error" :id="`${uid}-error`" class="fp-field-error">{{ error }}</small>
   </div>
 </template>
 

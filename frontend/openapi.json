@@ -1,0 +1,3418 @@
+{
+  "components": {
+    "schemas": {
+      "AppFormat": {
+        "enum": [
+          "onepanel",
+          "baota",
+          "flame"
+        ],
+        "type": "string"
+      },
+      "AppMetadata": {
+        "properties": {
+          "architectures": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "category": {
+            "type": "string"
+          },
+          "default_version": {
+            "type": "string"
+          },
+          "format": {
+            "$ref": "#/components/schemas/AppFormat"
+          },
+          "key": {
+            "type": "string"
+          },
+          "logo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "min_memory_mb": {
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "modes": {
+            "items": {
+              "$ref": "#/components/schemas/InstallMode"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "readme": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recommended": {
+            "description": "商店首页推荐位标记（v0.7.0）",
+            "type": "boolean"
+          },
+          "short_desc_en": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "short_desc_zh": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "versions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "category",
+          "short_desc_zh",
+          "tags",
+          "format",
+          "modes",
+          "versions",
+          "default_version",
+          "architectures"
+        ],
+        "type": "object"
+      },
+      "AppStoreListResponse": {
+        "properties": {
+          "packages": {
+            "items": {
+              "$ref": "#/components/schemas/AppMetadata"
+            },
+            "type": "array"
+          },
+          "total": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "packages",
+          "total"
+        ],
+        "type": "object"
+      },
+      "BackupEntryDto": {
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "size": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "filename",
+          "size",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "CreateNodeRequest": {
+        "description": "节点注册请求：兼容两种格式\n- 面板/测试：`{\"node\": {name, hostname, ip_address, status, ...}}`\n- Agent 平铺：`{name, host, agent_port, auth_token}`",
+        "properties": {
+          "agent_port": {
+            "description": "Agent HTTP 服务端口（默认 9527）",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "auth_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "ip_address": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "node": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerNode"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "CreateTaskRequest": {
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "command"
+        ],
+        "type": "object"
+      },
+      "CreateUserRequest": {
+        "properties": {
+          "password_hash": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password_hash",
+          "role"
+        ],
+        "type": "object"
+      },
+      "CreateWebsiteRequest": {
+        "properties": {
+          "website": {
+            "$ref": "#/components/schemas/Website"
+          }
+        },
+        "required": [
+          "website"
+        ],
+        "type": "object"
+      },
+      "HealthCheckItem": {
+        "description": "依赖检查结果",
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "HealthChecks": {
+        "properties": {
+          "database": {
+            "$ref": "#/components/schemas/HealthCheckItem"
+          },
+          "disk": {
+            "$ref": "#/components/schemas/HealthCheckItem"
+          },
+          "docker": {
+            "$ref": "#/components/schemas/HealthCheckItem"
+          }
+        },
+        "required": [
+          "database",
+          "docker",
+          "disk"
+        ],
+        "type": "object"
+      },
+      "HealthDetail": {
+        "description": "详细健康检查响应",
+        "properties": {
+          "checks": {
+            "$ref": "#/components/schemas/HealthChecks"
+          },
+          "status": {
+            "type": "string"
+          },
+          "uptime_secs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "uptime_secs",
+          "checks"
+        ],
+        "type": "object"
+      },
+      "HeartbeatRequest": {
+        "properties": {
+          "cpu_usage": {
+            "format": "float",
+            "type": "number"
+          },
+          "disk_usage_percent": {
+            "format": "float",
+            "type": "number"
+          },
+          "load_one": {
+            "format": "float",
+            "type": "number"
+          },
+          "memory_usage_percent": {
+            "format": "float",
+            "type": "number"
+          }
+        },
+        "required": [
+          "cpu_usage",
+          "memory_usage_percent",
+          "disk_usage_percent",
+          "load_one"
+        ],
+        "type": "object"
+      },
+      "InstallMode": {
+        "enum": [
+          "container",
+          "native",
+          "wasm"
+        ],
+        "type": "string"
+      },
+      "InstalledApp": {
+        "properties": {
+          "access_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "container_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "install_path": {
+            "type": "string"
+          },
+          "launch_count": {
+            "description": "启动次数（常用应用排序，v0.7.0）",
+            "format": "int64",
+            "type": "integer"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "package_key": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string"
+          },
+          "port": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "package_key",
+          "name",
+          "version",
+          "mode",
+          "status",
+          "install_path",
+          "params_json",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "InstalledAppResponse": {
+        "properties": {
+          "app": {
+            "$ref": "#/components/schemas/InstalledApp"
+          },
+          "logs": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "app"
+        ],
+        "type": "object"
+      },
+      "LoginRequest": {
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "type": "object"
+      },
+      "LoginResponse": {
+        "properties": {
+          "must_change_password": {
+            "description": "是否需强制修改密码（新装面板首次登录）",
+            "type": "boolean"
+          },
+          "refresh_token": {
+            "description": "Refresh Token（长过期，默认 24 小时；用于换取新 Access Token）",
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "token": {
+            "description": "Access Token（短过期，默认 15 分钟）",
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "refresh_token",
+          "username",
+          "role",
+          "must_change_password"
+        ],
+        "type": "object"
+      },
+      "OutboxEvent": {
+        "description": "事件落库（Outbox）记录：每条领域事件持久化存档，保证审计不丢（Stage6）。",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "event_type": {
+            "description": "事件类型名（如 `AppInstalled` / `UserLoggedIn`）",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "payload": {
+            "description": "事件载荷（JSON 序列化的结构化字段）",
+            "type": "string"
+          },
+          "published": {
+            "description": "是否已送达通知渠道（预留；当前仅持久化审计）",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "event_type",
+          "payload",
+          "published",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "OutboxListQuery": {
+        "description": "事件落库（Outbox）查询参数。",
+        "properties": {
+          "page": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "page_size": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "type": {
+            "description": "按事件类型过滤（如 `type=AppInstalled` 精确匹配变体名）",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PaginatedResponse<OutboxEvent>": {
+        "properties": {
+          "data": {
+            "items": {
+              "description": "事件落库（Outbox）记录：每条领域事件持久化存档，保证审计不丢（Stage6）。",
+              "properties": {
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "event_type": {
+                  "description": "事件类型名（如 `AppInstalled` / `UserLoggedIn`）",
+                  "type": "string"
+                },
+                "id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "payload": {
+                  "description": "事件载荷（JSON 序列化的结构化字段）",
+                  "type": "string"
+                },
+                "published": {
+                  "description": "是否已送达通知渠道（预留；当前仅持久化审计）",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "event_type",
+                "payload",
+                "published",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PaginatedResponse<OutboxEvent>_OutboxEvent": {
+        "properties": {
+          "data": {
+            "items": {
+              "description": "事件落库（Outbox）记录：每条领域事件持久化存档，保证审计不丢（Stage6）。",
+              "properties": {
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "event_type": {
+                  "description": "事件类型名（如 `AppInstalled` / `UserLoggedIn`）",
+                  "type": "string"
+                },
+                "id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "payload": {
+                  "description": "事件载荷（JSON 序列化的结构化字段）",
+                  "type": "string"
+                },
+                "published": {
+                  "description": "是否已送达通知渠道（预留；当前仅持久化审计）",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "event_type",
+                "payload",
+                "published",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PaginatedResponse<ScheduledTask>": {
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "command": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "last_output": {
+                  "type": "string"
+                },
+                "last_run_at": {
+                  "format": "date-time",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "last_status": {
+                  "description": "never | success | failed",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "next_run_at": {
+                  "format": "date-time",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "schedule": {
+                  "description": "标准 5 字段 cron 表达式",
+                  "type": "string"
+                },
+                "updated_at": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "command",
+                "schedule",
+                "enabled",
+                "last_status",
+                "last_output",
+                "created_at",
+                "updated_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PaginatedResponse<ScheduledTask>_ScheduledTask": {
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "command": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "last_output": {
+                  "type": "string"
+                },
+                "last_run_at": {
+                  "format": "date-time",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "last_status": {
+                  "description": "never | success | failed",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "next_run_at": {
+                  "format": "date-time",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "schedule": {
+                  "description": "标准 5 字段 cron 表达式",
+                  "type": "string"
+                },
+                "updated_at": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "command",
+                "schedule",
+                "enabled",
+                "last_status",
+                "last_output",
+                "created_at",
+                "updated_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PaginatedResponse<ServerNode>": {
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "agent_port": {
+                  "description": "Agent HTTP 服务端口（面板据此构造 `http://<ip>:<agent_port>` 发起远程调用）",
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "auth_token": {
+                  "description": "Agent 注册时携带的认证令牌",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "hostname": {
+                  "type": "string"
+                },
+                "id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "ip_address": {
+                  "type": "string"
+                },
+                "last_heartbeat_at": {
+                  "description": "最近一次心跳时间（Agent 上报）",
+                  "format": "date-time",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "metrics_json": {
+                  "description": "最近指标快照 JSON：{cpu_usage, memory_usage_percent, disk_usage_percent, load_one}",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "hostname",
+                "ip_address",
+                "status",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PaginatedResponse<ServerNode>_ServerNode": {
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "agent_port": {
+                  "description": "Agent HTTP 服务端口（面板据此构造 `http://<ip>:<agent_port>` 发起远程调用）",
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "auth_token": {
+                  "description": "Agent 注册时携带的认证令牌",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "hostname": {
+                  "type": "string"
+                },
+                "id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "ip_address": {
+                  "type": "string"
+                },
+                "last_heartbeat_at": {
+                  "description": "最近一次心跳时间（Agent 上报）",
+                  "format": "date-time",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "metrics_json": {
+                  "description": "最近指标快照 JSON：{cpu_usage, memory_usage_percent, disk_usage_percent, load_one}",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "hostname",
+                "ip_address",
+                "status",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PaginatedResponse<SettingEntry>": {
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "value",
+                "description"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PaginatedResponse<SettingEntry>_SettingEntry": {
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "value",
+                "description"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PaginatedResponse<User>": {
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "must_change_password": {
+                  "description": "是否强制修改密码（新装面板的种子 admin 为 true）",
+                  "type": "boolean"
+                },
+                "password_hash": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "username": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "username",
+                "password_hash",
+                "role",
+                "created_at",
+                "must_change_password"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PaginatedResponse<User>_User": {
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "must_change_password": {
+                  "description": "是否强制修改密码（新装面板的种子 admin 为 true）",
+                  "type": "boolean"
+                },
+                "password_hash": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "username": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "username",
+                "password_hash",
+                "role",
+                "created_at",
+                "must_change_password"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PaginatedResponse<Website>": {
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "domain": {
+                  "type": "string"
+                },
+                "engine": {
+                  "type": "string"
+                },
+                "id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "node_id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "proxy_enabled": {
+                  "type": "boolean"
+                },
+                "proxy_pass": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "resource_version": {
+                  "description": "乐观并发控制版本号：写入时需匹配当前值，冲突返回稳定 `CONFLICT`。",
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "root_path": {
+                  "type": "string"
+                },
+                "ssl_enabled": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "domain",
+                "root_path",
+                "status",
+                "node_id",
+                "engine",
+                "ssl_enabled",
+                "proxy_enabled",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PaginatedResponse<Website>_Website": {
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "domain": {
+                  "type": "string"
+                },
+                "engine": {
+                  "type": "string"
+                },
+                "id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "node_id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "proxy_enabled": {
+                  "type": "boolean"
+                },
+                "proxy_pass": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "resource_version": {
+                  "description": "乐观并发控制版本号：写入时需匹配当前值，冲突返回稳定 `CONFLICT`。",
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "root_path": {
+                  "type": "string"
+                },
+                "ssl_enabled": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "domain",
+                "root_path",
+                "status",
+                "node_id",
+                "engine",
+                "ssl_enabled",
+                "proxy_enabled",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "total_pages": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "page_size",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PaginationParams": {
+        "properties": {
+          "page": {
+            "description": "页码（从 1 开始）",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "page_size": {
+            "description": "每页条数（1~200）",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ProcessEntry": {
+        "description": "进程 TOP 条目（sysinfo 采集）",
+        "properties": {
+          "cpu": {
+            "format": "float",
+            "type": "number"
+          },
+          "memory_mb": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pid": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pid",
+          "name",
+          "cpu",
+          "memory_mb",
+          "status"
+        ],
+        "type": "object"
+      },
+      "RemoteActionRequest": {
+        "description": "Phase A1：Agent 动作枚举请求（动作 + 参数）",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params": {}
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "RemoteBatchExecRequest": {
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "node_ids": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "timeout_secs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "node_ids",
+          "command"
+        ],
+        "type": "object"
+      },
+      "RemoteExecRequest": {
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "timeout_secs": {
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      },
+      "RemoteListQuery": {
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "RemoteUploadRequest": {
+        "properties": {
+          "content_base64": {
+            "description": "base64 编码的文件内容",
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "content_base64"
+        ],
+        "type": "object"
+      },
+      "ScheduledTask": {
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "last_output": {
+            "type": "string"
+          },
+          "last_run_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_status": {
+            "description": "never | success | failed",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "next_run_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schedule": {
+            "description": "标准 5 字段 cron 表达式",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "command",
+          "schedule",
+          "enabled",
+          "last_status",
+          "last_output",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ServerNode": {
+        "properties": {
+          "agent_port": {
+            "description": "Agent HTTP 服务端口（面板据此构造 `http://<ip>:<agent_port>` 发起远程调用）",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "auth_token": {
+            "description": "Agent 注册时携带的认证令牌",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ip_address": {
+            "type": "string"
+          },
+          "last_heartbeat_at": {
+            "description": "最近一次心跳时间（Agent 上报）",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metrics_json": {
+            "description": "最近指标快照 JSON：{cpu_usage, memory_usage_percent, disk_usage_percent, load_one}",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "hostname",
+          "ip_address",
+          "status",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "SettingEntry": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "description"
+        ],
+        "type": "object"
+      },
+      "UpdateSettingRequest": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "type": "object"
+      },
+      "UpdateTaskRequest": {
+        "properties": {
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schedule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "UpdateUserRequest": {
+        "properties": {
+          "password_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "role"
+        ],
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "must_change_password": {
+            "description": "是否强制修改密码（新装面板的种子 admin 为 true）",
+            "type": "boolean"
+          },
+          "password_hash": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "password_hash",
+          "role",
+          "created_at",
+          "must_change_password"
+        ],
+        "type": "object"
+      },
+      "Website": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "engine": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "node_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "proxy_enabled": {
+            "type": "boolean"
+          },
+          "proxy_pass": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resource_version": {
+            "description": "乐观并发控制版本号：写入时需匹配当前值，冲突返回稳定 `CONFLICT`。",
+            "format": "int64",
+            "type": "integer"
+          },
+          "root_path": {
+            "type": "string"
+          },
+          "ssl_enabled": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "domain",
+          "root_path",
+          "status",
+          "node_id",
+          "engine",
+          "ssl_enabled",
+          "proxy_enabled",
+          "created_at"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "FlamePanel 面板后端 REST API（OpenAPI 3.x，由 utoipa 编译期生成）",
+    "license": {
+      "name": ""
+    },
+    "title": "FlamePanel API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/app-store/installed": {
+      "get": {
+        "operationId": "list_installed",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InstalledApp"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "已安装应用列表"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "已安装应用列表",
+        "tags": [
+          "app_store"
+        ]
+      }
+    },
+    "/api/app-store/packages": {
+      "get": {
+        "operationId": "list_packages",
+        "parameters": [
+          {
+            "description": "分类过滤",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppStoreListResponse"
+                }
+              }
+            },
+            "description": "包列表"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "应用商店包列表",
+        "tags": [
+          "app_store"
+        ]
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "登录成功"
+          },
+          "401": {
+            "description": "凭据错误"
+          },
+          "429": {
+            "description": "尝试过于频繁"
+          }
+        },
+        "summary": "登录",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "operationId": "refresh",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "刷新成功"
+          },
+          "401": {
+            "description": "令牌无效/过期"
+          }
+        },
+        "summary": "刷新令牌：必须使用 Refresh Token（Bearer），换取新的 Access Token + 轮换 Refresh Token\n剩余寿命不足一半时重新签发 Refresh Token（滑动过期）；否则复用原 Refresh Token\n刷新令牌（Refresh Token 换新 Access Token + 轮换 Refresh Token）",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/backups": {
+      "get": {
+        "operationId": "list_backups",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BackupEntryDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "备份列表"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "备份列表",
+        "tags": [
+          "backups"
+        ]
+      },
+      "post": {
+        "operationId": "create_backup",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupEntryDto"
+                }
+              }
+            },
+            "description": "备份成功"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "创建备份",
+        "tags": [
+          "backups"
+        ]
+      }
+    },
+    "/api/backups/{filename}": {
+      "delete": {
+        "operationId": "delete_backup",
+        "parameters": [
+          {
+            "description": "备份文件名",
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功"
+          },
+          "404": {
+            "description": "备份不存在"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "删除备份",
+        "tags": [
+          "backups"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "detail",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthDetail"
+                }
+              }
+            },
+            "description": "健康状态"
+          }
+        },
+        "summary": "`GET /api/health` — 详细健康检查（免认证）",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/metrics/processes": {
+      "get": {
+        "operationId": "processes",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProcessEntry"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "进程 TOP 列表"
+          }
+        },
+        "summary": "`GET /api/metrics/processes` — 按 CPU 占用排序的进程 TOP 5（免认证）",
+        "tags": [
+          "metrics"
+        ]
+      }
+    },
+    "/api/nodes": {
+      "get": {
+        "operationId": "list_nodes",
+        "parameters": [
+          {
+            "description": "页码（从 1 开始）",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "format": "int64",
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "每页条数（1~200）",
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse<ServerNode>_ServerNode"
+                }
+              }
+            },
+            "description": "节点列表"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "节点列表（分页）",
+        "tags": [
+          "nodes"
+        ]
+      },
+      "post": {
+        "operationId": "create_node",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "format": "int64",
+                  "type": "integer"
+                }
+              }
+            },
+            "description": "注册成功，返回节点 ID"
+          },
+          "400": {
+            "description": "参数错误"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "注册节点",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/api/nodes/batch-execute": {
+      "post": {
+        "operationId": "batch_execute",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteBatchExecRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "各节点执行结果聚合"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "批量在多个节点并行执行命令",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/api/nodes/heartbeat/{id}": {
+      "post": {
+        "operationId": "heartbeat",
+        "parameters": [
+          {
+            "description": "节点 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "心跳记录成功"
+          },
+          "401": {
+            "description": "Agent token 无效"
+          }
+        },
+        "summary": "Agent 心跳上报（白名单免 JWT，校验 Agent token）",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/api/nodes/register": {
+      "post": {
+        "operationId": "register_agent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "注册成功，返回节点 ID"
+          },
+          "400": {
+            "description": "参数错误"
+          }
+        },
+        "summary": "Agent 注册（白名单免 JWT，供 Agent 启动时自动注册）\n请求体：`{name, host, agent_port, auth_token}`，返回 `{\"id\": <node_id>}`",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/api/nodes/{id}/action": {
+      "post": {
+        "operationId": "remote_action",
+        "parameters": [
+          {
+            "description": "节点 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "动作结果"
+          },
+          "400": {
+            "description": "非法动作或参数"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "调用 Agent 动作枚举（Phase A1：安全动作白名单）",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/api/nodes/{id}/execute": {
+      "post": {
+        "operationId": "remote_execute",
+        "parameters": [
+          {
+            "description": "节点 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteExecRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "执行结果"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "在远程节点执行命令",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/api/nodes/{id}/files": {
+      "get": {
+        "operationId": "remote_list_files",
+        "parameters": [
+          {
+            "description": "节点 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "远程目录列表"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "列出远程节点目录",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/api/nodes/{id}/files/download": {
+      "get": {
+        "operationId": "remote_download_file",
+        "parameters": [
+          {
+            "description": "节点 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "文件内容（base64）"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "下载远程节点文件",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/api/nodes/{id}/files/upload": {
+      "post": {
+        "operationId": "remote_upload_file",
+        "parameters": [
+          {
+            "description": "节点 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "上传结果"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "上传文件到远程节点",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/api/nodes/{id}/status": {
+      "get": {
+        "operationId": "status",
+        "parameters": [
+          {
+            "description": "节点 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "在线状态"
+          },
+          "404": {
+            "description": "节点不存在"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "节点在线状态（惰性判定）",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/api/operation-logs/export": {
+      "get": {
+        "description": "Stage4.4：支持 CSV / JSON 两种格式，便于归档与 SIEM 对接。\nCSV 带 BOM（UTF-8）以兼容 Excel；JSON 为 UTF-8 数组。",
+        "operationId": "export",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "导出文件"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "`GET /api/operation-logs/export?format=csv|json` — 导出全部审计日志",
+        "tags": [
+          "operation-logs"
+        ]
+      }
+    },
+    "/api/outbox-events": {
+      "get": {
+        "operationId": "list",
+        "parameters": [
+          {
+            "description": "页码（从 1 开始）",
+            "in": "path",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "default": 1,
+              "format": "int64",
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "每页条数（1~200）",
+            "in": "path",
+            "name": "page_size",
+            "required": true,
+            "schema": {
+              "default": 20,
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "按事件类型过滤（如 `type=AppInstalled` 精确匹配变体名）",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse<OutboxEvent>_OutboxEvent"
+                }
+              }
+            },
+            "description": "事件落库分页列表"
+          }
+        },
+        "summary": "`GET /api/outbox-events` — 分页查询事件落库（审计）。",
+        "tags": [
+          "outbox"
+        ]
+      }
+    },
+    "/api/scheduled-tasks": {
+      "get": {
+        "operationId": "list_tasks",
+        "parameters": [
+          {
+            "description": "页码（从 1 开始）",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "format": "int64",
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "每页条数（1~200）",
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse<ScheduledTask>_ScheduledTask"
+                }
+              }
+            },
+            "description": "任务列表"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "定时任务列表（分页）",
+        "tags": [
+          "scheduled_tasks"
+        ]
+      },
+      "post": {
+        "operationId": "create_task",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTaskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledTask"
+                }
+              }
+            },
+            "description": "创建成功"
+          },
+          "400": {
+            "description": "参数错误"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "创建定时任务",
+        "tags": [
+          "scheduled_tasks"
+        ]
+      }
+    },
+    "/api/scheduled-tasks/{id}": {
+      "delete": {
+        "operationId": "delete_task",
+        "parameters": [
+          {
+            "description": "任务 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功"
+          },
+          "404": {
+            "description": "任务不存在"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "删除定时任务",
+        "tags": [
+          "scheduled_tasks"
+        ]
+      },
+      "put": {
+        "operationId": "update_task",
+        "parameters": [
+          {
+            "description": "任务 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledTask"
+                }
+              }
+            },
+            "description": "更新成功"
+          },
+          "404": {
+            "description": "任务不存在"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "更新定时任务",
+        "tags": [
+          "scheduled_tasks"
+        ]
+      }
+    },
+    "/api/scheduled-tasks/{id}/run": {
+      "post": {
+        "operationId": "run_task",
+        "parameters": [
+          {
+            "description": "任务 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledTask"
+                }
+              }
+            },
+            "description": "执行结果"
+          },
+          "404": {
+            "description": "任务不存在"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "立即执行定时任务",
+        "tags": [
+          "scheduled_tasks"
+        ]
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "operationId": "list_settings",
+        "parameters": [
+          {
+            "description": "页码（从 1 开始）",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "format": "int64",
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "每页条数（1~200）",
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse<SettingEntry>_SettingEntry"
+                }
+              }
+            },
+            "description": "设置列表"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "设置列表（分页）",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "operationId": "update_setting",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSettingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "更新成功"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "更新设置",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/users": {
+      "get": {
+        "operationId": "list_users",
+        "parameters": [
+          {
+            "description": "页码（从 1 开始）",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "format": "int64",
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "每页条数（1~200）",
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse<User>_User"
+                }
+              }
+            },
+            "description": "用户列表"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "用户列表（分页）",
+        "tags": [
+          "users"
+        ]
+      },
+      "post": {
+        "operationId": "create_user",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "创建成功"
+          },
+          "400": {
+            "description": "参数错误"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "创建用户",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/users/{id}": {
+      "delete": {
+        "operationId": "delete_user",
+        "parameters": [
+          {
+            "description": "用户 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功"
+          },
+          "404": {
+            "description": "用户不存在"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "删除用户",
+        "tags": [
+          "users"
+        ]
+      },
+      "put": {
+        "operationId": "update_user",
+        "parameters": [
+          {
+            "description": "用户 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "更新成功"
+          },
+          "404": {
+            "description": "用户不存在"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "更新用户",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/websites": {
+      "get": {
+        "operationId": "list_websites",
+        "parameters": [
+          {
+            "description": "页码（从 1 开始）",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "format": "int64",
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "每页条数（1~200）",
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "format": "int64",
+              "maximum": 200,
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse<Website>_Website"
+                }
+              }
+            },
+            "description": "网站列表"
+          },
+          "401": {
+            "description": "未认证"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "网站列表（分页）",
+        "tags": [
+          "websites"
+        ]
+      },
+      "post": {
+        "operationId": "create_website",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWebsiteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "format": "int64",
+                  "type": "integer"
+                }
+              }
+            },
+            "description": "创建成功，返回网站 ID"
+          },
+          "400": {
+            "description": "参数错误"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "创建网站",
+        "tags": [
+          "websites"
+        ]
+      }
+    },
+    "/api/websites/{id}": {
+      "delete": {
+        "operationId": "delete_website",
+        "parameters": [
+          {
+            "description": "网站 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功"
+          },
+          "404": {
+            "description": "网站不存在"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "删除网站",
+        "tags": [
+          "websites"
+        ]
+      },
+      "get": {
+        "operationId": "get_website",
+        "parameters": [
+          {
+            "description": "网站 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Website"
+                }
+              }
+            },
+            "description": "网站详情"
+          },
+          "404": {
+            "description": "网站不存在"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "获取网站详情",
+        "tags": [
+          "websites"
+        ]
+      },
+      "put": {
+        "operationId": "update_website",
+        "parameters": [
+          {
+            "description": "网站 ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWebsiteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Website"
+                }
+              }
+            },
+            "description": "更新成功"
+          },
+          "404": {
+            "description": "网站不存在"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "更新网站",
+        "tags": [
+          "websites"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "description": "默认",
+      "url": "/"
+    }
+  ]
+}

@@ -1,37 +1,59 @@
+use crate::application::execution_mode::{CommandOutput, PrivilegedCommand, SharedCommandRunner};
 use crate::core::error::AppError;
 use crate::domain::entity::DockerContainer;
-use crate::domain::repository::DockerRepository;
+use crate::domain::repository::*;
 use async_trait::async_trait;
 use bollard::container::{ListContainersOptions, StartContainerOptions, StopContainerOptions};
 use bollard::Docker;
 use chrono::Utc;
-use std::fs;
-use std::process::Command;
+use tokio::fs;
 
 pub struct BollardDockerRepository {
     docker: Docker,
+    runner: SharedCommandRunner,
 }
 
 impl BollardDockerRepository {
     pub fn new() -> Result<Self, AppError> {
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| AppError::internal(format!("Failed to connect to Docker: {}", e)))?;
-        Ok(Self { docker })
+        Ok(Self {
+            docker,
+            runner: Self::embedded_runner(),
+        })
+    }
+
+    fn embedded_runner() -> SharedCommandRunner {
+        std::sync::Arc::new(crate::infrastructure::execution::EmbeddedCommandRunner)
     }
 
     pub fn connect_with_env() -> Result<Self, AppError> {
         let docker = Docker::connect_with_defaults()
             .map_err(|e| AppError::internal(format!("Failed to connect to Docker: {}", e)))?;
-        Ok(Self { docker })
+        Ok(Self {
+            docker,
+            runner: Self::embedded_runner(),
+        })
     }
 
     pub fn new_with_connection(docker: Docker) -> Result<Self, AppError> {
-        Ok(Self { docker })
+        Ok(Self {
+            docker,
+            runner: Self::embedded_runner(),
+        })
+    }
+
+    /// 注入统一特权命令执行端口（`execution_mode=embedded|agent` 分离模式）。
+    pub fn new_with_connection_and_runner(
+        docker: Docker,
+        runner: SharedCommandRunner,
+    ) -> Result<Self, AppError> {
+        Ok(Self { docker, runner })
     }
 }
 
 #[async_trait]
-impl DockerRepository for BollardDockerRepository {
+impl ContainerRepository for BollardDockerRepository {
     async fn list_containers(&self, _node_id: i64) -> Result<Vec<DockerContainer>, AppError> {
         let options = ListContainersOptions::<String> {
             all: true,
@@ -177,113 +199,6 @@ impl DockerRepository for BollardDockerRepository {
         }
     }
 
-    async fn list_images(&self) -> Result<Vec<serde_json::Value>, AppError> {
-        use bollard::image::ListImagesOptions;
-        let options = ListImagesOptions::<String> {
-            all: true,
-            ..Default::default()
-        };
-        let images = self
-            .docker
-            .list_images(Some(options))
-            .await
-            .map_err(|e| AppError::internal(format!("Docker images error: {}", e)))?;
-
-        Ok(images
-            .into_iter()
-            .map(|img| {
-                serde_json::json!({
-                    "id": img.id,
-                    "tags": img.repo_tags,
-                    "size": img.size,
-                    "created": img.created,
-                })
-            })
-            .collect())
-    }
-
-    async fn remove_image(&self, id: &str) -> Result<(), AppError> {
-        use bollard::image::RemoveImageOptions;
-        let options = RemoveImageOptions {
-            force: true,
-            ..Default::default()
-        };
-        self.docker
-            .remove_image(id, Some(options), None)
-            .await
-            .map_err(|e| AppError::internal(format!("Docker remove image error: {}", e)))?;
-        Ok(())
-    }
-
-    async fn compose_deploy(
-        &self,
-        project_name: &str,
-        compose_yaml: &str,
-    ) -> Result<serde_json::Value, AppError> {
-        let tmp_dir = std::env::temp_dir().join(format!("flame_compose_{}", project_name));
-        fs::create_dir_all(&tmp_dir)
-            .map_err(|e| AppError::internal(format!("Failed to create temp dir: {}", e)))?;
-        let compose_path = tmp_dir.join("docker-compose.yml");
-        fs::write(&compose_path, compose_yaml)
-            .map_err(|e| AppError::internal(format!("Failed to write compose file: {}", e)))?;
-        let output = Command::new("docker")
-            .args([
-                "compose",
-                "-p",
-                project_name,
-                "-f",
-                &compose_path.to_string_lossy(),
-                "up",
-                "-d",
-            ])
-            .output()
-            .map_err(|e| AppError::internal(format!("Failed to execute docker compose: {}", e)))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::internal(format!(
-                "Docker compose up failed: {}",
-                stderr
-            )));
-        }
-        Ok(serde_json::json!({
-            "project_name": project_name,
-            "path": compose_path.to_string_lossy().to_string(),
-            "status": "deployed"
-        }))
-    }
-
-    async fn compose_up(&self, project_name: &str) -> Result<(), AppError> {
-        let output = Command::new("docker")
-            .args(["compose", "-p", project_name, "up", "-d"])
-            .output()
-            .map_err(|e| AppError::internal(format!("Failed to execute docker compose: {}", e)))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::internal(format!(
-                "Docker compose up failed: {}",
-                stderr
-            )));
-        }
-        Ok(())
-    }
-
-    async fn compose_down(&self, project_name: &str) -> Result<(), AppError> {
-        let output = Command::new("docker")
-            .args(["compose", "-p", project_name, "down"])
-            .output()
-            .map_err(|e| AppError::internal(format!("Failed to execute docker compose: {}", e)))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::internal(format!(
-                "Docker compose down failed: {}",
-                stderr
-            )));
-        }
-        Ok(())
-    }
-
-    // ── 容器高级操作 ─────────────────────────────────────────────
-
     async fn inspect_container(&self, id: &str) -> Result<serde_json::Value, AppError> {
         use bollard::container::InspectContainerOptions;
         let info = self
@@ -345,9 +260,10 @@ impl DockerRepository for BollardDockerRepository {
             "space_reclaimed": result.space_reclaimed,
         }))
     }
+}
 
-    // ── 网络管理 ─────────────────────────────────────────────────
-
+#[async_trait]
+impl NetworkRepository for BollardDockerRepository {
     async fn list_networks(&self) -> Result<Vec<serde_json::Value>, AppError> {
         use bollard::network::ListNetworksOptions;
         let networks = self
@@ -472,9 +388,10 @@ impl DockerRepository for BollardDockerRepository {
             "networks_deleted": result.networks_deleted,
         }))
     }
+}
 
-    // ── 卷管理 ──────────────────────────────────────────────────
-
+#[async_trait]
+impl VolumeRepository for BollardDockerRepository {
     async fn list_volumes(&self) -> Result<Vec<serde_json::Value>, AppError> {
         use bollard::volume::ListVolumesOptions;
         let response = self
@@ -541,8 +458,47 @@ impl DockerRepository for BollardDockerRepository {
             "space_reclaimed": result.space_reclaimed,
         }))
     }
+}
 
-    // ── 镜像管理 ────────────────────────────────────────────────
+#[async_trait]
+impl ImageRepository for BollardDockerRepository {
+    async fn list_images(&self) -> Result<Vec<serde_json::Value>, AppError> {
+        use bollard::image::ListImagesOptions;
+        let options = ListImagesOptions::<String> {
+            all: true,
+            ..Default::default()
+        };
+        let images = self
+            .docker
+            .list_images(Some(options))
+            .await
+            .map_err(|e| AppError::internal(format!("Docker images error: {}", e)))?;
+
+        Ok(images
+            .into_iter()
+            .map(|img| {
+                serde_json::json!({
+                    "id": img.id,
+                    "tags": img.repo_tags,
+                    "size": img.size,
+                    "created": img.created,
+                })
+            })
+            .collect())
+    }
+
+    async fn remove_image(&self, id: &str) -> Result<(), AppError> {
+        use bollard::image::RemoveImageOptions;
+        let options = RemoveImageOptions {
+            force: true,
+            ..Default::default()
+        };
+        self.docker
+            .remove_image(id, Some(options), None)
+            .await
+            .map_err(|e| AppError::internal(format!("Docker remove image error: {}", e)))?;
+        Ok(())
+    }
 
     async fn pull_image(&self, image: &str) -> Result<String, AppError> {
         use bollard::image::CreateImageOptions;
@@ -610,24 +566,111 @@ impl DockerRepository for BollardDockerRepository {
             "space_reclaimed": result.space_reclaimed,
         }))
     }
+}
 
-    // ── Compose 项目列表 ────────────────────────────────────────
+#[async_trait]
+impl ComposeRepository for BollardDockerRepository {
+    /// 经统一特权命令执行端口运行 `docker compose ...`（`execution_mode=embedded|agent` 分离模式）。
+    async fn run_compose(&self, args: Vec<String>) -> Result<CommandOutput, AppError> {
+        self.runner
+            .run(&PrivilegedCommand::new("docker", args))
+            .await
+    }
+
+    async fn compose_deploy(
+        &self,
+        project_name: &str,
+        compose_yaml: &str,
+    ) -> Result<serde_json::Value, AppError> {
+        let tmp_dir = std::env::temp_dir().join(format!("flame_compose_{}", project_name));
+        fs::create_dir_all(&tmp_dir)
+            .await
+            .map_err(|e| AppError::internal(format!("Failed to create temp dir: {}", e)))?;
+        let compose_path = tmp_dir.join("docker-compose.yml");
+        fs::write(&compose_path, compose_yaml)
+            .await
+            .map_err(|e| AppError::internal(format!("Failed to write compose file: {}", e)))?;
+        let output = self
+            .run_compose(vec![
+                "compose".into(),
+                "-p".into(),
+                project_name.into(),
+                "-f".into(),
+                compose_path.to_string_lossy().to_string(),
+                "up".into(),
+                "-d".into(),
+            ])
+            .await?;
+        if !output.success() {
+            let stderr = output.stderr;
+            return Err(AppError::internal(format!(
+                "Docker compose up failed: {}",
+                stderr
+            )));
+        }
+        Ok(serde_json::json!({
+            "project_name": project_name,
+            "path": compose_path.to_string_lossy().to_string(),
+            "status": "deployed"
+        }))
+    }
+
+    async fn compose_up(&self, project_name: &str) -> Result<(), AppError> {
+        let output = self
+            .run_compose(vec![
+                "compose".into(),
+                "-p".into(),
+                project_name.into(),
+                "up".into(),
+                "-d".into(),
+            ])
+            .await?;
+        if !output.success() {
+            let stderr = output.stderr;
+            return Err(AppError::internal(format!(
+                "Docker compose up failed: {}",
+                stderr
+            )));
+        }
+        Ok(())
+    }
+
+    async fn compose_down(&self, project_name: &str) -> Result<(), AppError> {
+        let output = self
+            .run_compose(vec![
+                "compose".into(),
+                "-p".into(),
+                project_name.into(),
+                "down".into(),
+            ])
+            .await?;
+        if !output.success() {
+            let stderr = output.stderr;
+            return Err(AppError::internal(format!(
+                "Docker compose down failed: {}",
+                stderr
+            )));
+        }
+        Ok(())
+    }
 
     async fn compose_ls(&self) -> Result<Vec<serde_json::Value>, AppError> {
-        let output = Command::new("docker")
-            .args(["compose", "ls", "--format", "json"])
-            .output()
-            .map_err(|e| {
-                AppError::internal(format!("Failed to execute docker compose ls: {}", e))
-            })?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+        let output = self
+            .run_compose(vec![
+                "compose".into(),
+                "ls".into(),
+                "--format".into(),
+                "json".into(),
+            ])
+            .await?;
+        if !output.success() {
+            let stderr = output.stderr;
             return Err(AppError::internal(format!(
                 "Docker compose ls failed: {}",
                 stderr
             )));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stdout = output.stdout;
         let mut projects = Vec::new();
         for line in stdout.lines() {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
@@ -641,6 +684,9 @@ impl DockerRepository for BollardDockerRepository {
         Ok(projects)
     }
 }
+
+#[async_trait]
+impl DockerRepository for BollardDockerRepository {}
 
 fn split_image_tag(image: &str) -> (String, String) {
     // 支持 name:tag / registry/name:tag；digest(@) 不在本次范围

@@ -10,6 +10,19 @@ use axum::{
     Json,
 };
 
+/// 用户列表（分页）
+#[utoipa::path(
+    get,
+    path = "/api/users",
+    tag = "users",
+    operation_id = "list_users",
+    params(PaginationParams),
+    responses(
+        (status = 200, description = "用户列表", body = PaginatedResponse<User>),
+        (status = 401, description = "未认证"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
@@ -18,6 +31,20 @@ pub async fn list(
     Ok(Json(result))
 }
 
+/// 创建用户
+#[utoipa::path(
+    post,
+    path = "/api/users",
+    tag = "users",
+    operation_id = "create_user",
+    request_body = CreateUserRequest,
+    responses(
+        (status = 200, description = "创建成功", body = User),
+        (status = 400, description = "参数错误"),
+        (status = 401, description = "未认证"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn create(
     State(state): State<AppState>,
     ApiJson(payload): ApiJson<CreateUserRequest>,
@@ -29,6 +56,20 @@ pub async fn create(
     Ok(Json(user))
 }
 
+/// 更新用户
+#[utoipa::path(
+    put,
+    path = "/api/users/{id}",
+    tag = "users",
+    operation_id = "update_user",
+    params(("id" = i64, Path, description = "用户 ID")),
+    request_body = UpdateUserRequest,
+    responses(
+        (status = 200, description = "更新成功", body = User),
+        (status = 404, description = "用户不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -44,6 +85,19 @@ pub async fn update(
     Ok(Json(user))
 }
 
+/// 删除用户
+#[utoipa::path(
+    delete,
+    path = "/api/users/{id}",
+    tag = "users",
+    operation_id = "delete_user",
+    params(("id" = i64, Path, description = "用户 ID")),
+    responses(
+        (status = 200, description = "删除成功"),
+        (status = 404, description = "用户不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -57,6 +111,6 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/users", axum::routing::get(list))
         .route("/api/users", axum::routing::post(create))
-        .route("/api/users/:id", axum::routing::put(update))
-        .route("/api/users/:id", axum::routing::delete(delete))
+        .route("/api/users/{id}", axum::routing::put(update))
+        .route("/api/users/{id}", axum::routing::delete(delete))
 }

@@ -218,7 +218,7 @@ onMounted(preloadBackground)
   content: '';
   position: absolute;
   inset: 0;
-  background: rgb(0 0 0 / 0.35);
+  background: oklch(0 0 0 / 0.35);
 }
 .login-glow {
   position: absolute;
@@ -240,7 +240,7 @@ onMounted(preloadBackground)
   border-radius: var(--fp-radius-lg);
   background: var(--fp-bg-elevated);
   border: 1px solid var(--fp-border);
-  box-shadow: 0 24px 64px -24px rgb(0 0 0 / 0.3);
+  box-shadow: var(--fp-shadow-lg);
   overflow: hidden;
 }
 

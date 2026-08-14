@@ -1,13 +1,13 @@
 <template>
   <div class="view-container">
     <div class="page-toolbar">
-      <FpButton variant="primary" icon="oi oi-upload" @click="showUpload = true">
+      <FpButton v-permission="{ perm: 'file:create', mode: 'view' }" variant="primary" icon="oi oi-upload" @click="showUpload = true">
         {{ t('file.upload') }}
       </FpButton>
-      <FpButton variant="ghost" icon="oi oi-file-plus" @click="showCreateFile = true">
+      <FpButton v-permission="{ perm: 'file:create', mode: 'view' }" variant="ghost" icon="oi oi-file-plus" @click="showCreateFile = true">
         {{ t('file.createFile') }}
       </FpButton>
-      <FpButton variant="ghost" icon="oi oi-folder-plus" @click="showCreateDir = true">
+      <FpButton v-permission="{ perm: 'file:create', mode: 'view' }" variant="ghost" icon="oi oi-folder-plus" @click="showCreateDir = true">
         {{ t('file.createDir') }}
       </FpButton>
       <FpButton variant="ghost" icon="oi oi-refresh" :loading="loading" @click="fetch">
@@ -16,51 +16,63 @@
     </div>
 
     <div class="panel file-panel">
-      <Breadcrumb :model="breadcrumbItems" class="file-breadcrumb" />
+      <FpBreadcrumb :model="breadcrumbItems" class="file-breadcrumb" />
 
-      <FpTable
-        :rows="entries"
+      <FpStatePanel
         :loading="loading"
-        :empty-text="t('common.noData')"
-        striped-rows
-        @row-dblclick="onRowDblClick"
+        :error="fetchError"
+        :empty="!entries.length"
+        retryable
+        :empty-title="t('common.noData')"
+        :empty-desc="t('file.emptyDir')"
+        @retry="fetch"
       >
-        <Column field="name" :header="t('file.name')" style="min-width: 300px">
-          <template #body="{ data }">
-            <span class="file-name" :class="data.is_dir ? 'dir-icon' : 'file-icon'">
-              <i :class="data.is_dir ? 'oi oi-folder' : 'oi oi-file'" />
-              {{ data.name }}
-            </span>
-          </template>
-        </Column>
-        <Column :header="t('file.size')" style="width: 100px">
-          <template #body="{ data }">
-            {{ data.is_dir ? '-' : formatSize(data.size) }}
-          </template>
-        </Column>
-        <Column field="permissions" :header="t('file.permissions')" style="width: 90px" />
-        <Column :header="t('file.modified')" style="width: 180px">
-          <template #body="{ data }">
-            {{ formatDate(data.modified_at) }}
-          </template>
-        </Column>
-        <Column :header="t('file.actions')" style="width: 280px" frozen>
-          <template #body="{ data }">
-            <div class="row-actions">
-              <FpButton variant="link" :disabled="data.is_dir" @click="editFile(data)">
-                {{ t('file.edit') }}
-              </FpButton>
-              <FpButton variant="link" @click="showRename(data)">{{ t('file.rename') }}</FpButton>
-              <FpButton variant="link" @click="showChmod(data)">{{ t('file.chmod') }}</FpButton>
-              <FpButton variant="link" @click="handleDelete(data)">{{ t('file.delete') }}</FpButton>
-            </div>
-          </template>
-        </Column>
-      </FpTable>
+        <FpTable
+          :rows="entries"
+          :loading="loading"
+          :empty-text="t('common.noData')"
+          striped-rows
+          virtual
+          virtual-scroll-height="560px"
+          @row-dblclick="onRowDblClick"
+        >
+          <FpColumn field="name" :header="t('file.name')" style="min-width: 300px">
+            <template #body="{ data }">
+              <span class="file-name" :class="data.is_dir ? 'dir-icon' : 'file-icon'">
+                <i :class="data.is_dir ? 'oi oi-folder' : 'oi oi-file'" />
+                {{ data.name }}
+              </span>
+            </template>
+          </FpColumn>
+          <FpColumn :header="t('file.size')" style="width: 100px">
+            <template #body="{ data }">
+              {{ data.is_dir ? '-' : formatSize(data.size) }}
+            </template>
+          </FpColumn>
+          <FpColumn field="permissions" :header="t('file.permissions')" style="width: 90px" />
+          <FpColumn :header="t('file.modified')" style="width: 180px">
+            <template #body="{ data }">
+              {{ formatDate(data.modified_at) }}
+            </template>
+          </FpColumn>
+          <FpColumn :header="t('file.actions')" style="width: 280px" frozen>
+            <template #body="{ data }">
+              <div class="row-actions">
+                <FpButton v-permission="{ perm: 'file:update', mode: 'view' }" variant="link" :disabled="data.is_dir" @click="editFile(data)">
+                  {{ t('file.edit') }}
+                </FpButton>
+                <FpButton v-permission="{ perm: 'file:update', mode: 'view' }" variant="link" @click="showRename(data)">{{ t('file.rename') }}</FpButton>
+                <FpButton v-permission="{ perm: 'file:update', mode: 'view' }" variant="link" @click="showChmod(data)">{{ t('file.chmod') }}</FpButton>
+                <FpButton v-permission="{ perm: 'file:delete', mode: 'view' }" variant="link" @click="handleDelete(data)">{{ t('file.delete') }}</FpButton>
+              </div>
+            </template>
+          </FpColumn>
+        </FpTable>
+      </FpStatePanel>
     </div>
 
     <FpModal v-model="showEdit" :header="t('file.edit')" width="800">
-      <Textarea v-model="editContent" rows="20" class="mono w-full" />
+      <FpTextarea v-model="editContent" rows="20" class="mono w-full" />
       <template #footer>
         <FpButton variant="ghost" @click="showEdit = false">{{ t('file.cancel') }}</FpButton>
         <FpButton variant="primary" @click="saveEdit">{{ t('file.save') }}</FpButton>
@@ -121,7 +133,7 @@
 
     <FpModal v-model="showUpload" :header="t('file.upload')">
       <div class="modal-form">
-        <FileUpload
+        <FpFileUpload
           mode="basic"
           :auto="false"
           :multiple="true"
@@ -131,7 +143,7 @@
           @uploader="handleUpload"
         />
         <div v-if="uploadFiles.length > 0" class="upload-list">
-          <Chip
+          <FpChip
             v-for="(f, i) in uploadFiles"
             :key="i"
             :label="f.name"
@@ -152,13 +164,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Breadcrumb from 'openvue/breadcrumb'
-import Column from 'openvue/column'
-import FileUpload from 'openvue/fileupload'
-import Chip from 'openvue/chip'
-import Textarea from 'openvue/textarea'
+
+
+
+
+
 import {
   listFiles,
   readFile,
@@ -170,21 +182,28 @@ import {
   chmodFile,
   uploadFile,
 } from '@/api/files'
+import { useApiQuery, useQueryCacheClient } from '@/composables/useApiQuery'
+import { queryKeys } from '@/api/queryKeys'
 import type { FileInfo } from '@/types'
 import FpTable from '@/components/ui/FpTable.vue'
 import FpModal from '@/components/ui/FpModal.vue'
 import FpInput from '@/components/ui/FpInput.vue'
 import FpButton from '@/components/ui/FpButton.vue'
+import FpStatePanel from '@/components/ui/FpStatePanel.vue'
 import { useFpToast } from '@/components/ui/FpToast'
 import { useFpConfirm } from '@/components/ui/FpConfirm'
+import FpBreadcrumb from '@/components/ui/FpBreadcrumb.vue'
+import FpChip from '@/components/ui/FpChip.vue'
+import FpColumn from '@/components/ui/FpColumn.vue'
+import FpFileUpload from '@/components/ui/FpFileUpload.vue'
+import FpTextarea from '@/components/ui/FpTextarea.vue'
 
 const { t } = useI18n()
 const toast = useFpToast()
 const { confirmAction } = useFpConfirm()
+const queryClient = useQueryCacheClient()
 
 const currentPath = ref('/')
-const entries = ref<FileInfo[]>([])
-const loading = ref(false)
 const breadcrumbItems = computed(() => {
   const parts = currentPath.value
     .replace(/^\/|\/$/g, '')
@@ -200,6 +219,24 @@ const breadcrumbItems = computed(() => {
   }
   return crumbs
 })
+
+// F1.1：文件列表按路径缓存；写操作完成后 invalidate 对应路径
+const filesQuery = useApiQuery<FileInfo[]>(
+  () => queryKeys.files.list(currentPath.value),
+  () => listFiles(currentPath.value),
+)
+const entries = computed<FileInfo[]>(() => filesQuery.data.value ?? [])
+const loading = filesQuery.loading
+const fetchError = filesQuery.error
+
+async function fetch() {
+  await filesQuery.refresh()
+}
+
+/** 写操作后刷新当前目录（invalidate） */
+function invalidateCurrentDir() {
+  void queryClient.invalidateQueries({ queryKey: ['files', 'list'] })
+}
 
 const showEdit = ref(false)
 const editContent = ref('')
@@ -218,21 +255,8 @@ const showChmodDialog = ref(false)
 const showUpload = ref(false)
 const uploadFiles = ref<File[]>([])
 
-async function fetch() {
-  loading.value = true
-  try {
-    const res = await listFiles(currentPath.value)
-    entries.value = res.data
-  } catch {
-    toast.error(t('common.failed'))
-  } finally {
-    loading.value = false
-  }
-}
-
 function goTo(path: string) {
   currentPath.value = path
-  fetch()
 }
 
 function onRowDblClick(e: { data: FileInfo }) {
@@ -242,7 +266,6 @@ function onRowDblClick(e: { data: FileInfo }) {
 function openEntry(row: FileInfo) {
   if (row.is_dir) {
     currentPath.value = row.path
-    fetch()
   } else {
     editPath.value = row.path
     readFile(row.path)
@@ -276,7 +299,7 @@ function handleCreateFile() {
       toast.success(t('common.success'))
       showCreateFile.value = false
       createForm.value.path = ''
-      fetch()
+      invalidateCurrentDir()
     })
     .catch(() => toast.error(t('common.failed')))
 }
@@ -290,7 +313,7 @@ function handleCreateDir() {
       toast.success(t('common.success'))
       showCreateDir.value = false
       createForm.value.path = ''
-      fetch()
+      invalidateCurrentDir()
     })
     .catch(() => toast.error(t('common.failed')))
 }
@@ -306,7 +329,7 @@ function handleRename() {
     .then(() => {
       toast.success(t('common.success'))
       showRenameDialog.value = false
-      fetch()
+      invalidateCurrentDir()
     })
     .catch(() => toast.error(t('common.failed')))
 }
@@ -321,7 +344,7 @@ function handleChmod() {
     .then(() => {
       toast.success(t('common.success'))
       showChmodDialog.value = false
-      fetch()
+      invalidateCurrentDir()
     })
     .catch(() => toast.error(t('common.failed')))
 }
@@ -334,7 +357,7 @@ function handleDelete(row: FileInfo) {
       try {
         await deleteFile(row.path, row.is_dir)
         toast.success(t('common.success'))
-        await fetch()
+        invalidateCurrentDir()
       } catch {
         toast.error(t('common.failed'))
       }
@@ -357,7 +380,7 @@ async function handleUpload() {
   }
   uploadFiles.value = []
   showUpload.value = false
-  await fetch()
+  invalidateCurrentDir()
 }
 
 function formatSize(bytes: number): string {
@@ -372,8 +395,6 @@ function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
   return d.toLocaleString()
 }
-
-onMounted(fetch)
 </script>
 
 <style scoped>
@@ -382,12 +403,6 @@ onMounted(fetch)
   justify-content: flex-end;
   gap: var(--fp-space-2);
   margin-bottom: var(--fp-space-4);
-}
-.panel {
-  padding: var(--fp-space-4);
-  border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
-  border: 1px solid var(--fp-border);
 }
 .file-panel {
   overflow: hidden;

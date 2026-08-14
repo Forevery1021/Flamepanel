@@ -1,42 +1,66 @@
 <template>
   <LayoutContent :title="t('user.title')" reload @reload="fetch">
     <template #toolbar>
-      <FpButton variant="primary" icon="oi oi-plus" @click="openCreate">
+      <div class="toolbar-left">
+        <FpInput
+          v-model="searchText"
+          :placeholder="t('common.searchPlaceholder')"
+          class="toolbar-search"
+        />
+        <FpSelect
+          v-model="roleFilter"
+          :options="roleOptions"
+          option-label="label"
+          option-value="value"
+          show-clear
+          class="toolbar-filter"
+        />
+      </div>
+      <FpButton v-permission="{ perm: 'user:create', mode: 'view' }" variant="primary" icon="oi oi-plus" @click="openCreate">
         {{ t('user.createUser') }}
       </FpButton>
     </template>
 
     <div class="panel">
-      <FpTable :rows="users" :loading="loading" :first="(currentPage - 1) * pageSize">
-        <Column field="id" :header="t('user.id')" style="width: 80px" />
-        <Column field="username" :header="t('user.username')" />
-        <Column :header="t('user.role')" style="width: 140px">
-          <template #body="{ data }">
-            <FpTag :severity="roleSeverity(data.role)" :value="roleLabel(data.role)" />
-          </template>
-        </Column>
-        <Column field="created_at" :header="t('user.createdAt')" style="width: 190px">
-          <template #body="{ data }">
-            <span class="mono">{{ data.created_at }}</span>
-          </template>
-        </Column>
-        <Column :header="t('common.operation')" style="width: 160px" frozen>
-          <template #body="{ data }">
-            <div class="row-actions">
-              <FpButton variant="link" @click="handleEdit(data)">{{ t('common.edit') }}</FpButton>
-              <FpButton variant="link" @click="confirmDelete(data)">{{ t('common.delete') }}</FpButton>
-            </div>
-          </template>
-        </Column>
-      </FpTable>
-      <Paginator
-        v-if="total > pageSize"
-        :first="(currentPage - 1) * pageSize"
-        :rows="pageSize"
-        :total-records="total"
-        :rows-per-page-options="[20, 50, 100]"
-        @update:first="(f) => goPage(f)"
-      />
+      <FpStatePanel
+        :loading="loading"
+        :error="usersError"
+        :empty="!total && !loading && !usersError"
+        retryable
+        :empty-title="t('common.noData')"
+        @retry="fetch"
+      >
+        <FpTable :rows="filteredUsers" :loading="loading" :first="(currentPage - 1) * pageSize">
+          <FpColumn field="id" :header="t('user.id')" style="width: 80px" />
+          <FpColumn field="username" :header="t('user.username')" />
+          <FpColumn :header="t('user.role')" style="width: 140px">
+            <template #body="{ data }">
+              <FpTag :severity="roleSeverity(data.role)" :value="roleLabel(data.role)" />
+            </template>
+          </FpColumn>
+          <FpColumn field="created_at" :header="t('user.createdAt')" style="width: 190px">
+            <template #body="{ data }">
+              <span class="mono">{{ data.created_at }}</span>
+            </template>
+          </FpColumn>
+          <FpColumn :header="t('common.operation')" style="width: 160px" frozen>
+            <template #body="{ data }">
+              <div class="row-actions">
+                <FpButton v-permission="{ perm: 'user:update', mode: 'view' }" variant="link" @click="handleEdit(data)">{{ t('common.edit') }}</FpButton>
+                <FpButton v-permission="{ perm: 'user:delete', mode: 'view' }" variant="link" @click="confirmDelete(data)">{{ t('common.delete') }}</FpButton>
+              </div>
+            </template>
+          </FpColumn>
+        </FpTable>
+        <FpPagination
+          v-if="total > pageSize"
+          :first="(currentPage - 1) * pageSize"
+          :rows="pageSize"
+          :total="total"
+          :rows-per-page-options="[20, 50, 100]"
+          @update:first="(f) => goPage(f)"
+        />
+      </FpStatePanel>
     </div>
 
     <!-- 创建 -->
@@ -72,10 +96,10 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, onMounted, computed } from 'vue'
+import { reactive, ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Column from 'openvue/column'
-import Paginator from 'openvue/paginator'
+
+
 import { listUsers, createUser, updateUser, deleteUser } from '@/api/users'
 import LayoutContent from '@/components/ui/LayoutContent.vue'
 import FpTable from '@/components/ui/FpTable.vue'
@@ -86,17 +110,19 @@ import FpButton from '@/components/ui/FpButton.vue'
 import FpTag from '@/components/ui/FpTag.vue'
 import { useFpToast } from '@/components/ui/FpToast'
 import { useFpConfirm } from '@/components/ui/FpConfirm'
-import type { User } from '@/types'
+import FpColumn from '@/components/ui/FpColumn.vue'
+import FpPagination from '@/components/ui/FpPagination.vue'
+import FpStatePanel from '@/components/ui/FpStatePanel.vue'
+import type { User, Page } from '@/api/generated'
+import { useApiQuery } from '@/composables/useApiQuery'
+import { queryKeys } from '@/api/queryKeys'
 
 const { t } = useI18n()
 const toast = useFpToast()
 const { confirmAction } = useFpConfirm()
 
-const users = ref<User[]>([])
-const loading = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(20)
-const total = ref(0)
 const dialogVisible = ref(false)
 const editVisible = ref(false)
 const submitting = ref(false)
@@ -125,20 +151,39 @@ function roleSeverity(role: string) {
   return role === 'admin' ? 'danger' : role === 'operator' ? 'warning' : 'info'
 }
 
-async function fetch() {
-  loading.value = true
-  try {
+// Modernization M2：分页走统一数据获取层，切换页保留上一页数据（keepPreviousData）
+const usersQuery = useApiQuery<Page<User>>(
+  () => queryKeys.users.list(currentPage.value, pageSize.value),
+  async () => {
     const res = await listUsers(currentPage.value, pageSize.value)
-    users.value = res.data.data
-    total.value = res.data.total
-  } finally {
-    loading.value = false
-  }
+    return { data: res.data }
+  },
+  { keepPrevious: true },
+)
+const users = computed<Page<User>['data']>(() => usersQuery.data.value?.data ?? [])
+const total = computed(() => usersQuery.data.value?.total ?? 0)
+const loading = usersQuery.loading
+const usersError = usersQuery.error
+
+// M9：搜索 + 角色筛选（当前页客户端过滤）
+const searchText = ref('')
+const roleFilter = ref<string>('')
+const filteredUsers = computed(() => {
+  const kw = searchText.value.trim().toLowerCase()
+  return users.value.filter((u) => {
+    if (roleFilter.value && u.role !== roleFilter.value) return false
+    if (!kw) return true
+    return u.username.toLowerCase().includes(kw)
+  })
+})
+
+async function fetch() {
+  await usersQuery.refresh()
 }
 
 function goPage(first: number) {
   currentPage.value = first / pageSize.value + 1
-  fetch()
+  void fetch()
 }
 
 function openCreate() {
@@ -218,16 +263,20 @@ function confirmDelete(row: User) {
     },
   })
 }
-
-onMounted(fetch)
 </script>
 
 <style scoped>
-.panel {
-  padding: var(--fp-space-4);
-  border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
-  border: 1px solid var(--fp-border);
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-2);
+  flex-wrap: wrap;
+}
+.toolbar-search {
+  width: 240px;
+}
+.toolbar-filter {
+  width: 160px;
 }
 .row-actions {
   display: flex;

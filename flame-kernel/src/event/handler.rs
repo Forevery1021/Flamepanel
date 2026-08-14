@@ -1,119 +1,87 @@
 use crate::domain::entity::DomainEvent;
+use crate::notification::AsyncNotificationChannel;
+#[cfg(feature = "email")]
+use crate::notification::EmailChannel;
+#[cfg(feature = "email")]
 use crate::notification::EmailNotifier;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
+/// 领域事件处理器：负责把事件分发到所有已注册的通知渠道。
+///
+/// 通过 `AsyncNotificationChannel` 端口与具体通知器解耦（Stage6），
+/// 不再直接依赖 `EmailNotifier`，后续可注入站内信 / Webhook 等渠道。
 pub struct EventHandler {
-    notifier: Option<Arc<EmailNotifier>>,
+    /// 已注册的通知渠道（邮箱 / 站内信 / Webhook 等），可组合多个。
+    channels: Vec<Arc<dyn AsyncNotificationChannel>>,
 }
 
 impl EventHandler {
     pub fn new() -> Self {
-        Self { notifier: None }
+        Self {
+            channels: Vec::new(),
+        }
     }
 
-    pub fn with_email(mut self, notifier: Arc<EmailNotifier>) -> Self {
-        self.notifier = Some(notifier);
+    /// 注册一个通知渠道。
+    pub fn with_channel(mut self, channel: Arc<dyn AsyncNotificationChannel>) -> Self {
+        self.channels.push(channel);
         self
     }
 
-    pub fn spawn(self, mut rx: broadcast::Receiver<DomainEvent>) {
+    #[cfg(feature = "email")]
+    pub fn with_email(mut self, recipient: &str, notifier: Arc<EmailNotifier>) -> Self {
+        self.channels
+            .push(Arc::new(EmailChannel::new(recipient, notifier)));
+        self
+    }
+
+    pub fn spawn(self, rx: broadcast::Receiver<DomainEvent>) {
+        self.spawn_with_token(rx, tokio_util::sync::CancellationToken::new())
+    }
+
+    /// 带取消令牌启动（由 TaskSupervisor 统一管理生命周期）
+    pub fn spawn_with_token(
+        self,
+        mut rx: broadcast::Receiver<DomainEvent>,
+        token: tokio_util::sync::CancellationToken,
+    ) {
         tokio::spawn(async move {
-            while let Ok(event) = rx.recv().await {
-                tracing::info!("Event received: {:?}", event);
-                if let Some(ref notifier) = self.notifier {
-                    if let Err(e) = Self::handle_notification(notifier, &event).await {
-                        tracing::error!("Notification failed for event {:?}: {}", event, e);
+            let channels = self.channels;
+            loop {
+                tokio::select! {
+                    _ = token.cancelled() => {
+                        tracing::debug!("event handler shutting down");
+                        break;
+                    }
+                    received = rx.recv() => {
+                        match received {
+                            Ok(event) => {
+                                tracing::info!("Event received: {:?}", event);
+                                for channel in &channels {
+                                    if let Err(e) = channel.notify(&event).await {
+                                        tracing::error!(
+                                            "Notification via {} failed for event {:?}: {}",
+                                            channel.name(),
+                                            event,
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                // T4：慢消费者滞后时不中断事件流，仅告警并继续。
+                                tracing::warn!("event consumer lagged by {n} messages; continuing");
+                            }
+                            Err(_closed) => {
+                                tracing::debug!("event channel closed; event handler stopping");
+                                break;
+                            }
+                        }
                     }
                 }
             }
         });
-    }
-
-    async fn handle_notification(
-        notifier: &EmailNotifier,
-        event: &DomainEvent,
-    ) -> Result<(), crate::core::error::AppError> {
-        match event {
-            DomainEvent::NodeRegistered { node_id, node_name } => {
-                notifier
-                    .send(
-                        "admin@flamepanel.local",
-                        &format!("Node Registered: {}", node_name),
-                        &format!("Node {} (ID: {}) has been registered.", node_name, node_id),
-                    )
-                    .await?;
-            }
-            DomainEvent::UserCreated { user_id, username } => {
-                notifier
-                    .send(
-                        "admin@flamepanel.local",
-                        &format!("User Created: {}", username),
-                        &format!("User {} (ID: {}) has been created.", username, user_id),
-                    )
-                    .await?;
-            }
-            DomainEvent::AppInstalled {
-                app_name, version, ..
-            } => {
-                notifier
-                    .send(
-                        "admin@flamepanel.local",
-                        &format!("App Installed: {}", app_name),
-                        &format!("{} v{} installed successfully.", app_name, version),
-                    )
-                    .await?;
-            }
-            DomainEvent::AppUninstalled { app_name, .. } => {
-                notifier
-                    .send(
-                        "admin@flamepanel.local",
-                        &format!("App Uninstalled: {}", app_name),
-                        &format!("{} has been uninstalled.", app_name),
-                    )
-                    .await?;
-            }
-            DomainEvent::AppUpgraded {
-                app_name, from, to, ..
-            } => {
-                notifier
-                    .send(
-                        "admin@flamepanel.local",
-                        &format!("App Upgraded: {}", app_name),
-                        &format!("{} upgraded from {} to {}.", app_name, from, to),
-                    )
-                    .await?;
-            }
-            DomainEvent::BackupCreated { filename } => {
-                notifier
-                    .send(
-                        "admin@flamepanel.local",
-                        "Backup Created",
-                        &format!("Database backup created: {}", filename),
-                    )
-                    .await?;
-            }
-            DomainEvent::FirewallRulesApplied { rule_count } => {
-                notifier
-                    .send(
-                        "admin@flamepanel.local",
-                        "Firewall Rules Applied",
-                        &format!("{} firewall rules applied.", rule_count),
-                    )
-                    .await?;
-            }
-            DomainEvent::NodeOffline { node_name, .. } => {
-                notifier
-                    .send(
-                        "admin@flamepanel.local",
-                        &format!("Node Offline: {}", node_name),
-                        &format!("Node {} has gone offline (heartbeat timeout).", node_name),
-                    )
-                    .await?;
-            }
-            _ => {} // quiet other events for now
-        }
-        Ok(())
     }
 }
 impl Default for EventHandler {

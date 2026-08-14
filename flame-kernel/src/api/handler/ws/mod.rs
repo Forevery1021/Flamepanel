@@ -32,7 +32,7 @@ async fn handle_metrics(mut socket: WebSocket, state: AppState) {
             "type": "init",
             "data": snapshots,
         })) {
-            let _ = socket.send(Message::Text(payload)).await;
+            let _ = socket.send(Message::Text(payload.into())).await;
         }
     }
 
@@ -40,14 +40,23 @@ async fn handle_metrics(mut socket: WebSocket, state: AppState) {
 
     let mut rx = state.metrics_tx.subscribe();
     let send_task = tokio::spawn(async move {
-        while let Ok(snapshot) = rx.recv().await {
-            if let Ok(payload) = serde_json::to_string(&serde_json::json!({
-                "type": "tick",
-                "data": snapshot,
-            })) {
-                if ws_sender.send(Message::Text(payload)).await.is_err() {
-                    break;
+        loop {
+            match rx.recv().await {
+                Ok(snapshot) => {
+                    if let Ok(payload) = serde_json::to_string(&serde_json::json!({
+                        "type": "tick",
+                        "data": snapshot,
+                    })) {
+                        if ws_sender.send(Message::Text(payload.into())).await.is_err() {
+                            break;
+                        }
+                    }
                 }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    // T4：慢消费者滞后时告警并继续，不中断 WS 推送。
+                    tracing::warn!("metrics ws consumer lagged by {n} messages; continuing");
+                }
+                Err(_closed) => break,
             }
         }
     });
@@ -73,8 +82,16 @@ async fn terminal_handler(
     ws.on_upgrade(move |socket| handle_terminal(socket, state))
 }
 
-async fn handle_terminal(socket: WebSocket, state: AppState) {
-    let (id, mut rx) = state.terminal_manager.create_session().await;
+async fn handle_terminal(mut socket: WebSocket, state: AppState) {
+    let (id, mut rx) = match state.terminal_manager.create_session().await {
+        Ok(v) => v,
+        // T14：终端会话创建失败（如 shell 缺失）时优雅关闭而非 panic。
+        Err(e) => {
+            tracing::error!(error = %e, "terminal session create failed");
+            let _ = socket.close().await;
+            return;
+        }
+    };
 
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
@@ -84,7 +101,7 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
                 "type": "output",
                 "data": output,
             })) {
-                if ws_sender.send(Message::Text(payload)).await.is_err() {
+                if ws_sender.send(Message::Text(payload.into())).await.is_err() {
                     break;
                 }
             }
@@ -96,6 +113,11 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
         while let Some(Ok(msg)) = ws_receiver.next().await {
             match msg {
                 Message::Text(text) => {
+                    // T5：限制 WS 消息大小，防止超大帧耗尽内存。
+                    if text.len() > 256 * 1024 {
+                        let _ = state_clone.terminal_manager.close(id).await;
+                        break;
+                    }
                     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
                         let msg_type = parsed["type"].as_str().unwrap_or("");
                         match msg_type {
@@ -117,13 +139,15 @@ async fn handle_terminal(socket: WebSocket, state: AppState) {
                 _ => {}
             }
         }
-        state_clone.terminal_manager.close(id).await;
     });
 
     tokio::select! {
         _ = send_task => {}
         _ = recv_task => {}
     }
+
+    // T5：统一清理路径——无论 send_task 还是 recv_task 先结束，都在此关闭会话，避免终端会话泄漏。
+    state.terminal_manager.close(id).await;
 }
 
 async fn logs_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
@@ -137,7 +161,7 @@ async fn handle_logs(mut socket: WebSocket, state: AppState) {
             "type": "init",
             "data": recent_logs,
         })) {
-            let _ = socket.send(Message::Text(payload)).await;
+            let _ = socket.send(Message::Text(payload.into())).await;
         }
     }
 
@@ -145,14 +169,23 @@ async fn handle_logs(mut socket: WebSocket, state: AppState) {
 
     let mut rx = state.log_tx.subscribe();
     let send_task = tokio::spawn(async move {
-        while let Ok(log) = rx.recv().await {
-            if let Ok(payload) = serde_json::to_string(&serde_json::json!({
-                "type": "tick",
-                "data": log,
-            })) {
-                if ws_sender.send(Message::Text(payload)).await.is_err() {
-                    break;
+        loop {
+            match rx.recv().await {
+                Ok(log) => {
+                    if let Ok(payload) = serde_json::to_string(&serde_json::json!({
+                        "type": "tick",
+                        "data": log,
+                    })) {
+                        if ws_sender.send(Message::Text(payload.into())).await.is_err() {
+                            break;
+                        }
+                    }
                 }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    // T4：慢消费者滞后时告警并继续，不中断 WS 推送。
+                    tracing::warn!("log ws consumer lagged by {n} messages; continuing");
+                }
+                Err(_closed) => break,
             }
         }
     });

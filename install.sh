@@ -20,6 +20,21 @@ NON_INTERACTIVE=false
 INSTALL_DIR="/opt/flamepanel"
 SERVICE_NAME="flamepanel"
 BINARY_PATH="/usr/local/bin/flamepanel"
+RUN_USER="flamepanel"
+RUN_GROUP="flamepanel"
+# 是否启用 HTTPS（nginx 443 + 自签证书；80 重定向到 443）
+ENABLE_TLS=false
+# HTTPS 证书/密钥路径（默认生成自签证书）
+TLS_CERT_PATH=""
+TLS_KEY_PATH=""
+# 自签证书信息
+TLS_COUNTRY="CN"
+TLS_STATE=""
+TLS_CITY=""
+TLS_ORG="Flamepanel"
+TLS_DOMAIN=""
+# 运行用户的环境文件（600 权限，含 JWT 密钥/数据库密码等敏感配置）
+ENV_FILE="$INSTALL_DIR/flamepanel.env"
 
 # ─── 帮助 ──────────────────────────────────────────────────────────────────────
 usage() {
@@ -33,6 +48,9 @@ Flamepanel 安装脚本 v${VERSION}
   -p, --password PASS    管理员密码 (默认: 交互输入)
   -P, --port PORT        后端监听端口 (默认: 8080)
   -s, --secret SECRET    JWT 签名密钥 (默认: 自动生成)
+  -t, --tls             启用 HTTPS（自签证书，443 端口；80 重定向到 443）
+      --cert PATH       自定义 TLS 证书路径（配合 --tls，需同时提供 --key）
+      --key PATH        自定义 TLS 私钥路径（配合 --tls）
   -n, --non-interactive  非交互模式，使用默认值 (密码将自动生成)
   -h, --help             显示帮助信息
 
@@ -40,12 +58,15 @@ Flamepanel 安装脚本 v${VERSION}
   - 部署二进制到 /usr/local/bin/flamepanel
   - 前端静态资源部署到 /opt/flamepanel/frontend
   - 自动配置 nginx 反向代理 (80 端口 -> 后端 API/WebSocket)
+  - --tls 时额外配置 443 HTTPS（自签证书，浏览器需信任；生产建议改用证书颁发机构签发的证书）
   - 使用方式二/三时需先本地构建或在 GitHub Releases 提供产物
 
 示例:
   $0                                          # 交互式安装
   $0 -u myadmin -p mypass -P 9090             # 自定义账号和端口
   $0 -n                                       # 静默安装，全部使用默认值
+  $0 -t                                       # 启用 HTTPS（自签）
+  $0 -t --cert /etc/ssl/flamepanel.pem --key /etc/ssl/flamepanel.key  # 使用自定义证书
   $0 -u ops -p 'Str0ng!P@ss' -P 443 -s 'xxx' # 完整自定义
 
 卸载:
@@ -78,6 +99,18 @@ while [[ $# -gt 0 ]]; do
             NON_INTERACTIVE=true
             shift
             ;;
+        -t|--tls)
+            ENABLE_TLS=true
+            shift
+            ;;
+        --cert)
+            TLS_CERT_PATH="$2"
+            shift 2
+            ;;
+        --key)
+            TLS_KEY_PATH="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             ;;
@@ -87,6 +120,20 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ─── TLS 参数校验 ────────────────────────────────────────────────────────────
+if [[ "$ENABLE_TLS" == true ]]; then
+    if [[ -n "$TLS_CERT_PATH" || -n "$TLS_KEY_PATH" ]]; then
+        if [[ -z "$TLS_CERT_PATH" || -z "$TLS_KEY_PATH" ]]; then
+            echo -e "${RED}错误: --cert 与 --key 必须同时提供${NC}"
+            exit 1
+        fi
+        if [[ ! -f "$TLS_CERT_PATH" || ! -f "$TLS_KEY_PATH" ]]; then
+            echo -e "${RED}错误: 证书或私钥文件不存在${NC}"
+            exit 1
+        fi
+    fi
+fi
 
 # ─── 检查 root ─────────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
@@ -231,12 +278,28 @@ else
 fi
 
 # ─── 创建目录结构 ──────────────────────────────────────────────────────────────
-echo -e "${CYAN}[2/5] 创建目录结构...${NC}"
+echo -e "${CYAN}[2/5] 创建目录结构与运行用户...${NC}"
+
+# 创建专用系统用户/组（无登录 shell，最小权限运行后端）
+if ! getent group "$RUN_GROUP" >/dev/null 2>&1; then
+    groupadd --system "$RUN_GROUP"
+    echo -e "${GREEN}  -> 已创建系统组 $RUN_GROUP${NC}"
+fi
+if ! id "$RUN_USER" >/dev/null 2>&1; then
+    useradd --system --gid "$RUN_GROUP" --shell /usr/sbin/nologin --home-dir "$INSTALL_DIR" "$RUN_USER"
+    echo -e "${GREEN}  -> 已创建系统用户 $RUN_USER${NC}"
+fi
 
 mkdir -p "$INSTALL_DIR/data"
 mkdir -p "$INSTALL_DIR/logs"
+mkdir -p "$INSTALL_DIR/frontend"
 
-echo -e "${GREEN}  -> $INSTALL_DIR${NC}"
+# 目录属主与权限（数据/日志 750，普通用户不可读；环境文件 600）
+chown -R "$RUN_USER:$RUN_GROUP" "$INSTALL_DIR"
+chmod 750 "$INSTALL_DIR" "$INSTALL_DIR/data" "$INSTALL_DIR/logs"
+chmod 750 "$INSTALL_DIR/frontend" 2>/dev/null || true
+
+echo -e "${GREEN}  -> $INSTALL_DIR（属主 $RUN_USER:$RUN_GROUP，750）${NC}"
 
 # ─── 部署二进制 ────────────────────────────────────────────────────────────────
 echo -e "${CYAN}[3/5] 部署应用...${NC}"
@@ -305,6 +368,10 @@ echo -e "${CYAN}[4/5] 部署前端静态资源...${NC}"
 FRONTEND_DIR="$INSTALL_DIR/frontend"
 mkdir -p "$FRONTEND_DIR"
 
+# 前端静态资源需可被 nginx（www-data）读取
+chown -R "$RUN_USER:$RUN_GROUP" "$FRONTEND_DIR" 2>/dev/null || true
+chmod -R 755 "$FRONTEND_DIR" 2>/dev/null || true
+
 LOCAL_FRONTEND=""
 for try_path in \
     "$SCRIPT_DIR/frontend/dist" \
@@ -341,15 +408,108 @@ else
     fi
 fi
 
+# 部署完成后最终收紧权限：dist 需可被 nginx 读取，但目录不被运行用户之外改写
+chown -R "$RUN_USER:$RUN_GROUP" "$FRONTEND_DIR/dist" 2>/dev/null || true
+chmod -R 755 "$FRONTEND_DIR/dist" 2>/dev/null || true
+
 # ─── 配置 nginx 反向代理 ───────────────────────────────────────────────────────
 if command -v nginx &>/dev/null; then
+    # HTTPS：准备证书（自定义或自签）
+    TLS_BLOCK=""
+    if [[ "$ENABLE_TLS" == true ]]; then
+        if [[ -z "$TLS_CERT_PATH" || -z "$TLS_KEY_PATH" ]]; then
+            # 生成自签证书（3650 天）
+            TLS_DIR="$INSTALL_DIR/tls"
+            mkdir -p "$TLS_DIR"
+            TLS_CERT_PATH="$TLS_DIR/flamepanel.crt"
+            TLS_KEY_PATH="$TLS_DIR/flamepanel.key"
+            if [[ -z "$TLS_DOMAIN" ]]; then
+                TLS_DOMAIN="flamepanel.local"
+            fi
+            echo -e "${CYAN}  生成自签 TLS 证书 (域名: $TLS_DOMAIN)...${NC}"
+            openssl req -x509 -newkey rsa:2048 -nodes \
+                -keyout "$TLS_KEY_PATH" \
+                -out "$TLS_CERT_PATH" \
+                -days 3650 \
+                -subj "/C=${TLS_COUNTRY}/O=${TLS_ORG}/CN=${TLS_DOMAIN}" \
+                2>/dev/null
+            chown root:root "$TLS_CERT_PATH" "$TLS_KEY_PATH"
+            chmod 644 "$TLS_CERT_PATH"
+            chmod 600 "$TLS_KEY_PATH"
+        fi
+        echo -e "${CYAN}  使用 TLS 证书: $TLS_CERT_PATH${NC}"
+        TLS_BLOCK="
+    # HTTPS 服务器
+    server {
+        listen 443 ssl;
+        server_name _;
+
+        ssl_certificate     $TLS_CERT_PATH;
+        ssl_certificate_key $TLS_KEY_PATH;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+
+        root $FRONTEND_DIR/dist;
+        index index.html;
+
+        # 后端健康检查 / Prometheus 指标
+        location = /health {
+            proxy_pass http://127.0.0.1:$PANEL_PORT;
+        }
+        location = /metrics {
+            proxy_pass http://127.0.0.1:$PANEL_PORT;
+        }
+
+        # 前端路由回退
+        location / {
+            try_files \$uri \$uri/ /index.html;
+        }
+
+        # API 代理到 Rust 后端
+        location /api/ {
+            proxy_pass http://127.0.0.1:$PANEL_PORT;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+        }
+
+        # WebSocket 支持（终端）
+        location /ws/ {
+            proxy_pass http://127.0.0.1:$PANEL_PORT;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "Upgrade";
+            proxy_set_header Host \$host;
+        }
+
+        # 静态资源缓存
+        location /assets/ {
+            expires 30d;
+            add_header Cache-Control "public";
+        }
+    }
+"
+    fi
+
     cat > /etc/nginx/conf.d/flamepanel.conf << NGINXEOF
+# 前端静态资源以 755 部署，nginx worker（Debian 默认 www-data）可读取
 server {
     listen 80;
     server_name _;
 
     root $FRONTEND_DIR/dist;
     index index.html;
+
+    # 后端健康检查 / Prometheus 指标（与前端路由区分）
+    location = /health {
+        proxy_pass http://127.0.0.1:$PANEL_PORT;
+    }
+    location = /metrics {
+        proxy_pass http://127.0.0.1:$PANEL_PORT;
+    }
 
     # 前端路由回退
     location / {
@@ -380,12 +540,17 @@ server {
         add_header Cache-Control "public";
     }
 }
+${TLS_BLOCK}
 NGINXEOF
 
     if nginx -t 2>/dev/null; then
         systemctl enable nginx 2>/dev/null || true
         systemctl restart nginx 2>/dev/null || true
-        echo -e "${GREEN}  -> nginx 反向代理配置完成 (http://本机IP/)${NC}"
+        if [[ "$ENABLE_TLS" == true ]]; then
+            echo -e "${GREEN}  -> nginx 反向代理配置完成 (https://本机IP/)${NC}"
+        else
+            echo -e "${GREEN}  -> nginx 反向代理配置完成 (http://本机IP/)${NC}"
+        fi
     else
         echo -e "${YELLOW}  -> 警告: nginx 配置校验失败，请检查 /etc/nginx/conf.d/flamepanel.conf${NC}"
         mv /etc/nginx/conf.d/flamepanel.conf /etc/nginx/conf.d/flamepanel.conf.bak 2>/dev/null || true
@@ -395,22 +560,36 @@ fi
 # ─── 配置 systemd ──────────────────────────────────────────────────────────────
 echo -e "${CYAN}[5/5] 配置 systemd 服务...${NC}"
 
-# 密钥写入 600 权限的环境文件，避免出现在可读的 unit 文件中
-cat > "$INSTALL_DIR/flamepanel.env" << ENVEOF
+# 密钥写入 600 权限的环境文件（属主为运行用户），避免出现在可读的 unit 文件中
+cat > "$ENV_FILE" << ENVEOF
 OP_PORT=$PANEL_PORT
 OP_HOST=0.0.0.0
 OP_ADMIN_USERNAME=$PANEL_USERNAME
 OP_ADMIN_PASSWORD=$PANEL_PASSWORD
 OP_JWT_SECRET=$JWT_SECRET
 OP_DATABASE_URL=sqlite:$INSTALL_DIR/data/flamepanel.db?mode=rwc
+OP_FILE_ROOT=$INSTALL_DIR/workspace
+OP_TERMINAL_CWD=$INSTALL_DIR/workspace
 # OP_SMTP_HOST=smtp.example.com
 # OP_SMTP_PORT=587
 # OP_SMTP_USERNAME=
 # OP_SMTP_PASSWORD=
 # OP_SMTP_FROM=noreply@flamepanel.local
 ENVEOF
-chmod 600 "$INSTALL_DIR/flamepanel.env"
+chown "$RUN_USER:$RUN_GROUP" "$ENV_FILE"
+chmod 600 "$ENV_FILE"
 
+# 文件沙箱白名单根目录（终端/文件 API 仅可访问其内部）
+mkdir -p "$INSTALL_DIR/workspace"
+chown "$RUN_USER:$RUN_GROUP" "$INSTALL_DIR/workspace"
+chmod 750 "$INSTALL_DIR/workspace"
+
+# 默认非 root 运行（最小权限）+ systemd 加固：
+# - NoNewPrivileges / ProtectSystem=strict / ProtectHome=true 防止提权与系统目录篡改
+# - ReadWritePaths 仅放行数据、日志、工作区
+# - 防火墙/数据库安装等需要 root 的操作：通过受控 sudo -n 白名单执行（见部署文档）
+# - 如需操作 docker.sock，可追加 Environment=OP_DOCKER_SOCKET=unix:///var/run/docker.sock
+#   并在 systemd 中补充 SupplementaryGroups=docker（最小化，不授予 CAP_SYS_ADMIN）
 cat > /etc/systemd/system/flamepanel.service << SYSTEMDEOF
 [Unit]
 Description=Flamepanel - Server Operations Management Panel
@@ -419,12 +598,21 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=$RUN_USER
+Group=$RUN_GROUP
 ExecStart=/usr/local/bin/flamepanel
 WorkingDirectory=$INSTALL_DIR
-EnvironmentFile=$INSTALL_DIR/flamepanel.env
+EnvironmentFile=$ENV_FILE
 Restart=always
 RestartSec=5
+
+# 安全加固：禁止提权、严格只读系统路径、隔离 HOME
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# 仅允许写入数据/日志/工作区
+ReadWritePaths=$INSTALL_DIR/data $INSTALL_DIR/logs $INSTALL_DIR/workspace
 
 # 资源限制
 LimitNOFILE=65535
@@ -460,12 +648,22 @@ echo -e "${GREEN}          Flamepanel 安装完成！${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
 echo ""
 if command -v nginx &>/dev/null; then
-    echo -e "  ${CYAN}访问地址 (Web):${NC}"
-    echo -e "    本地:   http://${LOCAL_IP}/"
-    if [[ "$EXTERNAL_IP" != "$LOCAL_IP" ]]; then
-        echo -e "    外网:   http://${EXTERNAL_IP}/"
+    if [[ "$ENABLE_TLS" == true ]]; then
+        echo -e "  ${CYAN}访问地址 (Web):${NC}"
+        echo -e "    本地:   https://${LOCAL_IP}/"
+        if [[ "$EXTERNAL_IP" != "$LOCAL_IP" ]]; then
+            echo -e "    外网:   https://${EXTERNAL_IP}/"
+        fi
+        echo -e "  ${CYAN}后端 API:${NC} https://${LOCAL_IP}:${PANEL_PORT}/api"
+        echo -e "  ${YELLOW}提示: 自签证书需在浏览器中手动信任；生产建议使用 CA 签发的证书。${NC}"
+    else
+        echo -e "  ${CYAN}访问地址 (Web):${NC}"
+        echo -e "    本地:   http://${LOCAL_IP}/"
+        if [[ "$EXTERNAL_IP" != "$LOCAL_IP" ]]; then
+            echo -e "    外网:   http://${EXTERNAL_IP}/"
+        fi
+        echo -e "  ${CYAN}后端 API:${NC} http://${LOCAL_IP}:${PANEL_PORT}/api"
     fi
-    echo -e "  ${CYAN}后端 API:${NC} http://${LOCAL_IP}:${PANEL_PORT}/api"
 else
     echo -e "  ${CYAN}访问地址:${NC}"
     echo -e "    本地:   http://${LOCAL_IP}:${PANEL_PORT}"
@@ -489,5 +687,10 @@ echo -e "    sudo ./uninstall.sh                    # 卸载（保留数据）"
 echo -e "    sudo ./uninstall.sh -p                 # 完全卸载（删除数据）"
 echo ""
 echo -e "  ${YELLOW}请妥善保管以上登录信息！${NC}"
-echo -e "  ${YELLOW}首次登录需修改初始密码（面板强制改密机制，v0.6.0+）。${NC}"
+if [[ "$NON_INTERACTIVE" == true ]] || [[ -z "$PANEL_PASSWORD" ]]; then
+    echo -e "  ${YELLOW}⚠ 密码为自动生成/随机值，请立即登录并修改默认密码！${NC}"
+    echo -e "  ${YELLOW}  首次登录面板将强制要求修改初始密码（v0.6.0+ 机制）。${NC}"
+else
+    echo -e "  ${YELLOW}首次登录需修改初始密码（面板强制改密机制，v0.6.0+）。${NC}"
+fi
 echo ""

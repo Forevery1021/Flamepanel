@@ -42,5 +42,20 @@ export default tseslint.config(
       'vue/no-v-html': 'warn',
     },
   },
+  // ── 架构约束（M11）：业务 views 禁止裸 OpenVue 组件 / 非 openicons 图标 ──
+  // 见 Doc/17 §15.3 硬性规则 3、§17.3 禁止、§21.2 工程化。
+  // views 只允许从 components/ui（Fp*）消费 UI；图标唯一来源 @openvue/openicons。
+  {
+    files: ['src/views/**/*.{vue,ts}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          // 屏蔽所有底层 OpenVue 组件入口（openvue/* 深路径）。
+          patterns: [{ group: ['openvue', 'openvue/*'], message: '业务 views 禁止直接 import OpenVue 底层组件，统一经 @/components/ui 的 Fp* 封装（Doc/17 §15.3/§17.3）。' }],
+        },
+      ],
+    },
+  },
   eslintConfigPrettier,
 )

@@ -2,6 +2,7 @@
   <FpButton
     variant="ghost"
     :icon="copied ? 'oi oi-check' : 'oi oi-copy'"
+    :aria-label="t('common.copy')"
     :title="t('common.copy')"
     @click="copy"
   />

@@ -1,9 +1,9 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use std::collections::HashSet;
+use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct User {
     pub id: i64,
     pub username: String,
@@ -14,7 +14,44 @@ pub struct User {
     pub must_change_password: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+impl User {
+    /// 业务规则：是否强制修改密码（登录后必须改密）
+    pub fn must_change_password(&self) -> bool {
+        self.must_change_password
+    }
+
+    /// 业务规则：当前用户能否修改密码（可扩展：admin 强制策略等）。
+    /// 返回 `DomainError::Forbidden` 表示规则不允许。
+    pub fn ensure_can_change_password(&self) -> Result<(), crate::domain::error::DomainError> {
+        // 保留未来策略：例如最近改密间隔、弱密码拒绝等在此集中
+        Ok(())
+    }
+
+    /// 业务规则：标记密码已修改（清强制改密标志）。
+    pub fn mark_password_changed(&mut self) {
+        self.must_change_password = false;
+    }
+
+    /// 业务规则：校验用户名格式（字母/数字/下划线，长度 2~32）。
+    pub fn validate_username(&self) -> Result<(), crate::domain::error::DomainError> {
+        let ok = !self.username.is_empty()
+            && self.username.len() >= 2
+            && self.username.len() <= 32
+            && self
+                .username
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        if ok {
+            Ok(())
+        } else {
+            Err(crate::domain::error::DomainError::validation(
+                "用户名须为 2-32 位字母/数字/下划线/连字符",
+            ))
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ServerNode {
     pub id: i64,
     pub name: String,
@@ -28,6 +65,13 @@ pub struct ServerNode {
     pub metrics_json: Option<String>,
     /// Agent 注册时携带的认证令牌
     pub auth_token: Option<String>,
+    /// Agent HTTP 服务端口（面板据此构造 `http://<ip>:<agent_port>` 发起远程调用）
+    #[serde(default = "default_node_agent_port")]
+    pub agent_port: u16,
+}
+
+fn default_node_agent_port() -> u16 {
+    9527
 }
 
 impl ServerNode {
@@ -39,7 +83,7 @@ impl ServerNode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Website {
     pub id: i64,
     pub name: String,
@@ -52,9 +96,12 @@ pub struct Website {
     pub proxy_enabled: bool,
     pub proxy_pass: Option<String>,
     pub created_at: DateTime<Utc>,
+    /// 乐观并发控制版本号：写入时需匹配当前值，冲突返回稳定 `CONFLICT`。
+    #[serde(default)]
+    pub resource_version: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebServerInstance {
     pub id: i64,
     pub engine: String,
@@ -64,6 +111,9 @@ pub struct WebServerInstance {
     pub binary_path: Option<String>,
     pub port: i32,
     pub created_at: DateTime<Utc>,
+    /// 乐观并发控制版本号：写入时需匹配当前值，冲突返回稳定 `CONFLICT`。
+    #[serde(default)]
+    pub resource_version: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,7 +126,7 @@ pub struct DockerContainer {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum DomainEvent {
     UserCreated {
         user_id: i64,
@@ -186,9 +236,85 @@ pub struct AppManifest {
     pub compose: String,
 }
 
+impl AppManifest {
+    /// 内置应用是否上推荐位
+    pub fn is_recommended(&self) -> bool {
+        matches!(self.key.as_str(), "wordpress" | "portainer" | "uptime-kuma")
+    }
+
+    /// 从内置清单生成商店元数据（领域规则：Flame 格式 + 容器模式）
+    pub fn to_metadata(&self) -> AppMetadata {
+        AppMetadata {
+            key: self.key.clone(),
+            name: self.name.clone(),
+            category: self.category.clone(),
+            short_desc_zh: self.description.clone(),
+            short_desc_en: None,
+            tags: vec![],
+            format: AppFormat::Flame,
+            modes: vec![InstallMode::Container],
+            versions: vec![self.version.clone()],
+            default_version: self.version.clone(),
+            logo: Some(self.icon.clone()),
+            min_memory_mb: None,
+            architectures: vec![],
+            readme: None,
+            recommended: self.is_recommended(),
+        }
+    }
+
+    /// 从内置清单生成版本信息（含默认表单字段）
+    pub fn to_version(&self) -> AppVersionInfo {
+        AppVersionInfo {
+            version: self.version.clone(),
+            mode: InstallMode::Container,
+            default_port: Some(self.default_port),
+            form_fields: vec![
+                FormField {
+                    env_key: "PORT".into(),
+                    label_zh: "服务端口".into(),
+                    label_en: Some("Port".into()),
+                    field_type: FieldType::Port,
+                    default: Some(self.default_port.to_string()),
+                    required: true,
+                    pattern: None,
+                    min: Some(1),
+                    max: Some(65535),
+                    min_length: None,
+                    max_length: None,
+                    options: vec![],
+                    description: None,
+                    group: Some("基础".into()),
+                },
+                FormField {
+                    env_key: "NAME".into(),
+                    label_zh: "实例名称".into(),
+                    label_en: Some("Instance name".into()),
+                    field_type: FieldType::Text,
+                    default: Some(self.key.clone()),
+                    required: true,
+                    pattern: Some(r"^[a-zA-Z0-9_-]+$".into()),
+                    min: None,
+                    max: None,
+                    min_length: Some(2),
+                    max_length: Some(32),
+                    options: vec![],
+                    description: None,
+                    group: Some("基础".into()),
+                },
+            ],
+            compose_template: Some(self.compose.clone()),
+            native_scripts: vec![],
+            wasm_base64: None,
+            min_memory_mb: None,
+            architectures: vec![],
+        }
+    }
+}
+
 // ─── 应用商店 (App Store) ────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AppFormat {
     OnePanel,
@@ -215,7 +341,7 @@ impl AppFormat {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum InstallMode {
     Container,
@@ -320,7 +446,7 @@ pub struct AppVersionInfo {
     pub architectures: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AppMetadata {
     pub key: String,
     pub name: String,
@@ -341,7 +467,7 @@ pub struct AppMetadata {
     pub recommended: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppPackage {
     pub id: i64,
     pub key: String,
@@ -356,7 +482,7 @@ pub struct AppPackage {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct InstalledApp {
     pub id: i64,
     pub package_key: String,
@@ -376,7 +502,59 @@ pub struct InstalledApp {
     pub launch_count: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+impl InstalledApp {
+    /// 简单版本号比较（x.y.z 数字段）。非数字/不同长度时退化为字符串比较。
+    pub fn version_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+        fn parts(v: &str) -> Vec<u64> {
+            v.trim()
+                .split('.')
+                .map(|s| s.trim().parse::<u64>().unwrap_or(0))
+                .collect()
+        }
+        let pa = parts(a);
+        let pb = parts(b);
+        let len = pa.len().max(pb.len());
+        for i in 0..len {
+            let x = pa.get(i).copied().unwrap_or(0);
+            let y = pb.get(i).copied().unwrap_or(0);
+            match x.cmp(&y) {
+                std::cmp::Ordering::Equal => continue,
+                ord => return ord,
+            }
+        }
+        std::cmp::Ordering::Equal
+    }
+
+    /// 业务规则：能否升级到目标版本。
+    /// - 目标版本与当前相同 → 允许（幂等，调用方可短路）
+    /// - 目标版本低于当前 → 不允许（防降级）
+    pub fn can_upgrade_to(
+        &self,
+        target_version: &str,
+    ) -> Result<(), crate::domain::error::DomainError> {
+        if Self::version_cmp(target_version, &self.version) == std::cmp::Ordering::Less {
+            return Err(crate::domain::error::DomainError::rule_violation(format!(
+                "不能降级：当前 {}，目标 {}",
+                self.version, target_version
+            )));
+        }
+        Ok(())
+    }
+
+    /// 业务规则：记录一次启动。
+    pub fn record_launch(&mut self) {
+        self.launch_count += 1;
+    }
+
+    /// 业务规则：标记升级到目标版本。
+    pub fn mark_upgraded(&mut self, target_version: &str) {
+        self.version = target_version.to_string();
+        self.status = "running".into();
+        self.updated_at = chrono::Utc::now();
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperationLog {
     pub id: i64,
     pub username: String,
@@ -386,7 +564,20 @@ pub struct OperationLog {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+/// 事件落库（Outbox）记录：每条领域事件持久化存档，保证审计不丢（Stage6）。
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct OutboxEvent {
+    pub id: i64,
+    /// 事件类型名（如 `AppInstalled` / `UserLoggedIn`）
+    pub event_type: String,
+    /// 事件载荷（JSON 序列化的结构化字段）
+    pub payload: String,
+    /// 是否已送达通知渠道（预留；当前仅持久化审计）
+    pub published: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Memo {
     pub id: i64,
     pub content: String,
@@ -397,7 +588,7 @@ pub struct Memo {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
     pub id: i64,
     pub source: String,
@@ -407,7 +598,7 @@ pub struct LogEntry {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PanelSetting {
     pub key: String,
     pub value: String,
@@ -522,7 +713,7 @@ pub fn default_settings() -> Vec<PanelSetting> {
     ]
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Permission {
     pub id: i64,
     pub resource: String,
@@ -530,7 +721,7 @@ pub struct Permission {
     pub description: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Role {
     pub id: i64,
     pub name: String,
@@ -547,6 +738,7 @@ pub fn default_permissions() -> Vec<Permission> {
         ("node", "read", "查看节点"),
         ("node", "update", "修改节点"),
         ("node", "delete", "删除节点"),
+        ("node", "execute", "远程执行命令/文件管理"),
         ("website", "create", "创建网站"),
         ("website", "read", "查看网站"),
         ("website", "update", "修改网站"),
@@ -563,6 +755,7 @@ pub fn default_permissions() -> Vec<Permission> {
         ("memo", "delete", "删除备忘录"),
         ("operation_log", "read", "查看审计日志"),
         ("operation_log", "delete", "删除审计日志"),
+        ("outbox", "read", "查看事件落库"),
         ("log", "read", "查看系统日志"),
         ("log", "delete", "删除系统日志"),
         ("plugin", "read", "查看插件"),
@@ -607,6 +800,9 @@ pub fn default_permissions() -> Vec<Permission> {
         ("scheduled_task", "update", "修改定时任务"),
         ("scheduled_task", "delete", "删除定时任务"),
         ("scheduled_task", "execute", "执行定时任务"),
+        ("task", "read", "查看任务"),
+        ("task", "execute", "取消/执行任务"),
+        ("task", "delete", "清理任务"),
     ];
     perms
         .into_iter()
@@ -716,7 +912,7 @@ impl DatabaseType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseInstance {
     pub id: i64,
     pub db_type: String,
@@ -730,9 +926,22 @@ pub struct DatabaseInstance {
     pub root_user: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// 乐观并发控制版本号：写入时需匹配当前值，冲突返回稳定 `CONFLICT`。
+    #[serde(default)]
+    pub resource_version: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+/// 防火墙后端类型（探测到的可用防火墙工具）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FirewallBackend {
+    Ufw,
+    Firewalld,
+    Iptables,
+    /// 未检测到可用防火墙工具（携带原因）。
+    Unsupported(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FirewallRule {
     pub id: i64,
     pub name: String,
@@ -829,7 +1038,7 @@ pub fn default_firewall_rules() -> Vec<FirewallRule> {
     ]
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ScheduledTask {
     pub id: i64,
     pub name: String,
@@ -964,4 +1173,118 @@ services:
             .into(),
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user(username: &str) -> User {
+        User {
+            id: 1,
+            username: username.into(),
+            password_hash: "x".into(),
+            role: "admin".into(),
+            created_at: chrono::Utc::now(),
+            must_change_password: true,
+        }
+    }
+
+    fn installed(version: &str) -> InstalledApp {
+        InstalledApp {
+            id: 1,
+            package_key: "wordpress".into(),
+            name: "wp".into(),
+            version: version.into(),
+            mode: "container".into(),
+            status: "running".into(),
+            access_url: None,
+            install_path: "/tmp/app".into(),
+            container_name: None,
+            port: None,
+            params_json: "{}".into(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            launch_count: 0,
+        }
+    }
+
+    #[test]
+    fn user_validate_username() {
+        assert!(user("admin").validate_username().is_ok());
+        assert!(user("a_b-c1").validate_username().is_ok());
+        assert!(user("a").validate_username().is_err());
+        assert!(user("bad name!").validate_username().is_err());
+    }
+
+    #[test]
+    fn user_mark_password_changed() {
+        let mut u = user("admin");
+        assert!(u.must_change_password());
+        u.mark_password_changed();
+        assert!(!u.must_change_password());
+        assert!(u.ensure_can_change_password().is_ok());
+    }
+
+    #[test]
+    fn server_node_online_status() {
+        let mut node = ServerNode {
+            id: 1,
+            name: "n".into(),
+            hostname: "h".into(),
+            ip_address: "1.2.3.4".into(),
+            status: "active".into(),
+            created_at: chrono::Utc::now(),
+            last_heartbeat_at: None,
+            metrics_json: None,
+            auth_token: None,
+            agent_port: 9527,
+        };
+        assert!(!node.is_online(chrono::Utc::now(), 30));
+        node.last_heartbeat_at = Some(chrono::Utc::now() - chrono::Duration::seconds(10));
+        assert!(node.is_online(chrono::Utc::now(), 30));
+        node.last_heartbeat_at = Some(chrono::Utc::now() - chrono::Duration::seconds(60));
+        assert!(!node.is_online(chrono::Utc::now(), 30));
+    }
+
+    #[test]
+    fn installed_app_can_upgrade() {
+        let app = installed("1.0.0");
+        assert!(app.can_upgrade_to("1.0.0").is_ok()); // 同版本允许（幂等短路）
+        assert!(app.can_upgrade_to("1.0.1").is_ok());
+        assert!(app.can_upgrade_to("1.1.0").is_ok());
+        assert!(app.can_upgrade_to("2.0").is_ok());
+        assert!(app.can_upgrade_to("0.9.0").is_err()); // 降级拒绝
+    }
+
+    #[test]
+    fn installed_app_mark_upgraded_and_launch() {
+        let mut app = installed("1.0.0");
+        app.record_launch();
+        app.record_launch();
+        assert_eq!(app.launch_count, 2);
+        app.mark_upgraded("2.0.0");
+        assert_eq!(app.version, "2.0.0");
+        assert_eq!(app.status, "running");
+    }
+
+    #[test]
+    fn version_cmp_works() {
+        assert_eq!(
+            InstalledApp::version_cmp("1.0.0", "1.0.0"),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            InstalledApp::version_cmp("1.0.1", "1.0.0"),
+            std::cmp::Ordering::Greater
+        );
+        assert_eq!(
+            InstalledApp::version_cmp("1.2", "1.10"),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            InstalledApp::version_cmp("2.0", "1.9.9"),
+            std::cmp::Ordering::Greater
+        );
+    }
 }

@@ -1,5 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import { VueQueryPlugin } from '@tanstack/vue-query'
+import { createQueryClient } from './composables/useQueryCache'
 import OpenVue from 'openvue/config'
 import ToastService from 'openvue/toastservice'
 import ConfirmationService from 'openvue/confirmationservice'
@@ -12,10 +14,11 @@ import '@unocss/reset/tailwind.css'
 import 'uno.css'
 import App from './App.vue'
 import router from './router'
-import { i18n } from './locales'
+import { i18n, preloadSavedLocale } from './locales'
 import { applyStoredTheme } from './utils/theme'
 import { useThemeStore } from './stores/theme'
 import { permission } from './directives/permission'
+import { reportError } from './utils/monitor'
 import flamePreset from './theme/flame-preset'
 import './theme/tokens.css'
 import './theme/glass.css'
@@ -27,7 +30,10 @@ const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
 app.use(router)
+app.use(VueQueryPlugin, { queryClient: createQueryClient() })
 app.use(i18n)
+// 启动时异步加载保存的非默认语言包（不阻塞首屏）
+preloadSavedLocale()
 app.use(OpenVue, {
   theme: {
     preset: flamePreset,
@@ -45,5 +51,10 @@ app.directive('permission', permission)
 
 // 应用主题 store（令牌/定制），需在 pinia 就绪后执行
 useThemeStore().apply()
+
+// P7 可靠性：全局渲染错误捕获（结构化日志上报，预留 Sentry 接入点）
+app.config.errorHandler = (err, _instance, info) => {
+  reportError(err, { source: 'render', context: info })
+}
 
 app.mount('#app')

@@ -11,6 +11,8 @@ services:
       - OP_PORT=8080
       - OP_JWT_SECRET=your-super-secret-key-change-me-2026
       - OP_DATABASE_URL=sqlite:/app/data/flamepanel.db?mode=rwc
+      - OP_FILE_ROOT=/app/workspace
+      - OP_TERMINAL_CWD=/app/workspace
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://127.0.0.1:8080/health"]
       interval: 30s

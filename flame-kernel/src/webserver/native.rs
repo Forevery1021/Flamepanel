@@ -1,9 +1,9 @@
+use crate::application::execution_mode::SharedCommandRunner;
 use crate::core::error::AppError;
 use crate::infrastructure::os::{PackageManager, ServiceManager};
 use crate::webserver::engine::WebServerEngine;
 use serde::Serialize;
 use std::collections::HashSet;
-use std::process::Stdio;
 
 /// 原生 Web 服务器检测信息（1Panel 风格：安装状态 / 版本 / 服务 / 端口）
 #[derive(Debug, Clone, Serialize)]
@@ -27,11 +27,29 @@ pub struct NativeWebServerInfo {
     pub listening_ports: Vec<u16>,
 }
 
-pub struct WebServerNativeManager;
+pub struct WebServerNativeManager {
+    package_manager: PackageManager,
+    service_manager: ServiceManager,
+    /// 特权命令执行器：版本 / which / 端口扫描等检测命令统一经此端口执行
+    /// （Phase A1 扩展：`execution_mode=embedded|agent` 分离模式）。
+    runner: SharedCommandRunner,
+}
 
 impl WebServerNativeManager {
-    pub fn new() -> Self {
-        Self
+    /// 注入特权命令执行器（`execution_mode=embedded|agent`）。
+    pub fn new(runner: SharedCommandRunner) -> Self {
+        Self {
+            package_manager: PackageManager::new(runner.clone()),
+            service_manager: ServiceManager::new(runner.clone()),
+            runner,
+        }
+    }
+
+    /// 便捷：默认嵌入式执行器（行为与重构前一致）。
+    pub fn embedded() -> Self {
+        Self::new(std::sync::Arc::new(
+            crate::infrastructure::execution::EmbeddedCommandRunner,
+        ))
     }
 
     /// 检测全部 5 种引擎的原生状态
@@ -51,15 +69,19 @@ impl WebServerNativeManager {
 
     pub async fn detect(&self, engine: &WebServerEngine) -> NativeWebServerInfo {
         let binary = engine.binary_name();
-        let binary_path = Self::which(binary).await;
+        let binary_path = self.which(binary).await;
         let installed = binary_path.is_some();
-        let package_installed = PackageManager::is_installed(engine.package_name())
+        let package_installed = self
+            .package_manager
+            .is_installed(engine.package_name())
             .await
             .unwrap_or(false);
         let version = if installed {
             match self.get_version(engine).await {
                 Ok(v) => Some(v),
-                Err(_) => PackageManager::get_version(engine.package_name())
+                Err(_) => self
+                    .package_manager
+                    .get_version(engine.package_name())
                     .await
                     .ok()
                     .or_else(|| Some("unknown".into())),
@@ -68,14 +90,20 @@ impl WebServerNativeManager {
             None
         };
         let running = if installed {
-            ServiceManager::is_running(engine.service_name())
+            self.service_manager
+                .is_running(engine.service_name())
                 .await
                 .unwrap_or(false)
         } else {
             false
         };
-        let enabled = Self::is_service_enabled(engine.service_name()).await;
-        let listening_ports = Self::listening_ports()
+        let enabled = self
+            .service_manager
+            .is_enabled(engine.service_name())
+            .await
+            .unwrap_or(false);
+        let listening_ports = self
+            .listening_ports()
             .await
             .into_iter()
             .filter(|p| *p == engine.default_port() || *p == engine.default_ssl_port())
@@ -103,7 +131,7 @@ impl WebServerNativeManager {
         engine: &WebServerEngine,
         version: Option<&str>,
     ) -> Result<String, AppError> {
-        if Self::which(engine.binary_name()).await.is_some() {
+        if self.which(engine.binary_name()).await.is_some() {
             return Err(AppError::BadRequest(format!(
                 "{} is already installed",
                 engine.as_str()
@@ -118,9 +146,9 @@ impl WebServerNativeManager {
         } else {
             engine.package_name().to_string()
         };
-        PackageManager::install(&pkg).await?;
-        ServiceManager::enable(engine.service_name()).await?;
-        ServiceManager::start(engine.service_name()).await?;
+        self.package_manager.install(&pkg).await?;
+        self.service_manager.enable(engine.service_name()).await?;
+        self.service_manager.start(engine.service_name()).await?;
         let ver = self
             .get_version(engine)
             .await
@@ -134,9 +162,12 @@ impl WebServerNativeManager {
 
     /// 原生卸载：停止 + 禁用 + 移除包
     pub async fn uninstall(&self, engine: &WebServerEngine) -> Result<(), AppError> {
-        ServiceManager::stop(engine.service_name()).await.ok();
-        ServiceManager::disable(engine.service_name()).await.ok();
-        PackageManager::uninstall(engine.package_name()).await
+        self.service_manager.stop(engine.service_name()).await.ok();
+        self.service_manager
+            .disable(engine.service_name())
+            .await
+            .ok();
+        self.package_manager.uninstall(engine.package_name()).await
     }
 
     /// systemd 开机自启开关
@@ -146,9 +177,9 @@ impl WebServerNativeManager {
         enabled: bool,
     ) -> Result<(), AppError> {
         if enabled {
-            ServiceManager::enable(engine.service_name()).await
+            self.service_manager.enable(engine.service_name()).await
         } else {
-            ServiceManager::disable(engine.service_name()).await
+            self.service_manager.disable(engine.service_name()).await
         }
     }
 
@@ -159,18 +190,17 @@ impl WebServerNativeManager {
             WebServerEngine::Caddy => &["version"],
             _ => &["-v"],
         };
-        let out = tokio::process::Command::new(binary)
-            .args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
+        let cmd = crate::application::execution_mode::PrivilegedCommand::new(
+            binary,
+            args.iter().map(|s| s.to_string()).collect(),
+        )
+        .timeout(10);
+        let out = self
+            .runner
+            .run(&cmd)
             .await
             .map_err(|e| AppError::internal(format!("Version check failed: {}", e)))?;
-        let combined = format!(
-            "{} {}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        );
+        let combined = out.combined();
         // nginx/1.18.0 (Ubuntu)
         // nginx version: nginx/1.27.0
         // Server version: Apache/2.4.41
@@ -187,14 +217,15 @@ impl WebServerNativeManager {
         Err(AppError::internal("Version not detected"))
     }
 
-    async fn which(binary: &str) -> Option<String> {
-        let out = tokio::process::Command::new("sh")
-            .args(["-c", &format!("command -v {} 2>/dev/null", binary)])
-            .output()
-            .await
-            .ok()?;
-        if out.status.success() {
-            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    async fn which(&self, binary: &str) -> Option<String> {
+        let cmd = crate::application::execution_mode::PrivilegedCommand::new(
+            "which",
+            vec![binary.to_string()],
+        )
+        .timeout(10);
+        let out = self.runner.run(&cmd).await.ok()?;
+        if out.success() {
+            let path = out.stdout.trim().to_string();
             if !path.is_empty() {
                 return Some(path);
             }
@@ -202,40 +233,21 @@ impl WebServerNativeManager {
         None
     }
 
-    async fn is_service_enabled(service: &str) -> bool {
-        // 免密码 systemctl：root 直接执行；非 root 用 sudo -n（不弹密码框）
-        let output = if crate::infrastructure::os::is_root_process() {
-            tokio::process::Command::new("systemctl")
-                .args(["is-enabled", service])
-                .output()
-                .await
-        } else {
-            tokio::process::Command::new("sudo")
-                .args(["-n", "systemctl", "is-enabled", service])
-                .output()
-                .await
-        };
-        match output {
-            Ok(o) => {
-                let s = String::from_utf8_lossy(&o.stdout);
-                o.status.success() && (s.contains("enabled") || s.contains("static"))
-            }
-            Err(_) => false,
-        }
-    }
-    /// 扫描当前监听端口（优先 ss，回退 netstat）
-    async fn listening_ports() -> HashSet<u16> {
+    /// 扫描当前监听端口（优先 ss，回退 netstat；统一经特权命令端口执行）
+    async fn listening_ports(&self) -> HashSet<u16> {
         let mut ports = HashSet::new();
-        for cmd in [["ss", "-tln"], ["netstat", "-tln"]] {
-            let out = tokio::process::Command::new(cmd[0])
-                .args(&cmd[1..])
-                .output()
-                .await;
+        for (prog, arg) in [("ss", "-tln"), ("netstat", "-tln")] {
+            let cmd = crate::application::execution_mode::PrivilegedCommand::new(
+                prog,
+                vec![arg.to_string()],
+            )
+            .timeout(10);
+            let out = self.runner.run(&cmd).await;
             if let Ok(o) = out {
-                if !o.status.success() {
+                if !o.success() {
                     continue;
                 }
-                let s = String::from_utf8_lossy(&o.stdout);
+                let s = o.stdout;
                 for line in s.lines().skip(1) {
                     // Local Address:Port 形如 0.0.0.0:80 / [::]:443
                     let parts: Vec<&str> = line.split_whitespace().collect();
@@ -261,7 +273,7 @@ impl WebServerNativeManager {
 
 impl Default for WebServerNativeManager {
     fn default() -> Self {
-        Self::new()
+        Self::embedded()
     }
 }
 
@@ -271,7 +283,7 @@ mod tests {
 
     #[tokio::test]
     async fn detect_all_returns_five() {
-        let m = WebServerNativeManager::new();
+        let m = WebServerNativeManager::embedded();
         let all = m.detect_all().await;
         assert_eq!(all.len(), 5);
         for info in &all {
@@ -287,5 +299,58 @@ mod tests {
         assert_eq!(WebServerEngine::Nginx.package_name(), "nginx");
         assert_eq!(WebServerEngine::Apache.service_name(), "httpd");
         assert_eq!(WebServerEngine::Caddy.default_port(), 80);
+    }
+
+    // ── Phase A1 扩展：原生检测命令统一经特权命令端口执行 ────────────────
+
+    /// 记录型 Runner：不真正执行命令，只记录被调用的命令，供断言路由。
+    struct RecordingRunner {
+        calls: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl RecordingRunner {
+        fn new() -> Self {
+            Self {
+                calls: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+        fn programs(&self) -> Vec<String> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::application::execution_mode::PrivilegedCommandRunner for RecordingRunner {
+        async fn run(
+            &self,
+            cmd: &crate::application::execution_mode::PrivilegedCommand,
+        ) -> Result<crate::application::execution_mode::CommandOutput, AppError> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("{} {}", cmd.program, cmd.args.join(" ")));
+            Ok(crate::application::execution_mode::CommandOutput {
+                stdout: "ok".into(),
+                stderr: String::new(),
+                exit_code: 0,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn native_detection_routes_through_runner() {
+        let runner = std::sync::Arc::new(RecordingRunner::new());
+        let m = WebServerNativeManager::new(runner.clone());
+
+        let _ = m.detect(&WebServerEngine::Nginx).await;
+        let programs = runner.programs();
+        // which 检测二进制路径
+        assert!(programs.iter().any(|p| p.starts_with("which ")));
+        // 版本检测走统一端口（nginx -v）
+        assert!(programs.iter().any(|p| p.starts_with("nginx -v")));
+        // 端口扫描走统一端口（ss / netstat）
+        assert!(programs
+            .iter()
+            .any(|p| p.starts_with("ss ") || p.starts_with("netstat ")));
     }
 }

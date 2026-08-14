@@ -1,48 +1,48 @@
 <template>
-  <LayoutContent :title="t('backup.title')" reload @reload="fetch">
+  <LayoutContent :title="t('backup.title')" reload @reload="invalidate">
     <template #toolbar>
-      <FpButton variant="primary" icon="oi oi-plus" :loading="creating" @click="onCreate">
+      <FpButton v-permission="{ perm: 'backup:create', mode: 'view' }" variant="primary" icon="oi oi-plus" :loading="creating" @click="onCreate">
         {{ t('backup.create') }}
       </FpButton>
     </template>
 
     <div class="panel">
       <FpTable :rows="backups" :loading="loading" :paginator="false" :empty-text="t('common.noData')">
-        <Column field="filename" :header="t('backup.filename')" style="min-width: 260px" />
-        <Column :header="t('backup.size')" style="width: 120px">
+        <FpColumn field="filename" :header="t('backup.filename')" style="min-width: 260px" />
+        <FpColumn :header="t('backup.size')" style="width: 120px">
           <template #body="{ data }">
             {{ formatSize(data.size) }}
           </template>
-        </Column>
-        <Column field="created_at" :header="t('backup.createdAt')" style="width: 180px">
+        </FpColumn>
+        <FpColumn field="created_at" :header="t('backup.createdAt')" style="width: 180px">
           <template #body="{ data }">
             <span class="mono">{{ data.created_at }}</span>
           </template>
-        </Column>
-        <Column :header="t('common.colActions')" style="width: 240px" frozen>
+        </FpColumn>
+        <FpColumn :header="t('common.colActions')" style="width: 240px" frozen>
           <template #body="{ data }">
             <div class="row-actions">
               <FpButton variant="primary" @click="onDownload(data.filename)">
                 {{ t('backup.download') }}
               </FpButton>
-              <FpButton variant="warning" @click="onRestore(data.filename)">
+              <FpButton v-permission="{ perm: 'backup:update', mode: 'view' }" variant="warning" @click="onRestore(data.filename)">
                 {{ t('backup.restore') }}
               </FpButton>
-              <FpButton variant="danger" @click="onDelete(data.filename)">
+              <FpButton v-permission="{ perm: 'backup:delete', mode: 'view' }" variant="danger" @click="onDelete(data.filename)">
                 {{ t('backup.delete') }}
               </FpButton>
             </div>
           </template>
-        </Column>
+        </FpColumn>
       </FpTable>
     </div>
   </LayoutContent>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Column from 'openvue/column'
+import FpColumn from '@/components/ui/FpColumn.vue'
 import FpTable from '@/components/ui/FpTable.vue'
 import FpButton from '@/components/ui/FpButton.vue'
 import LayoutContent from '@/components/ui/LayoutContent.vue'
@@ -50,13 +50,14 @@ import { useFpToast } from '@/components/ui/FpToast'
 import { useFpConfirm } from '@/components/ui/FpConfirm'
 import { listBackups, createBackup, downloadBackup, restoreBackup, deleteBackup } from '@/api/backups'
 import type { BackupEntry } from '@/api/backups'
+import { useApiQuery, useQueryCacheClient } from '@/composables/useApiQuery'
+import { queryKeys } from '@/api/queryKeys'
 
 const { t } = useI18n()
 const toast = useFpToast()
 const { confirmAction } = useFpConfirm()
 
-const backups = ref<BackupEntry[]>([])
-const loading = ref(false)
+const queryClient = useQueryCacheClient()
 const creating = ref(false)
 
 function formatSize(bytes: number) {
@@ -65,14 +66,19 @@ function formatSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-async function fetch() {
-  loading.value = true
-  try {
+// P3-A：备份列表走统一数据获取层 useApiQuery
+const backupsQuery = useApiQuery<BackupEntry[]>(
+  () => queryKeys.backups.list(),
+  async () => {
     const res = await listBackups()
-    backups.value = res.data
-  } finally {
-    loading.value = false
-  }
+    return { data: res.data }
+  },
+)
+const backups = computed<BackupEntry[]>(() => backupsQuery.data.value ?? [])
+const loading = backupsQuery.loading
+
+function invalidate() {
+  queryClient.invalidateQueries({ queryKey: queryKeys.backups.all })
 }
 
 async function onCreate() {
@@ -80,7 +86,7 @@ async function onCreate() {
   try {
     await createBackup()
     toast.success(t('backup.createSuccess'))
-    await fetch()
+    invalidate()
   } catch (err) {
     toast.error(err, t('common.failed'))
   } finally {
@@ -123,7 +129,7 @@ function onDelete(filename: string) {
       try {
         await deleteBackup(filename)
         toast.success(t('common.success'))
-        await fetch()
+        invalidate()
       } catch (err) {
         toast.error(err, t('common.failed'))
       }
@@ -131,16 +137,9 @@ function onDelete(filename: string) {
   })
 }
 
-onMounted(fetch)
 </script>
 
 <style scoped>
-.panel {
-  padding: var(--fp-space-4);
-  border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
-  border: 1px solid var(--fp-border);
-}
 .row-actions {
   display: flex;
   gap: var(--fp-space-2);

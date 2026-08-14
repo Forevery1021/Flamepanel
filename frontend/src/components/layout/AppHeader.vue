@@ -11,7 +11,7 @@
 
       <Breadcrumb :model="breadcrumbs" class="header-breadcrumb" />
 
-      <button class="search-trigger" @click="paletteOpen = true">
+      <button class="search-trigger" :aria-label="t('topbar.searchPlaceholder')" @click="paletteOpen = true">
         <i class="oi oi-search" />
         <span class="search-text">{{ t('topbar.searchPlaceholder') }}</span>
         <kbd class="search-kbd">Ctrl K</kbd>
@@ -25,6 +25,7 @@
           :key="app.id"
           v-tooltip="app.name"
           class="quick-app"
+          :aria-label="t('topbar.app') + ': ' + app.name"
           @click="openApp(app)"
         >
           <i class="oi oi-box" />
@@ -32,20 +33,20 @@
       </div>
 
       <div class="live-status">
-        <span v-tooltip="t('topbar.panelStatus')" class="status-item">
+        <button v-tooltip="t('topbar.panelStatus')" class="status-item" :aria-label="t('topbar.panelStatus')" @click="router.push('/health')">
           <span class="dot" :class="panelOk ? 'green' : 'red'" />
-        </span>
-        <button v-tooltip="t('topbar.onlineNodes')" class="status-item" @click="router.push('/nodes')">
+        </button>
+        <button v-tooltip="t('topbar.onlineNodes')" class="status-item" :aria-label="t('topbar.onlineNodes')" @click="router.push('/nodes')">
           <i class="oi oi-sitemap" />
           <span>{{ onlineNodes }}</span>
         </button>
-        <button v-tooltip="t('topbar.runningContainers')" class="status-item" @click="router.push('/docker')">
+        <button v-tooltip="t('topbar.runningContainers')" class="status-item" :aria-label="t('topbar.runningContainers')" @click="router.push('/docker')">
           <i class="oi oi-database" />
           <span>{{ runningContainers }}</span>
         </button>
       </div>
 
-      <button v-tooltip="t('topbar.notifications')" class="icon-btn notify-btn" @click="notifyOpen = !notifyOpen">
+      <button v-tooltip="t('topbar.notifications')" class="icon-btn notify-btn" :aria-label="t('topbar.notifications')" @click="notifyOpen = !notifyOpen">
         <i class="oi oi-bell" />
         <span v-if="notifyCount" class="notify-badge">{{ notifyCount }}</span>
       </button>
@@ -66,12 +67,12 @@
         <div v-else class="notify-empty">{{ t('common.noData') }}</div>
       </Popover>
 
-      <button v-tooltip="t('topbar.language')" class="icon-btn" @click="langMenu?.toggle($event)">
+      <button v-tooltip="t('topbar.language')" class="icon-btn" :aria-label="t('topbar.language')" @click="langMenu?.toggle($event)">
         <i class="oi oi-language" />
       </button>
       <Menu ref="langMenu" :model="langItems" popup />
 
-      <button v-tooltip="t('theme.toggle')" class="icon-btn" @click="toggleTheme">
+      <button v-tooltip="t('theme.toggle')" class="icon-btn" :aria-label="t('theme.toggle')" @click="toggleTheme">
         <i class="oi" :class="themeStore.mode === 'dark' ? 'oi-sun' : 'oi-moon'" />
       </button>
 
@@ -264,7 +265,7 @@ onUnmounted(() => {
   flex-shrink: 0;
   gap: var(--fp-space-3);
   position: relative;
-  z-index: 20;
+  z-index: var(--fp-z-header);
 }
 .header-left {
   display: flex;

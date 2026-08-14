@@ -1,16 +1,31 @@
 <template>
   <div class="view-container">
     <div class="page-toolbar">
-      <FpButton variant="primary" icon="oi oi-upload" @click="showLoad = true">{{ t('plugin.load') }}</FpButton>
+      <div class="toolbar-left">
+        <FpInput
+          v-model="searchText"
+          :placeholder="t('common.searchPlaceholder')"
+          class="toolbar-search"
+        />
+        <FpSelect
+          v-model="statusFilter"
+          :options="statusOptions"
+          option-label="label"
+          option-value="value"
+          show-clear
+          class="toolbar-filter"
+        />
+      </div>
+      <FpButton v-permission="{ perm: 'plugin:create', mode: 'view' }" variant="primary" icon="oi oi-upload" @click="showLoad = true">{{ t('plugin.load') }}</FpButton>
     </div>
 
     <div class="panel">
-      <FpTable :rows="plugins" :loading="loading" :empty-text="t('common.noData')">
-        <Column field="id" :header="t('plugin.id')" style="width: 150px" />
-        <Column field="name" :header="t('plugin.name')" />
-        <Column field="version" :header="t('plugin.version')" style="width: 80px" />
-        <Column field="author" :header="t('plugin.author')" style="width: 120px" />
-        <Column :header="t('plugin.status')" style="width: 110px">
+      <FpTable :rows="filteredPlugins" :loading="loading" :empty-text="t('common.noData')">
+        <FpColumn field="id" :header="t('plugin.id')" style="width: 150px" />
+        <FpColumn field="name" :header="t('plugin.name')" />
+        <FpColumn field="version" :header="t('plugin.version')" style="width: 80px" />
+        <FpColumn field="author" :header="t('plugin.author')" style="width: 120px" />
+        <FpColumn :header="t('plugin.status')" style="width: 110px">
           <template #body="{ data }">
             <FpTag
               :severity="data.enabled ? 'success' : 'danger'"
@@ -18,30 +33,30 @@
             />
             <div class="status-sub">{{ data.status }}</div>
           </template>
-        </Column>
-        <Column :header="t('plugin.execCount')" style="width: 60px">
+        </FpColumn>
+        <FpColumn :header="t('plugin.execCount')" style="width: 60px">
           <template #body="{ data }">
             <div class="center-cell">{{ data.exec_count }}</div>
           </template>
-        </Column>
-        <Column :header="t('plugin.actions')" style="width: 400px" frozen>
+        </FpColumn>
+        <FpColumn :header="t('plugin.actions')" style="width: 400px" frozen>
           <template #body="{ data }">
             <div class="row-actions">
-              <FpButton variant="ghost" :disabled="!data.enabled" @click="disablePlugin(data.id)">
+              <FpButton v-permission="{ perm: 'plugin:create', mode: 'view' }" variant="ghost" :disabled="!data.enabled" @click="disablePlugin(data.id)">
                 {{ t('plugin.disable') }}
               </FpButton>
-              <FpButton variant="ghost" :disabled="data.enabled" @click="enablePlugin(data.id)">
+              <FpButton v-permission="{ perm: 'plugin:create', mode: 'view' }" variant="ghost" :disabled="data.enabled" @click="enablePlugin(data.id)">
                 {{ t('plugin.enable') }}
               </FpButton>
-              <FpButton variant="ghost" @click="showExecute(data.id)">
+              <FpButton v-permission="{ perm: 'plugin:execute', mode: 'view' }" variant="ghost" @click="showExecute(data.id)">
                 {{ t('plugin.execute') }}
               </FpButton>
-              <FpButton variant="danger" @click="confirmUnload(data)">
+              <FpButton v-permission="{ perm: 'plugin:delete', mode: 'view' }" variant="danger" @click="confirmUnload(data)">
                 {{ t('plugin.unload') }}
               </FpButton>
             </div>
           </template>
-        </Column>
+        </FpColumn>
       </FpTable>
     </div>
 
@@ -51,13 +66,13 @@
         <FpInput v-model="loadForm.name" :label="t('plugin.name')" :placeholder="t('common.placeholder')" />
         <div class="field-col">
           <label class="field-label">{{ t('plugin.wasmBase64') }}</label>
-          <Textarea v-model="loadForm.wasm" :rows="4" :placeholder="t('common.placeholder')" class="w-full" />
+          <FpTextarea v-model="loadForm.wasm" :rows="4" :placeholder="t('common.placeholder')" class="w-full" />
         </div>
         <FpInput v-model="loadForm.version" :label="t('plugin.version')" :placeholder="t('common.placeholder')" />
         <FpInput v-model="loadForm.author" :label="t('plugin.author')" />
         <div class="field-col">
           <label class="field-label">{{ t('plugin.description') }}</label>
-          <Textarea v-model="loadForm.desc" :rows="2" class="w-full" />
+          <FpTextarea v-model="loadForm.desc" :rows="2" class="w-full" />
         </div>
       </div>
       <template #footer>
@@ -78,7 +93,7 @@
           </FpButton>
         </div>
       </div>
-      <Divider />
+      <FpDivider />
       <div v-if="execResult">
         <div class="response-title">{{ t('plugin.response') }}:</div>
         <pre class="exec-output">{{ execResult }}</pre>
@@ -88,11 +103,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Column from 'openvue/column'
-import Textarea from 'openvue/textarea'
-import Divider from 'openvue/divider'
+
+
+
 import {
   listPlugins,
   loadPlugin,
@@ -104,19 +119,45 @@ import {
 import FpTable from '@/components/ui/FpTable.vue'
 import FpModal from '@/components/ui/FpModal.vue'
 import FpInput from '@/components/ui/FpInput.vue'
+import FpSelect from '@/components/ui/FpSelect.vue'
 import FpButton from '@/components/ui/FpButton.vue'
 import FpTag from '@/components/ui/FpTag.vue'
 import { useFpToast } from '@/components/ui/FpToast'
 import { useFpConfirm } from '@/components/ui/FpConfirm'
+import FpColumn from '@/components/ui/FpColumn.vue'
+import FpDivider from '@/components/ui/FpDivider.vue'
+import FpTextarea from '@/components/ui/FpTextarea.vue'
 import { getErrorMessage } from '@/utils/error'
+import { useApiQuery, useQueryCacheClient } from '@/composables/useApiQuery'
+import { queryKeys } from '@/api/queryKeys'
 import type { PluginResponse } from '@/types'
 
 const { t } = useI18n()
 const toast = useFpToast()
 const { confirmAction } = useFpConfirm()
 
-const plugins = ref<PluginResponse[]>([])
-const loading = ref(false)
+const queryClient = useQueryCacheClient()
+
+// M9：搜索 + 状态筛选（客户端过滤，插件为全量列表）
+const searchText = ref('')
+const statusFilter = ref<string>('')
+const statusOptions = computed(() => [
+  { label: t('plugin.enabled'), value: 'enabled' },
+  { label: t('plugin.disabled'), value: 'disabled' },
+])
+const filteredPlugins = computed(() => {
+  const kw = searchText.value.trim().toLowerCase()
+  return plugins.value.filter((p) => {
+    if (statusFilter.value === 'enabled' && !p.enabled) return false
+    if (statusFilter.value === 'disabled' && p.enabled) return false
+    if (!kw) return true
+    return (
+      p.id.toLowerCase().includes(kw) ||
+      p.name.toLowerCase().includes(kw) ||
+      (p.author ?? '').toLowerCase().includes(kw)
+    )
+  })
+})
 
 const showLoad = ref(false)
 const loadLoading = ref(false)
@@ -129,15 +170,19 @@ const execArgs = ref('')
 const execResult = ref('')
 const execLoading = ref(false)
 
-async function fetch() {
-  loading.value = true
-  try {
-    plugins.value = (await listPlugins()).data
-  } catch {
-    toast.error(t('common.failed'))
-  } finally {
-    loading.value = false
-  }
+// P3-A：插件全量列表走统一数据获取层 useApiQuery
+const pluginsQuery = useApiQuery<PluginResponse[]>(
+  () => queryKeys.plugins.list(),
+  async () => {
+    const res = await listPlugins()
+    return { data: res.data }
+  },
+)
+const plugins = computed<PluginResponse[]>(() => pluginsQuery.data.value ?? [])
+const loading = pluginsQuery.loading
+
+function invalidate() {
+  queryClient.invalidateQueries({ queryKey: queryKeys.plugins.all })
 }
 
 async function handleLoad() {
@@ -154,7 +199,7 @@ async function handleLoad() {
     })
     toast.success(t('common.success'))
     showLoad.value = false
-    fetch()
+    invalidate()
   } catch {
     toast.error(t('common.failed'))
   } finally {
@@ -166,7 +211,7 @@ async function enablePlugin(id: string) {
   try {
     await enable(id)
     toast.success(t('common.success'))
-    fetch()
+    invalidate()
   } catch {
     toast.error(t('common.failed'))
   }
@@ -175,7 +220,7 @@ async function disablePlugin(id: string) {
   try {
     await disable(id)
     toast.success(t('common.success'))
-    fetch()
+    invalidate()
   } catch {
     toast.error(t('common.failed'))
   }
@@ -188,7 +233,7 @@ function confirmUnload(row: PluginResponse) {
       try {
         await unload(row.id)
         toast.success(t('common.success'))
-        fetch()
+        invalidate()
       } catch {
         toast.error(t('common.failed'))
       }
@@ -218,20 +263,27 @@ async function handleExec() {
   }
 }
 
-onMounted(fetch)
 </script>
 
 <style scoped>
 .page-toolbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--fp-space-3);
   margin-bottom: var(--fp-space-4);
 }
-.panel {
-  padding: var(--fp-space-4);
-  border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
-  border: 1px solid var(--fp-border);
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-2);
+  flex-wrap: wrap;
+}
+.toolbar-search {
+  width: 240px;
+}
+.toolbar-filter {
+  width: 160px;
 }
 .row-actions {
   display: flex;

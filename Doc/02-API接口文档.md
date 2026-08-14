@@ -719,7 +719,64 @@ sequenceDiagram
 |------|------|------|------|
 | POST | `/api/app-store/installed/:id/launch` | app_store:read | 记录应用启动次数（常用应用排序） |
 
-## 21. WebSocket 接口
+## 21. 统一任务接口 `/api/tasks`
+
+> 统一 Task 状态机接口（Phase B1 扩展，见 [19-后端架构分析与完善落地手册.md](./19-后端架构分析与完善落地手册.md)）。长耗时操作（应用安装、Web 引擎切换、批量节点操作）通过统一任务状态机追踪进度，前端可在此轮询/查询进度并取消任务。
+
+权限前缀：`task:*`
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/api/tasks` | task:read | 任务列表（`?state=pending\|running\|success\|failed\|cancelled` 过滤） |
+| GET | `/api/tasks/:id` | task:read | 任务详情 |
+| POST | `/api/tasks/:id/cancel` | task:execute | 取消任务（Pending / Running → Cancelled） |
+| POST | `/api/tasks/prune` | task:delete | 清理全部终态任务 |
+
+**任务状态机（五态）**：`pending → running → success | failed | cancelled`（`pending` 亦可直接取消）
+
+```json
+{
+  "id": 42,
+  "kind": "install",
+  "name": "安装 Nginx",
+  "state": "running",
+  "progress": 60,
+  "message": "正在拉取镜像…",
+  "created_at": "2025-08-14T10:00:00Z",
+  "updated_at": "2025-08-14T10:01:00Z"
+}
+```
+
+`kind` 取值：`install` / `engine_switch` / `batch_node` / `generic`；`state` 取值：`pending` / `running` / `success` / `failed` / `cancelled`；`progress` 为 0–100 整数。
+
+## 22. Outbox 事件接口 `/api/outbox-events`
+
+> 事件落库（Outbox）查询接口（Stage 9，事件驱动一致性，见 [12-事件与通知系统.md](./12-事件与通知系统.md)）。业务事件先写本地 Outbox 表持久化，再异步分发；该接口用于审计与排障查询。
+
+权限：`outbox:read`
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/api/outbox-events` | outbox:read | 分页查询事件落库（`?type=AppInstalled` 按事件类型过滤） |
+
+**OutboxEvent 字段**：`id`、`event_type`（如 `AppInstalled` / `UserLoggedIn`）、`payload`（JSON 结构化载荷）、`published`（是否已送达通知渠道）、`created_at`
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "event_type": "AppInstalled",
+      "payload": "{\"key\":\"nginx\",\"version\":\"1.27\"}",
+      "published": false,
+      "created_at": "2025-08-14T10:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+## 23. WebSocket 接口
 
 | 路径 | 说明 | 消息格式 |
 |------|------|----------|
@@ -731,7 +788,7 @@ sequenceDiagram
 
 > ⚠️ **安全提示**：当前 WS 为白名单免认证。若部署在公网，建议后续增加 `?token=` 参数校验或首帧鉴权（见 [13-开发路线图与后续规划.md](./13-开发路线图与后续规划.md) 技术债清单）。
 
-### 18.1 `/ws/metrics`
+### 23.1 `/ws/metrics`
 
 **服务端 → 客户端**（仅推送，无需发送消息）：
 
@@ -746,7 +803,7 @@ sequenceDiagram
 
 > 前端订阅方式：`new WebSocket('/ws/metrics')`，监听 `message` 事件后 `JSON.parse`，按 `type` 分支处理 `init`/`tick`。
 
-### 18.2 `/ws/logs`
+### 23.2 `/ws/logs`
 
 **服务端 → 客户端**：
 
@@ -757,7 +814,7 @@ sequenceDiagram
 
 `init` 为连接时最近的日志列表，`tick` 为实时新增日志（`log_tx` broadcast 通道）。
 
-### 18.3 `/ws/terminal`
+### 23.3 `/ws/terminal`
 
 **客户端 → 服务端**：
 
@@ -775,7 +832,7 @@ sequenceDiagram
 - `input`：写入终端（`data` 为字符串，含 `\r` 换行）；`resize`：调整 PTY 尺寸（缺省 80×24）。
 - 连接建立时后端创建独立 `TerminalSession`，客户端断开后自动关闭会话并清理。
 
-## 22. 快速调试示例
+## 24. 快速调试示例
 
 ```bash
 # 登录获取 token
@@ -791,11 +848,13 @@ curl -s http://localhost:8080/api/users?page=1&page_size=10 \
 curl -s http://localhost:8080/health
 ```
 
-## 23. 权限速查
+## 25. 权限速查
 
 | 资源 | 动作 |
 |------|------|
-| user / node / website / docker / plugin / web_server / database / file / firewall / app_store / settings / operation_log / log / backup / scheduled_task | read / create / update / delete（部分含 start / stop / reload / execute / config / enable / apply 等细粒度动作） |
+| user / node / website / docker / plugin / web_server / database / file / firewall / app_store / settings / memo / operation_log / log / backup / scheduled_task | read / create / update / delete（部分含 start / stop / reload / execute / config / enable / apply 等细粒度动作） |
+| outbox | read |
+| task | read / execute / delete |
 
 角色：`admin`（全部）、`operator`（除 delete 外全部）、`viewer`（仅 read）。
 

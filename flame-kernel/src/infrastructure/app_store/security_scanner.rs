@@ -1,46 +1,32 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ScanFinding {
-    pub severity: Severity,
-    pub message: String,
-    pub item: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Severity {
-    Block,
-    High,
-    Medium,
-    Low,
-    Info,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ScanResult {
-    pub findings: Vec<ScanFinding>,
-}
-
-impl ScanResult {
-    pub fn has_blockers(&self) -> bool {
-        self.findings.iter().any(|f| f.severity == Severity::Block)
-    }
-
-    pub fn block_messages(&self) -> Vec<String> {
-        self.findings
-            .iter()
-            .filter(|f| f.severity == Severity::Block)
-            .map(|f| f.message.clone())
-            .collect()
-    }
-
-    pub fn summary(&self) -> Vec<String> {
-        self.findings.iter().map(|f| f.message.clone()).collect()
-    }
-}
+// 安全扫描数据模型与端口 trait 定义位于 application 层（六边形），此处重新导出。
+pub use crate::application::app_store_ports::{ScanFinding, ScanResult, Severity};
 
 const SENSITIVE_MOUNTS: &[&str] = &["/etc", "/root", "/boot", "/var/run/docker.sock"];
+
+/// Compose 安全检查默认实现（实现 `ComposeSecurityScanner` 端口）。
+pub struct DefaultComposeSecurityScanner;
+
+impl DefaultComposeSecurityScanner {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for DefaultComposeSecurityScanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl crate::application::app_store_ports::ComposeSecurityScanner for DefaultComposeSecurityScanner {
+    fn scan_compose(&self, compose_yaml: &str, confirmed_risky: bool) -> ScanResult {
+        scan_compose(compose_yaml, confirmed_risky)
+    }
+
+    fn ensure_restart_policy(&self, compose_yaml: &str) -> String {
+        ensure_restart_policy(compose_yaml)
+    }
+}
 
 /// Compose 安全检查：返回按严重度分类的结果。
 /// - Block：privileged: true（默认阻断）

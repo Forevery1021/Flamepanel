@@ -29,6 +29,7 @@
             </keep-alive>
           </transition>
         </router-view>
+        <span ref="mainHeadingRef" tabindex="-1" class="sr-only" />
       </main>
       <AppFooter />
     </div>
@@ -36,9 +37,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useStorage } from '@vueuse/core'
 import Drawer from 'openvue/drawer'
 import AppSidebar from './layout/AppSidebar.vue'
 import AppHeader from './layout/AppHeader.vue'
@@ -47,8 +49,7 @@ import AppTabs from './layout/AppTabs.vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useThemeStore } from '@/stores/theme'
 import { useAppearanceStore } from '@/stores/appearance'
-
-const COLLAPSE_KEY = 'flamepanel.sidebar.collapsed'
+import { STORAGE_KEYS, rawBooleanSerializer } from '@/utils/storage'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -61,9 +62,12 @@ const appBg = computed(() =>
     ? `url("${themeStore.custom.appBackground}")`
     : '',
 )
-const collapsed = ref(
-  localStorage.getItem(COLLAPSE_KEY) === '1' || appearance.state.menuCollapsed,
-)
+// P6：改用 @vueuse/core useStorage 统一持久化侧边栏折叠状态
+const collapsed = useStorage<boolean>(STORAGE_KEYS.collapse, false, undefined, {
+  serializer: rawBooleanSerializer,
+  writeDefaults: false,
+})
+collapsed.value = collapsed.value || appearance.state.menuCollapsed
 const isMobile = ref(false)
 const mobileOpen = ref(false)
 let mql: MediaQueryList | null = null
@@ -84,14 +88,12 @@ watch(
   (v) => {
     if (isMobile.value) return
     collapsed.value = v
-    localStorage.setItem(COLLAPSE_KEY, v ? '1' : '0')
   },
 )
 
 function toggleCollapse() {
   const next = !collapsed.value
   collapsed.value = next
-  localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0')
   appearance.update({ menuCollapsed: next })
 }
 
@@ -109,10 +111,8 @@ function onResize() {
     const w = window.innerWidth
     if (w < 1200 && !collapsed.value) {
       collapsed.value = true
-      localStorage.setItem(COLLAPSE_KEY, '1')
-    } else if (w >= 1200 && collapsed.value && localStorage.getItem(COLLAPSE_KEY) !== '1') {
+    } else if (w >= 1200 && collapsed.value) {
       collapsed.value = false
-      localStorage.setItem(COLLAPSE_KEY, '0')
     }
   }, 150)
 }
@@ -129,6 +129,22 @@ onUnmounted(() => {
   window.removeEventListener('resize', onResize)
   if (resizeTimer !== null) window.clearTimeout(resizeTimer)
 })
+
+// 路由切换后把焦点移到主内容区（屏幕阅读器可感知页面变化，键盘用户可继续操作）
+const mainHeadingRef = ref<HTMLElement>()
+watch(
+  () => route.fullPath,
+  async () => {
+    if (route.path.startsWith('/login')) return
+    await nextTick()
+    // 仅键盘/辅助技术场景才移动焦点，避免干扰鼠标用户
+    const el = mainHeadingRef.value
+    if (el && route.meta?.title) {
+      el.textContent = t(route.meta.title)
+      el.focus({ preventScroll: true })
+    }
+  },
+)
 
 watch(
   () => route.fullPath,
@@ -197,6 +213,13 @@ watch(
 @media (max-width: 768px) {
   .main {
     padding: var(--fp-space-3);
+  }
+}
+
+/* 平板宽度：紧凑间距，保证可用（F3.3） */
+@media (min-width: 769px) and (max-width: 1100px) {
+  .main {
+    padding: var(--fp-space-4);
   }
 }
 </style>

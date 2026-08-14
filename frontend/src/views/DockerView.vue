@@ -1,17 +1,8 @@
 <template>
   <div class="view-container">
-    <Tabs v-model:value="tab" class="docker-tabs">
-      <TabList>
-        <Tab value="containers">{{ t('docker.containers') }}</Tab>
-        <Tab value="images">{{ t('docker.images') }}</Tab>
-        <Tab value="networks">{{ t('docker.networks') }}</Tab>
-        <Tab value="volumes">{{ t('docker.volumes') }}</Tab>
-        <Tab value="compose">{{ t('docker.compose') }}</Tab>
-      </TabList>
-      <TabPanels>
-        <!-- ── 容器 ── -->
-        <TabPanel value="containers">
-          <div class="toolbar">
+    <FpTabs v-model="tab" class="docker-tabs" :items="tabItems">
+<template #containers>
+<div class="toolbar">
             <div class="search-wrap">
               <FpInput
                 v-model="searchText"
@@ -19,7 +10,7 @@
                 @update:model-value="applyFilter"
               />
             </div>
-            <FpButton variant="danger" plain icon="oi oi-trash" @click="confirmPrune('containers')">
+            <FpButton v-permission="{ perm: 'docker:delete', mode: 'view' }" variant="danger" plain icon="oi oi-trash" @click="confirmPrune('containers')">
               {{ t('docker.prune') }}
             </FpButton>
           </div>
@@ -29,19 +20,21 @@
             :paginator="false"
             :empty-text="t('common.noData')"
             striped-rows
+            virtual
+            virtual-scroll-height="560px"
           >
-            <Column field="name" :header="t('docker.name')" style="min-width: 140px" />
-            <Column field="id" :header="t('docker.containerId')" style="width: 120px">
+            <FpColumn field="name" :header="t('docker.name')" style="min-width: 140px" />
+            <FpColumn field="id" :header="t('docker.containerId')" style="width: 120px">
               <template #body="{ data }">
                 <span v-tooltip="data.id" class="cell-truncate">{{ data.id }}</span>
               </template>
-            </Column>
-            <Column field="image" :header="t('docker.image')" style="min-width: 140px">
+            </FpColumn>
+            <FpColumn field="image" :header="t('docker.image')" style="min-width: 140px">
               <template #body="{ data }">
                 <span v-tooltip="data.image" class="cell-truncate">{{ data.image }}</span>
               </template>
-            </Column>
-            <Column :header="t('docker.status')" style="width: 110px">
+            </FpColumn>
+            <FpColumn :header="t('docker.status')" style="width: 110px">
               <template #body="{ data }">
                 <FpTag
                   :severity="statusType(data.status)"
@@ -49,11 +42,12 @@
                   :dot="data.status === 'running'"
                 />
               </template>
-            </Column>
-            <Column :header="t('docker.actions')" style="width: 660px" frozen align-frozen="right">
+            </FpColumn>
+            <FpColumn :header="t('docker.actions')" style="width: 660px" frozen align-frozen="right">
               <template #body="{ data }">
                 <div class="row-actions">
                   <FpButton
+                    v-permission="{ perm: 'docker:start', mode: 'view' }"
                     variant="ghost"
                     icon="oi oi-play-circle"
                     :disabled="data.status === 'running'"
@@ -61,13 +55,14 @@
                     >{{ t('docker.start') }}</FpButton
                   >
                   <FpButton
+                    v-permission="{ perm: 'docker:stop', mode: 'view' }"
                     variant="ghost"
                     icon="oi oi-stop-circle"
                     :disabled="data.status !== 'running'"
                     @click="stopContainer(data.id)"
                     >{{ t('docker.stop') }}</FpButton
                   >
-                  <FpButton variant="ghost" icon="oi oi-sync" @click="restartContainer(data.id)">{{
+                  <FpButton v-permission="{ perm: 'docker:start', mode: 'view' }" variant="ghost" icon="oi oi-sync" @click="restartContainer(data.id)">{{
                     t('docker.restart')
                   }}</FpButton>
                   <FpButton variant="ghost" icon="oi oi-terminal" @click="viewLogs(data)">{{
@@ -79,10 +74,11 @@
                   <FpButton variant="ghost" icon="oi oi-eye" @click="viewDetail(data)">{{
                     t('docker.inspect')
                   }}</FpButton>
-                  <FpButton variant="ghost" icon="oi oi-pencil" @click="openRename(data)">{{
+                  <FpButton v-permission="{ perm: 'docker:update', mode: 'view' }" variant="ghost" icon="oi oi-pencil" @click="openRename(data)">{{
                     t('docker.rename')
                   }}</FpButton>
                   <FpButton
+                    v-permission="{ perm: 'docker:start', mode: 'view' }"
                     variant="ghost"
                     icon="oi oi-pause-circle"
                     :disabled="data.status !== 'running' && data.status !== 'paused'"
@@ -90,23 +86,22 @@
                     >{{ data.status === 'paused' ? t('docker.unpause') : t('docker.pause') }}</FpButton
                   >
                   <FpButton
+                    v-permission="{ perm: 'docker:start', mode: 'view' }"
                     variant="warning"
                     :disabled="data.status !== 'running'"
                     @click="killContainer(data.id)"
                     >{{ t('docker.kill') }}</FpButton
                   >
-                  <FpButton variant="danger" icon="oi oi-trash" @click="confirmRemoveContainer(data)">{{
+                  <FpButton v-permission="{ perm: 'docker:delete', mode: 'view' }" variant="danger" icon="oi oi-trash" @click="confirmRemoveContainer(data)">{{
                     t('docker.remove')
                   }}</FpButton>
                 </div>
               </template>
-            </Column>
+            </FpColumn>
           </FpTable>
-        </TabPanel>
-
-        <!-- ── 镜像 ── -->
-        <TabPanel value="images">
-          <div class="toolbar">
+</template>
+<template #images>
+<div class="toolbar">
             <div class="search-wrap">
               <FpInput
                 v-model="pullImageName"
@@ -114,10 +109,10 @@
                 @keyup.enter="doPullImage"
               />
             </div>
-            <FpButton variant="primary" icon="oi oi-download" :loading="pulling" @click="doPullImage">{{
+            <FpButton v-permission="{ perm: 'docker:start', mode: 'view' }" variant="primary" icon="oi oi-download" :loading="pulling" @click="doPullImage">{{
               t('docker.pull')
             }}</FpButton>
-            <FpButton variant="danger" plain icon="oi oi-trash" @click="confirmPrune('images')">
+            <FpButton v-permission="{ perm: 'docker:delete', mode: 'view' }" variant="danger" plain icon="oi oi-trash" @click="confirmPrune('images')">
               {{ t('docker.prune') }}
             </FpButton>
           </div>
@@ -127,9 +122,11 @@
             :paginator="false"
             :empty-text="t('common.noData')"
             striped-rows
+            virtual
+            virtual-scroll-height="480px"
           >
-            <Column field="id" :header="t('docker.containerId')" style="width: 200px" />
-            <Column :header="t('docker.tags')" style="min-width: 240px">
+            <FpColumn field="id" :header="t('docker.containerId')" style="width: 200px" />
+            <FpColumn :header="t('docker.tags')" style="min-width: 240px">
               <template #body="{ data }">
                 <FpTag
                   v-for="tag in data.tags"
@@ -142,27 +139,25 @@
                   data.repo_tags?.join(', ') || data.id
                 }}</span>
               </template>
-            </Column>
-            <Column field="size" :header="t('docker.imageSize')" style="width: 100px">
+            </FpColumn>
+            <FpColumn field="size" :header="t('docker.imageSize')" style="width: 100px">
               <template #body="{ data }">{{ formatSize(data.size) }}</template>
-            </Column>
-            <Column :header="t('docker.actions')" style="width: 130px" frozen align-frozen="right">
+            </FpColumn>
+            <FpColumn :header="t('docker.actions')" style="width: 130px" frozen align-frozen="right">
               <template #body="{ data }">
-                <FpButton variant="danger" icon="oi oi-trash" @click="confirmRemoveImage(data)">{{
+                <FpButton v-permission="{ perm: 'docker:delete', mode: 'view' }" variant="danger" icon="oi oi-trash" @click="confirmRemoveImage(data)">{{
                   t('docker.remove')
                 }}</FpButton>
               </template>
-            </Column>
+            </FpColumn>
           </FpTable>
-        </TabPanel>
-
-        <!-- ── 网络 ── -->
-        <TabPanel value="networks">
-          <div class="toolbar">
-            <FpButton variant="primary" icon="oi oi-plus" @click="showCreateNetwork = true">{{
+</template>
+<template #networks>
+<div class="toolbar">
+            <FpButton v-permission="{ perm: 'docker:create', mode: 'view' }" variant="primary" icon="oi oi-plus" @click="showCreateNetwork = true">{{
               t('docker.createNetwork')
             }}</FpButton>
-            <FpButton variant="danger" plain icon="oi oi-trash" @click="confirmPrune('networks')">
+            <FpButton v-permission="{ perm: 'docker:delete', mode: 'view' }" variant="danger" plain icon="oi oi-trash" @click="confirmPrune('networks')">
               {{ t('docker.prune') }}
             </FpButton>
           </div>
@@ -173,10 +168,10 @@
             :empty-text="t('common.noData')"
             striped-rows
           >
-            <Column field="name" :header="t('docker.name')" style="min-width: 140px" />
-            <Column field="driver" :header="t('docker.driver')" style="width: 100px" />
-            <Column field="scope" :header="t('docker.scope')" style="width: 90px" />
-            <Column :header="t('docker.connectedContainers')" style="min-width: 180px">
+            <FpColumn field="name" :header="t('docker.name')" style="min-width: 140px" />
+            <FpColumn field="driver" :header="t('docker.driver')" style="width: 100px" />
+            <FpColumn field="scope" :header="t('docker.scope')" style="width: 90px" />
+            <FpColumn :header="t('docker.connectedContainers')" style="min-width: 180px">
               <template #body="{ data }">
                 <span v-if="data.containers && data.containers.length">
                   <FpTag
@@ -190,8 +185,8 @@
                 </span>
                 <span v-else class="text-muted">—</span>
               </template>
-            </Column>
-            <Column :header="t('docker.actions')" style="width: 260px" frozen align-frozen="right">
+            </FpColumn>
+            <FpColumn :header="t('docker.actions')" style="width: 260px" frozen align-frozen="right">
               <template #body="{ data }">
                 <div class="row-actions">
                   <FpButton variant="ghost" icon="oi oi-link" @click="openConnect(data)">{{
@@ -200,22 +195,20 @@
                   <FpButton variant="ghost" icon="oi oi-minus-circle" @click="openDisconnect(data)">{{
                     t('docker.disconnect')
                   }}</FpButton>
-                  <FpButton variant="danger" icon="oi oi-trash" @click="confirmRemoveNetwork(data)">{{
+                  <FpButton v-permission="{ perm: 'docker:delete', mode: 'view' }" variant="danger" icon="oi oi-trash" @click="confirmRemoveNetwork(data)">{{
                     t('docker.remove')
                   }}</FpButton>
                 </div>
               </template>
-            </Column>
+            </FpColumn>
           </FpTable>
-        </TabPanel>
-
-        <!-- ── 卷 ── -->
-        <TabPanel value="volumes">
-          <div class="toolbar">
-            <FpButton variant="primary" icon="oi oi-plus" @click="showCreateVolume = true">{{
+</template>
+<template #volumes>
+<div class="toolbar">
+            <FpButton v-permission="{ perm: 'docker:create', mode: 'view' }" variant="primary" icon="oi oi-plus" @click="showCreateVolume = true">{{
               t('docker.createVolume')
             }}</FpButton>
-            <FpButton variant="danger" plain icon="oi oi-trash" @click="confirmPrune('volumes')">
+            <FpButton v-permission="{ perm: 'docker:delete', mode: 'view' }" variant="danger" plain icon="oi oi-trash" @click="confirmPrune('volumes')">
               {{ t('docker.prune') }}
             </FpButton>
           </div>
@@ -225,23 +218,23 @@
             :paginator="false"
             :empty-text="t('common.noData')"
             striped-rows
+            virtual
+            virtual-scroll-height="480px"
           >
-            <Column field="name" :header="t('docker.name')" style="min-width: 160px" />
-            <Column field="driver" :header="t('docker.driver')" style="width: 100px" />
-            <Column field="mountpoint" :header="t('docker.mountpoint')" style="min-width: 220px" />
-            <Column :header="t('docker.actions')" style="width: 130px" frozen align-frozen="right">
+            <FpColumn field="name" :header="t('docker.name')" style="min-width: 160px" />
+            <FpColumn field="driver" :header="t('docker.driver')" style="width: 100px" />
+            <FpColumn field="mountpoint" :header="t('docker.mountpoint')" style="min-width: 220px" />
+            <FpColumn :header="t('docker.actions')" style="width: 130px" frozen align-frozen="right">
               <template #body="{ data }">
-                <FpButton variant="danger" icon="oi oi-trash" @click="confirmRemoveVolume(data)">{{
+                <FpButton v-permission="{ perm: 'docker:delete', mode: 'view' }" variant="danger" icon="oi oi-trash" @click="confirmRemoveVolume(data)">{{
                   t('docker.remove')
                 }}</FpButton>
               </template>
-            </Column>
+            </FpColumn>
           </FpTable>
-        </TabPanel>
-
-        <!-- ── Compose ── -->
-        <TabPanel value="compose">
-          <div class="panel">
+</template>
+<template #compose>
+<div class="panel">
             <form class="modal-form" @submit.prevent="deployCompose">
               <FpInput
                 v-model="composeForm.name"
@@ -250,20 +243,21 @@
               />
               <div class="field-col">
                 <label class="field-label">{{ t('docker.yaml') }}</label>
-                <Textarea
+                <FpTextarea
                   v-model="composeForm.yaml"
                   :rows="12"
                   class="compose-textarea w-full"
                 />
               </div>
               <div class="form-actions">
-                <FpButton variant="primary" type="submit" icon="oi oi-upload" :loading="composeLoading">{{
+                <FpButton v-permission="{ perm: 'docker:start', mode: 'view' }" variant="primary" type="submit" icon="oi oi-upload" :loading="composeLoading">{{
                   t('docker.deploy')
                 }}</FpButton>
-                <FpButton variant="ghost" :disabled="!composeForm.name" @click="composeUp(composeForm.name)">{{
+                <FpButton v-permission="{ perm: 'docker:start', mode: 'view' }" variant="ghost" :disabled="!composeForm.name" @click="composeUp(composeForm.name)">{{
                   t('docker.up')
                 }}</FpButton>
                 <FpButton
+                  v-permission="{ perm: 'docker:stop', mode: 'view' }"
                   variant="ghost"
                   :disabled="!composeForm.name"
                   @click="composeDown(composeForm.name)"
@@ -271,38 +265,39 @@
                 >
               </div>
             </form>
-            <Divider align="left">{{ t('docker.projects') }}</Divider>
+            <FpDivider align="left">{{ t('docker.projects') }}</FpDivider>
             <FpTable
               :rows="projects"
               :loading="loadingP"
               :paginator="false"
               :empty-text="t('common.noData')"
               striped-rows
+              virtual
+              virtual-scroll-height="360px"
             >
-              <Column field="name" :header="t('docker.projectName')" style="min-width: 140px" />
-              <Column field="status" :header="t('docker.projectStatus')" style="width: 120px" />
-              <Column
+              <FpColumn field="name" :header="t('docker.projectName')" style="min-width: 140px" />
+              <FpColumn field="status" :header="t('docker.projectStatus')" style="width: 120px" />
+              <FpColumn
                 field="config_files"
                 :header="t('docker.projectConfigFiles')"
                 style="min-width: 200px"
               />
-              <Column :header="t('docker.actions')" style="width: 180px" frozen align-frozen="right">
+              <FpColumn :header="t('docker.actions')" style="width: 180px" frozen align-frozen="right">
                 <template #body="{ data }">
                   <div class="row-actions">
-                    <FpButton variant="ghost" @click="composeUp(data.name)">{{
+                    <FpButton v-permission="{ perm: 'docker:start', mode: 'view' }" variant="ghost" @click="composeUp(data.name)">{{
                       t('docker.up')
                     }}</FpButton>
-                    <FpButton variant="danger" @click="composeDown(data.name)">{{
+                    <FpButton v-permission="{ perm: 'docker:stop', mode: 'view' }" variant="danger" @click="composeDown(data.name)">{{
                       t('docker.down')
                     }}</FpButton>
                   </div>
                 </template>
-              </Column>
+              </FpColumn>
             </FpTable>
           </div>
-        </TabPanel>
-      </TabPanels>
-    </Tabs>
+</template>
+</FpTabs>
 
     <!-- 容器日志 -->
     <FpModal
@@ -436,14 +431,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Tabs from 'openvue/tabs'
-import TabList from 'openvue/tablist'
-import Tab from 'openvue/tab'
-import TabPanels from 'openvue/tabpanels'
-import TabPanel from 'openvue/tabpanel'
-import Column from 'openvue/column'
-import Divider from 'openvue/divider'
-import Textarea from 'openvue/textarea'
+
+
+
+
+
+
+
+
 import {
   listContainers,
   startContainer as startApi,
@@ -485,6 +480,11 @@ import FpSelect from '@/components/ui/FpSelect.vue'
 import FpTag from '@/components/ui/FpTag.vue'
 import { useFpToast } from '@/components/ui/FpToast'
 import { useFpConfirm } from '@/components/ui/FpConfirm'
+import FpColumn from '@/components/ui/FpColumn.vue'
+import FpDivider from '@/components/ui/FpDivider.vue'
+import FpTextarea from '@/components/ui/FpTextarea.vue'
+import FpTabs from '@/components/ui/FpTabs.vue'
+import type { FpTabItem } from '@/components/ui/FpTabs.vue'
 import type {
   DockerContainer,
   DockerImage,
@@ -494,6 +494,14 @@ import type {
 } from '@/types'
 
 const { t } = useI18n()
+
+const tabItems: FpTabItem[] = [
+  { value: 'containers', label: t('docker.containers') },
+  { value: 'images', label: t('docker.images') },
+  { value: 'networks', label: t('docker.networks') },
+  { value: 'volumes', label: t('docker.volumes') },
+  { value: 'compose', label: t('docker.compose') },
+]
 const toast = useFpToast()
 const { confirmAction } = useFpConfirm()
 const tab = ref('containers')
@@ -1046,12 +1054,6 @@ onMounted(() => {
   max-width: 320px;
   min-width: 220px;
 }
-.panel {
-  padding: var(--fp-space-4);
-  border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
-  border: 1px solid var(--fp-border);
-}
 .row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1094,8 +1096,8 @@ onMounted(() => {
   width: 220px;
 }
 .log-viewer {
-  background: #1e1e1e;
-  color: #d4d4d4;
+  background: var(--fp-bg-terminal);
+  color: var(--fp-text-code);
   padding: 16px;
   border-radius: 6px;
   max-height: 500px;

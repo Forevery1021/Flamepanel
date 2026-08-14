@@ -5,6 +5,25 @@
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Ops Panel</title>
+  <script>
+    // F2.3 首屏无闪烁：mount 前同步明暗模式 + 玻璃开关，避免闪白/闪黑
+    ;(function () {
+      try {
+        var root = document.documentElement
+        var mode = localStorage.getItem('flamepanel.mode')
+        if (mode === 'light' || mode === 'dark') {
+          root.classList.toggle('dark', mode === 'dark')
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          root.classList.add('dark')
+        }
+        if (localStorage.getItem('flamepanel.glass') === 'false') {
+          root.classList.add('glass-disabled')
+        }
+      } catch (e) {
+        /* ignore */
+      }
+    })()
+  </script>
 </head>
 <body>
   <div id="app"></div>

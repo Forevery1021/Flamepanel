@@ -6,6 +6,8 @@
         v-bind="$attrs"
         :model-value="model"
         :invalid="!!error || invalid"
+        :aria-invalid="!!error || invalid || undefined"
+        :aria-describedby="error ? `${uid}-error` : undefined"
         :show-clear="showClear"
         :filter="filter"
         class="w-full"
@@ -18,12 +20,14 @@
       v-bind="$attrs"
       :model-value="model"
       :invalid="!!error || invalid"
+      :aria-invalid="!!error || invalid || undefined"
+      :aria-describedby="error ? `${uid}-error` : undefined"
       :show-clear="showClear"
       :filter="filter"
       class="w-full"
       @update:model-value="emit"
     />
-    <small v-if="error" class="fp-field-error">{{ error }}</small>
+    <small v-if="error" :id="`${uid}-error`" class="fp-field-error">{{ error }}</small>
   </div>
 </template>
 

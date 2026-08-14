@@ -4,16 +4,17 @@ use axum::Router;
 use axum::{extract::State, Json};
 use serde::Serialize;
 use std::time::UNIX_EPOCH;
+use utoipa::ToSchema;
 
 /// 依赖检查结果
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct HealthCheckItem {
     pub status: String,
     pub detail: Option<String>,
 }
 
 /// 详细健康检查响应
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct HealthDetail {
     pub status: String,
     pub version: String,
@@ -21,7 +22,7 @@ pub struct HealthDetail {
     pub checks: HealthChecks,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct HealthChecks {
     pub database: HealthCheckItem,
     pub docker: HealthCheckItem,
@@ -35,6 +36,14 @@ fn start_time() -> std::time::SystemTime {
 }
 
 /// `GET /api/health` — 详细健康检查（免认证）
+#[utoipa::path(
+    get,
+    path = "/api/health",
+    tag = "health",
+    responses(
+        (status = 200, description = "健康状态", body = HealthDetail),
+    )
+)]
 pub async fn detail(State(state): State<AppState>) -> Result<Json<HealthDetail>, AppError> {
     // database：SQLite/InMemory 查询最小表（users）探活
     let database = match state.user_service.list_users().await {
@@ -102,22 +111,21 @@ pub async fn detail(State(state): State<AppState>) -> Result<Json<HealthDetail>,
 }
 
 fn disk_free_bytes(dir: &str) -> Option<u64> {
-    // 用 `df -k <dir>` 获取可用空间（标准 POSIX 输出：Filesystem 1024-blocks Used Available ...）
-    let out = std::process::Command::new("df")
-        .args(["-k", dir])
-        .output()
-        .ok()?;
-    let s = String::from_utf8_lossy(&out.stdout);
-    for line in s.lines().skip(1) {
-        let cols: Vec<&str> = line.split_whitespace().collect();
-        // 标准 df：第 4 列为 Available（KB）
-        if cols.len() >= 4 {
-            if let Ok(kb) = cols[3].parse::<u64>() {
-                return Some(kb * 1024);
+    // 用 sysinfo 获取指定目录所在挂载点的可用空间，替代 `df -k <dir>` 外部命令。
+    // （Phase A1 收尾：health 不再 spawn 外部命令，无命令注入面）
+    let abs = std::path::absolute(dir).ok()?;
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let mut best: Option<(&sysinfo::Disk, usize)> = None;
+    for disk in disks.iter() {
+        let mp = disk.mount_point();
+        if abs.starts_with(mp) {
+            let depth = mp.components().count();
+            if best.map(|(_, d)| depth > d).unwrap_or(true) {
+                best = Some((disk, depth));
             }
         }
     }
-    None
+    best.map(|(disk, _)| disk.available_space())
 }
 
 /// 路由表

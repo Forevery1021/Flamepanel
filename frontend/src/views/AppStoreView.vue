@@ -5,20 +5,14 @@
         <i class="oi oi-search search-icon" />
         <FpInput v-model="search" :placeholder="t('appStore.searchPlaceholder')" />
       </div>
-      <FpButton variant="ghost" icon="oi oi-folder-open" @click="showImportDialog = true">
+      <FpButton v-permission="{ perm: 'app_store:create', mode: 'view' }" variant="ghost" icon="oi oi-folder-open" @click="showImportDialog = true">
         {{ t('appStore.import') }}
       </FpButton>
     </div>
 
-    <Tabs v-model:value="activeTab" class="store-tabs">
-      <TabList>
-        <Tab value="store">{{ t('appStore.tabStore') }}</Tab>
-        <Tab value="installed">{{ t('appStore.tabInstalled') }}</Tab>
-        <Tab value="wasm">{{ t('appStore.tabWasm') }}</Tab>
-      </TabList>
-      <TabPanels>
-        <TabPanel value="store">
-          <!-- 推荐安装 -->
+    <FpTabs v-model="activeTab" class="store-tabs" :items="tabItems">
+<template #store>
+<!-- 推荐安装 -->
           <div v-if="recommendedPackages.length" class="recommend-section">
             <div class="section-title">{{ t('appStore.recommended') }}</div>
             <div class="recommend-list">
@@ -34,7 +28,7 @@
                   <div class="recommend-desc">{{ pkg.short_desc_zh }}</div>
                   <FpTag severity="warning" :value="t('appStore.recommended')" />
                 </div>
-                <FpButton variant="primary" @click.stop="openInstall(pkg)">
+                <FpButton v-permission="{ perm: 'app_store:create', mode: 'view' }" variant="primary" @click.stop="openInstall(pkg)">
                   {{ installedKeys.has(pkg.key) ? t('appStore.installed') : t('appStore.install') }}
                 </FpButton>
               </div>
@@ -43,9 +37,9 @@
 
           <div v-if="loading" class="app-grid">
             <div v-for="i in 8" :key="i" class="app-card app-card-skeleton">
-              <Skeleton height="44px" />
-              <Skeleton height="16px" />
-              <Skeleton height="12px" />
+              <FpSkeleton height="44px" />
+              <FpSkeleton height="16px" />
+              <FpSkeleton height="12px" />
             </div>
           </div>
           <div v-else-if="filteredPackages.length" class="app-grid">
@@ -74,32 +68,33 @@
             </div>
           </div>
           <FpEmpty v-else :description="t('appStore.empty')" icon="oi oi-inbox" />
-        </TabPanel>
-
-        <TabPanel value="installed">
-          <div class="panel">
+</template>
+<template #installed>
+<div class="panel">
             <FpTable
               :rows="installedApps"
               :loading="loadingInstalled"
               :empty-text="t('appStore.empty')"
+              virtual
+              virtual-scroll-height="560px"
             >
-              <Column field="name" :header="t('appStore.colName')" style="min-width: 140px" />
-              <Column field="package_key" :header="t('appStore.colPackage')" style="min-width: 120px" />
-              <Column field="version" :header="t('appStore.colVersion')" style="width: 100px" />
-              <Column :header="t('appStore.colMode')" style="width: 100px">
+              <FpColumn field="name" :header="t('appStore.colName')" style="min-width: 140px" />
+              <FpColumn field="package_key" :header="t('appStore.colPackage')" style="min-width: 120px" />
+              <FpColumn field="version" :header="t('appStore.colVersion')" style="width: 100px" />
+              <FpColumn :header="t('appStore.colMode')" style="width: 100px">
                 <template #body="{ data }">
                   <FpTag :severity="modeTagType(data.mode)" :value="modeLabel(data.mode)" />
                 </template>
-              </Column>
-              <Column :header="t('appStore.colStatus')" style="width: 100px">
+              </FpColumn>
+              <FpColumn :header="t('appStore.colStatus')" style="width: 100px">
                 <template #body="{ data }">
                   <FpTag
                     :severity="data.status === 'running' ? 'success' : 'danger'"
                     :value="data.status"
                   />
                 </template>
-              </Column>
-              <Column :header="t('appStore.colAccess')" style="min-width: 160px">
+              </FpColumn>
+              <FpColumn :header="t('appStore.colAccess')" style="min-width: 160px">
                 <template #body="{ data }">
                   <a
                     v-if="data.access_url"
@@ -109,28 +104,27 @@
                   >{{ data.access_url }}</a>
                   <span v-else>-</span>
                 </template>
-              </Column>
-              <Column :header="t('appStore.colActions')" style="width: 240px" frozen>
+              </FpColumn>
+              <FpColumn :header="t('appStore.colActions')" style="width: 240px" frozen>
                 <template #body="{ data }">
                   <div class="row-actions">
                     <FpButton variant="ghost" @click="showLogs(data)">{{ t('appStore.logs') }}</FpButton>
-                    <FpButton variant="ghost" @click="upgrade(data)">{{ t('appStore.upgrade') }}</FpButton>
-                    <FpButton variant="danger" @click="uninstall(data)">
+                    <FpButton v-permission="{ perm: 'app_store:update', mode: 'view' }" variant="ghost" @click="upgrade(data)">{{ t('appStore.upgrade') }}</FpButton>
+                    <FpButton v-permission="{ perm: 'app_store:delete', mode: 'view' }" variant="danger" @click="uninstall(data)">
                       {{ t('appStore.uninstall') }}
                     </FpButton>
                   </div>
                 </template>
-              </Column>
+              </FpColumn>
             </FpTable>
           </div>
-        </TabPanel>
-
-        <TabPanel value="wasm">
-          <div v-if="loadingWasm" class="app-grid">
+</template>
+<template #wasm>
+<div v-if="loadingWasm" class="app-grid">
             <div v-for="i in 8" :key="i" class="app-card app-card-skeleton">
-              <Skeleton height="44px" />
-              <Skeleton height="16px" />
-              <Skeleton height="12px" />
+              <FpSkeleton height="44px" />
+              <FpSkeleton height="16px" />
+              <FpSkeleton height="12px" />
             </div>
           </div>
           <div v-else-if="wasmBuiltins.length" class="app-grid">
@@ -150,9 +144,8 @@
             </div>
           </div>
           <FpEmpty v-else :description="t('appStore.empty')" icon="oi oi-inbox" />
-        </TabPanel>
-      </TabPanels>
-    </Tabs>
+</template>
+</FpTabs>
 
     <FpModal
       v-model="installVisible"
@@ -188,11 +181,11 @@
         />
         <div class="field-col">
           <label class="field-label">{{ t('appStore.fldPort') }}</label>
-          <InputNumber v-model="installForm.port" :min="1" :max="65535" class="w-full" />
+          <FpNumber v-model="installForm.port" :min="1" :max="65535" class="w-full" />
         </div>
         <FpInput v-model="installForm.container_name" :label="t('appStore.fldContainer')" />
         <template v-if="versionInfo">
-          <Divider>{{ t('appStore.parameters') }}</Divider>
+          <FpDivider>{{ t('appStore.parameters') }}</FpDivider>
           <div v-for="f in versionInfo.form_fields" :key="f.env_key" class="modal-form">
             <FpSelect
               v-if="f.field_type === 'select'"
@@ -204,14 +197,14 @@
             />
             <div v-else-if="f.field_type === 'switch'" class="field-col field-row">
               <label class="field-label">{{ f.label_zh }}</label>
-              <ToggleSwitch v-model="switchValues[f.env_key]" />
+              <FpSwitch v-model="switchValues[f.env_key]" />
             </div>
             <div
               v-else-if="f.field_type === 'number' || f.field_type === 'port'"
               class="field-col"
             >
               <label class="field-label">{{ f.label_zh }}</label>
-              <InputNumber
+              <FpNumber
                 v-model="numberValues[f.env_key]"
                 :min="f.min ?? undefined"
                 :max="f.max ?? undefined"
@@ -230,9 +223,9 @@
       </div>
       <template #footer>
         <div class="install-footer">
-          <Checkbox v-model="installForm.confirm_risky">
+          <FpCheckbox v-model="installForm.confirm_risky">
             {{ t('appStore.confirmRisky') }}
-          </Checkbox>
+          </FpCheckbox>
           <div class="footer-btns">
             <FpButton variant="ghost" @click="installVisible = false">
               {{ t('common.cancel') }}
@@ -269,17 +262,17 @@
 <script setup lang="ts">
 import { ref, computed, watch, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Tabs from 'openvue/tabs'
-import TabList from 'openvue/tablist'
-import Tab from 'openvue/tab'
-import TabPanels from 'openvue/tabpanels'
-import TabPanel from 'openvue/tabpanel'
-import InputNumber from 'openvue/inputnumber'
-import ToggleSwitch from 'openvue/toggleswitch'
-import Checkbox from 'openvue/checkbox'
-import Divider from 'openvue/divider'
-import Skeleton from 'openvue/skeleton'
-import Column from 'openvue/column'
+
+
+
+
+
+
+
+
+
+
+
 import FpTable from '@/components/ui/FpTable.vue'
 import FpModal from '@/components/ui/FpModal.vue'
 import FpInput from '@/components/ui/FpInput.vue'
@@ -289,6 +282,14 @@ import FpTag from '@/components/ui/FpTag.vue'
 import FpEmpty from '@/components/ui/FpEmpty.vue'
 import { useFpToast } from '@/components/ui/FpToast'
 import { useFpConfirm } from '@/components/ui/FpConfirm'
+import FpCheckbox from '@/components/ui/FpCheckbox.vue'
+import FpColumn from '@/components/ui/FpColumn.vue'
+import FpDivider from '@/components/ui/FpDivider.vue'
+import FpNumber from '@/components/ui/FpNumber.vue'
+import FpSkeleton from '@/components/ui/FpSkeleton.vue'
+import FpSwitch from '@/components/ui/FpSwitch.vue'
+import FpTabs from '@/components/ui/FpTabs.vue'
+import type { FpTabItem } from '@/components/ui/FpTabs.vue'
 import {
   listPackages,
   getPackage,
@@ -306,6 +307,12 @@ import {
 } from '@/api/appStore'
 
 const { t } = useI18n()
+
+const tabItems: FpTabItem[] = [
+  { value: 'store', label: t('appStore.tabStore') },
+  { value: 'installed', label: t('appStore.tabInstalled') },
+  { value: 'wasm', label: t('appStore.tabWasm') },
+]
 const toast = useFpToast()
 const { confirmAction } = useFpConfirm()
 
@@ -620,7 +627,7 @@ onMounted(() => {
 }
 .recommend-card:hover {
   border-color: var(--fp-brand);
-  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.18);
+  box-shadow: var(--fp-shadow-lg);
 }
 .recommend-logo {
   width: 44px;
@@ -670,7 +677,7 @@ onMounted(() => {
     transform 120ms var(--fp-ease-out);
 }
 .app-card:hover {
-  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.18);
+  box-shadow: var(--fp-shadow-lg);
   transform: translateY(-1px);
 }
 .app-card-skeleton {
@@ -724,12 +731,6 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
 }
-.panel {
-  padding: var(--fp-space-4);
-  border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
-  border: 1px solid var(--fp-border);
-}
 .modal-form {
   display: flex;
   flex-direction: column;
@@ -772,8 +773,8 @@ onMounted(() => {
   margin-bottom: 2px;
 }
 .logs-view {
-  background: #0f172a;
-  color: #a5f3fc;
+  background: var(--fp-bg-terminal);
+  color: var(--fp-text-code);
   padding: var(--fp-space-3);
   border-radius: var(--fp-radius-sm);
   max-height: 420px;

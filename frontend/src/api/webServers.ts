@@ -2,17 +2,17 @@ import api from './client'
 import type {
   WebServerResponse,
   EngineInfo,
-  PaginatedResponse,
   PerformancePresetInfo,
   NativeWebServerInfo,
 } from '@/types'
+import type { Page } from '@/api/generated'
 
 export function listEngines() {
   return api.get<EngineInfo[]>('/web-servers/engines')
 }
 
 export function listWebServers(page = 1, pageSize = 20) {
-  return api.get<PaginatedResponse<WebServerResponse>>('/web-servers', {
+  return api.get<Page<WebServerResponse>>('/web-servers', {
     params: { page, page_size: pageSize },
   })
 }

@@ -1,8 +1,9 @@
 import api from './client'
-import type { Website, PaginatedResponse } from '@/types'
+import type { Website } from '@/api/generated'
+import type { Page } from '@/api/generated'
 
 export function listWebsites(page = 1, pageSize = 20) {
-  return api.get<PaginatedResponse<Website>>('/websites', { params: { page, page_size: pageSize } })
+  return api.get<Page<Website>>('/websites', { params: { page, page_size: pageSize } })
 }
 
 export function createWebsite(website: Website) {

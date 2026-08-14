@@ -72,6 +72,6 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/memos", axum::routing::get(list))
         .route("/api/memos", axum::routing::post(create))
-        .route("/api/memos/:id", axum::routing::put(update))
-        .route("/api/memos/:id", axum::routing::delete(delete))
+        .route("/api/memos/{id}", axum::routing::put(update))
+        .route("/api/memos/{id}", axum::routing::delete(delete))
 }

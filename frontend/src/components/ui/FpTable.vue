@@ -7,8 +7,20 @@
       :loading="loading"
       :striped-rows="stripedRows"
       :row-hover="true"
-      :scrollable="virtual"
-      :virtual-scroller-options="virtual ? virtualOptions : undefined"      :paginator="paginator"
+      :sort-mode="sortable ? 'single' : undefined"
+      :sort-field="sortField || undefined"
+      :sort-order="sortOrder"
+      :scrollable="virtual || scrollable"
+      :scroll-height="virtualScrollHeight || scrollHeight || undefined"
+      :virtual-scroller-options="
+        virtual
+          ? {
+              itemSize: virtualItemSize,
+              scrollHeight: virtualScrollHeight || '520px',
+            }
+          : undefined
+      "
+      :paginator="paginator && !virtual"
       :rows="rowsPerPage"
       :first="first"
       :rows-per-page-options="rowsPerPageOptions"
@@ -41,9 +53,18 @@ withDefaults(
     rows: unknown[]
     loading?: boolean
     stripedRows?: boolean
-    /** 虚拟滚动（大列表） */
+    /** 虚拟滚动（大列表；启用后自动 scrollable，自动禁用分页） */
     virtual?: boolean
     virtualItemSize?: number
+    /** 虚拟滚动视口高度（默认 520px） */
+    virtualScrollHeight?: string
+    /** 普通滚动模式（无虚拟化，配合 scrollHeight） */
+    scrollable?: boolean
+    scrollHeight?: string
+    /** 客户端单列排序（`sortable` 开启时生效） */
+    sortable?: boolean
+    sortField?: string | null
+    sortOrder?: 1 | -1 | 0
     paginator?: boolean
     rowsPerPage?: number
     first?: number
@@ -60,6 +81,12 @@ withDefaults(
     stripedRows: false,
     virtual: false,
     virtualItemSize: 44,
+    virtualScrollHeight: '520px',
+    scrollable: false,
+    scrollHeight: '',
+    sortable: false,
+    sortField: null,
+    sortOrder: 0,
     paginator: true,
     rowsPerPage: 10,
     first: 0,
@@ -76,11 +103,6 @@ withDefaults(
 
 const emit = defineEmits<{ 'update:first': [value: number] }>()
 
-const virtualOptions = {
-  itemSize: 44,
-  scrollHeight: '520px',
-}
-
 function emitFirst(value: number) {
   emit('update:first', value)
 }
@@ -89,6 +111,11 @@ function emitFirst(value: number) {
 <style scoped>
 .fp-table {
   width: 100%;
+  /* 窄屏下表格可横向滚动（F3.3 响应式底线） */
+  overflow-x: auto;
+}
+.fp-table :deep(.p-datatable-wrapper) {
+  overflow-x: auto;
 }
 .fp-table__loading {
   display: flex;

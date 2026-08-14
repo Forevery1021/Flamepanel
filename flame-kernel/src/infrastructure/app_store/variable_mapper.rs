@@ -1,8 +1,10 @@
+use crate::application::app_store_ports::VariableMapper as VariableMapperPort;
 use regex::Regex;
 use std::collections::HashMap;
 
 /// 变量映射引擎：支持 `${VAR}`、`$VAR` 与遗留 `{var}` 三种占位符。
 /// 用户表单值优先级最高，未识别变量保留原样并收集警告。
+/// 实现 application 层 `VariableMapper` 端口。
 pub struct VariableMapper {
     builtins: HashMap<String, String>,
 }
@@ -45,6 +47,41 @@ impl VariableMapper {
         });
 
         (result.into_owned(), warnings)
+    }
+}
+
+impl VariableMapperPort for VariableMapper {
+    fn insert(&mut self, key: &str, value: String) {
+        VariableMapper::insert(self, key, value)
+    }
+
+    fn get(&self, key: &str) -> Option<&str> {
+        VariableMapper::get(self, key)
+    }
+
+    fn replace(&self, template: &str) -> (String, Vec<String>) {
+        VariableMapper::replace(self, template)
+    }
+}
+
+/// 变量映射器工厂（实现 application `VariableMapperFactory` 端口）。
+pub struct DefaultVariableMapperFactory;
+
+impl DefaultVariableMapperFactory {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for DefaultVariableMapperFactory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl crate::application::app_store_ports::VariableMapperFactory for DefaultVariableMapperFactory {
+    fn create(&self, values: HashMap<String, String>) -> Box<dyn VariableMapperPort> {
+        Box::new(VariableMapper::new(values))
     }
 }
 

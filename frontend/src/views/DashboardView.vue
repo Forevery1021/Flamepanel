@@ -1,18 +1,27 @@
 <template>
   <LayoutContent :title="t('dashboard.title')">
-    <!-- 指标卡 -->
+    <!-- 指标卡（点击跳转对应模块） -->
     <div class="stats-grid">
-      <div v-for="s in statCards" :key="s.key" class="stat-card" :class="`stat-${s.key}`">
-        <div class="stat-icon">
+      <button
+        v-for="s in statCards"
+        :key="s.key"
+        class="stat-card"
+        :class="[`stat-${s.key}`, { 'is-clickable': s.to }]"
+        type="button"
+        :aria-label="s.to ? t('dashboard.goTo', { module: s.label }) : s.label"
+        @click="s.to && router.push(s.to)"
+      >
+        <span class="stat-icon">
           <i class="oi" :class="s.icon" />
-        </div>
-        <div class="stat-body">
-          <div class="stat-label">{{ s.label }}</div>
-          <div class="stat-value">{{ s.value }}</div>
-          <ProgressBar :value="s.percent" :style="`height: 5px`" />
-          <div class="stat-detail">{{ s.detail }}</div>
-        </div>
-      </div>
+        </span>
+        <span class="stat-body">
+          <span class="stat-label">{{ s.label }}</span>
+          <span class="stat-value">{{ s.value }}</span>
+          <FpProgress :value="s.percent" :style="`height: 5px`" />
+          <span class="stat-detail">{{ s.detail }}</span>
+        </span>
+        <i v-if="s.to" class="oi oi-chevron-right stat-go" aria-hidden="true" />
+      </button>
     </div>
 
     <!-- 图表行 -->
@@ -65,32 +74,32 @@
           <span class="panel-title">{{ t('dashboard.processTop') }}</span>
         </div>
         <FpTable :rows="topProcesses" :paginator="false" size="small">
-          <Column field="name" :header="t('dashboard.processName')" />
-          <Column field="cpu" :header="t('dashboard.processCpu')" style="width: 80px">
+          <FpColumn field="name" :header="t('dashboard.processName')" />
+          <FpColumn field="cpu" :header="t('dashboard.processCpu')" style="width: 80px">
             <template #body="{ data }">
               <span class="mono">{{ Number(data.cpu).toFixed(1) }}%</span>
             </template>
-          </Column>
-          <Column field="memory_mb" :header="t('dashboard.processMem')" style="width: 90px">
+          </FpColumn>
+          <FpColumn field="memory_mb" :header="t('dashboard.processMem')" style="width: 90px">
             <template #body="{ data }">
               <span class="mono">{{ data.memory_mb }} MB</span>
             </template>
-          </Column>
-          <Column field="pid" :header="t('dashboard.processPid')" style="width: 70px">
+          </FpColumn>
+          <FpColumn field="pid" :header="t('dashboard.processPid')" style="width: 70px">
             <template #body="{ data }">
               <span class="mono">{{ data.pid }}</span>
             </template>
-          </Column>
+          </FpColumn>
         </FpTable>
       </div>
 
       <div class="panel">
         <div class="panel-header">
           <span class="panel-title">{{ t('dashboard.todayTodos') }}</span>
-          <Button text size="small" @click="router.push('/memos')">{{ t('dashboard.more') }}</Button>
+          <FpButtonLink text size="small" @click="router.push('/memos')">{{ t('dashboard.more') }}</FpButtonLink>
         </div>
         <div v-if="todosLoading" class="todo-skeleton">
-          <Skeleton v-for="i in 4" :key="i" height="28px" />
+          <FpSkeleton v-for="i in 4" :key="i" height="28px" />
         </div>
         <div v-else class="todo-list">
           <div
@@ -99,7 +108,12 @@
             class="todo-item"
             :class="{ done: td.done }"
           >
-            <Checkbox :model-value="td.done" @change="(v) => toggleTodo(td, Boolean(v))" />
+            <FpCheckbox
+              v-if="!isViewer"
+              :model-value="td.done"
+              :disabled="isViewer"
+              @change="(v) => toggleTodo(td, Boolean(v))"
+            />
             <span class="todo-content">{{ td.content }}</span>
           </div>
           <div v-if="!todayTodos.length" class="panel-empty">{{ t('dashboard.noTodos') }}</div>
@@ -115,6 +129,7 @@
             v-for="a in commonApps"
             :key="a.id"
             class="common-app"
+            :disabled="isViewer"
             @click="openApp(a)"
           >
             <span class="common-app-icon"><i class="oi oi-box" /></span>
@@ -132,29 +147,41 @@
 import { ref, reactive, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { init, use } from 'echarts/core'
+import { useAuthStore } from '@/stores/auth'
+import { use } from 'echarts/core'
 import { LineChart, GaugeChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import ProgressBar from 'openvue/progressbar'
-import Column from 'openvue/column'
-import Checkbox from 'openvue/checkbox'
-import Skeleton from 'openvue/skeleton'
-import Button from 'openvue/button'
+
+
+
+
+
 import FpTable from '@/components/ui/FpTable.vue'
 import LayoutContent from '@/components/ui/LayoutContent.vue'
-import { connectWithRetry } from '@/utils/ws'
+import FpButtonLink from '@/components/ui/FpButtonLink.vue'
+import FpCheckbox from '@/components/ui/FpCheckbox.vue'
+import FpColumn from '@/components/ui/FpColumn.vue'
+import FpProgress from '@/components/ui/FpProgress.vue'
+import FpSkeleton from '@/components/ui/FpSkeleton.vue'
+import { useECharts } from '@/composables/useECharts'
+import { useWebSocket } from '@/composables/useWebSocket'
+import { usePolling } from '@/composables/usePolling'
+import { useQueryCacheClient } from '@/composables/useApiQuery'
 import { listTopProcesses } from '@/api/metrics'
 import { listMemos, updateMemo } from '@/api/memos'
 import { listInstalledApps, launchApp } from '@/api/appStore'
-import type { MetricsSnapshot, ProcessEntry, Memo } from '@/types'
+import type { MetricsSnapshot, Memo } from '@/types'
+import type { ProcessEntry } from '@/api/generated'
 import type { InstalledApp } from '@/api/appStore'
-import type { ECharts } from 'echarts/core'
 
 use([LineChart, GaugeChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const { t } = useI18n()
 const router = useRouter()
+const auth = useAuthStore()
+/** viewer 只读：隐藏 TODO 勾选与常用应用启动入口 */
+const isViewer = computed(() => auth.role === 'viewer')
 
 const snap = reactive<MetricsSnapshot>({
   timestamp: 0,
@@ -179,10 +206,11 @@ const netChartRef = ref<HTMLElement>()
 const loadChartRef = ref<HTMLElement>()
 const wsConnected = ref(false)
 const lastUpdate = ref('')
-let chart: ECharts | null = null
-let netChart: ECharts | null = null
-let loadChart: ECharts | null = null
-let wsConn: ReturnType<typeof connectWithRetry> | null = null
+
+const trendChart = useECharts(chartRef)
+const netChart = useECharts(netChartRef)
+const loadChart = useECharts(loadChartRef)
+
 let themeObserver: MutationObserver | null = null
 
 const statCards = computed(() => [
@@ -194,6 +222,7 @@ const statCards = computed(() => [
     percent: Math.round(snap.cpu_usage),
     detail: `${snap.cpu_cores} cores`,
     color: usageColor(snap.cpu_usage),
+    to: '/nodes',
   },
   {
     key: 'mem',
@@ -203,6 +232,7 @@ const statCards = computed(() => [
     percent: Math.round(snap.memory_usage_percent),
     detail: `${(snap.memory_used_mb / 1024).toFixed(1)} / ${(snap.memory_total_mb / 1024).toFixed(1)} GB`,
     color: usageColor(snap.memory_usage_percent),
+    to: '/nodes',
   },
   {
     key: 'disk',
@@ -212,6 +242,7 @@ const statCards = computed(() => [
     percent: Math.round(snap.disk_usage_percent),
     detail: `${snap.disk_used_gb.toFixed(1)} / ${snap.disk_total_gb.toFixed(1)} GB`,
     color: usageColor(snap.disk_usage_percent),
+    to: '/files',
   },
   {
     key: 'load',
@@ -221,6 +252,7 @@ const statCards = computed(() => [
     percent: Math.min(Math.round((snap.load_one / 10) * 100), 100),
     detail: `1m: ${snap.load_one.toFixed(2)} | 5m: ${snap.load_five.toFixed(2)} | 15m: ${snap.load_fifteen.toFixed(2)}`,
     color: 'var(--fp-success)',
+    to: '/health',
   },
 ])
 
@@ -230,7 +262,6 @@ function usageColor(p: number) {
 
 // ── 进程 TOP ──
 const topProcesses = ref<ProcessEntry[]>([])
-let procTimer: number | null = null
 async function refreshProcesses() {
   try {
     const res = await listTopProcesses()
@@ -288,39 +319,38 @@ function cssVar(name: string) {
 
 function chartPalette() {
   return {
-    axisLabel: cssVar('--fp-text-secondary') || '#909399',
-    gridLine: cssVar('--fp-border') || '#e5e7eb',
-    text: cssVar('--fp-text-primary') || '#111827',
-    brand: cssVar('--fp-brand') || '#ea580c',
-    success: cssVar('--fp-success') || '#10b981',
-    info: cssVar('--fp-info') || '#3b82f6',
-    warning: cssVar('--fp-warning') || '#f59e0b',
-    danger: cssVar('--fp-danger') || '#ef4444',
+    axisLabel: cssVar('--fp-text-secondary') || cssVar('--fp-text-muted'),
+    gridLine: cssVar('--fp-border') || cssVar('--fp-border-strong'),
+    text: cssVar('--fp-text-primary') || cssVar('--fp-text-secondary'),
+    brand: cssVar('--fp-brand'),
+    success: cssVar('--fp-success'),
+    info: cssVar('--fp-info'),
+    warning: cssVar('--fp-warning'),
+    danger: cssVar('--fp-danger'),
   }
 }
 
 function applyChartTheme() {
   const p = chartPalette()
-  chart?.setOption({
+  trendChart.applyOption({
     legend: { textStyle: { color: p.axisLabel } },
     xAxis: { axisLabel: { color: p.axisLabel }, splitLine: { lineStyle: { color: p.gridLine } } },
     yAxis: { axisLabel: { color: p.axisLabel }, splitLine: { lineStyle: { color: p.gridLine } } },
   })
-  netChart?.setOption({
+  netChart.applyOption({
     legend: { textStyle: { color: p.axisLabel } },
     xAxis: { axisLabel: { color: p.axisLabel }, splitLine: { lineStyle: { color: p.gridLine } } },
     yAxis: { axisLabel: { color: p.axisLabel }, splitLine: { lineStyle: { color: p.gridLine } } },
   })
-  loadChart?.setOption({
+  loadChart.applyOption({
     series: [{ axisLabel: { color: p.axisLabel }, detail: { color: p.axisLabel } }],
   })
 }
 
 function initChart() {
-  if (!chartRef.value) return
-  chart = init(chartRef.value)
+  trendChart.mount()
   const { axisLabel, gridLine, brand, success, info } = chartPalette()
-  chart.setOption({
+  trendChart.applyOption({
     tooltip: { trigger: 'axis' },
     legend: { data: ['CPU %', 'Memory %', 'Disk %'], bottom: 0, textStyle: { color: axisLabel } },
     grid: { left: 50, right: 20, top: 20, bottom: 40 },
@@ -344,23 +374,25 @@ function initChart() {
 }
 
 function updateChart() {
-  if (!chart || history.value.length < 2) return
-  chart.setOption({
-    xAxis: { data: history.value.map((s) => new Date(s.timestamp * 1000)) },
-    series: [
-      { data: history.value.map((s) => s.cpu_usage) },
-      { data: history.value.map((s) => s.memory_usage_percent) },
-      { data: history.value.map((s) => s.disk_usage_percent) },
-    ],
-  })
+  if (!trendChart.instance() || history.value.length < 2) return
+  trendChart.setOption(
+    {
+      xAxis: { data: history.value.map((s) => new Date(s.timestamp * 1000)) },
+      series: [
+        { data: history.value.map((s) => s.cpu_usage) },
+        { data: history.value.map((s) => s.memory_usage_percent) },
+        { data: history.value.map((s) => s.disk_usage_percent) },
+      ],
+    },
+    true,
+  )
 }
 
 // ── 网络 IO 双曲线 ──
 function initNetChart() {
-  if (!netChartRef.value) return
-  netChart = init(netChartRef.value)
+  netChart.mount()
   const { axisLabel, gridLine, info, success } = chartPalette()
-  netChart.setOption({
+  netChart.applyOption({
     tooltip: { trigger: 'axis' },
     legend: { data: ['RX', 'TX'], bottom: 0, textStyle: { color: axisLabel } },
     grid: { left: 44, right: 12, top: 16, bottom: 36 },
@@ -382,22 +414,24 @@ function initNetChart() {
 }
 
 function updateNetChart() {
-  if (!netChart || history.value.length < 2) return
-  netChart.setOption({
-    xAxis: { data: history.value.map((s) => new Date(s.timestamp * 1000)) },
-    series: [
-      { data: history.value.map((s) => +(s.network_rx_mbps ?? 0).toFixed(3)) },
-      { data: history.value.map((s) => +(s.network_tx_mbps ?? 0).toFixed(3)) },
-    ],
-  })
+  if (!netChart.instance() || history.value.length < 2) return
+  netChart.setOption(
+    {
+      xAxis: { data: history.value.map((s) => new Date(s.timestamp * 1000)) },
+      series: [
+        { data: history.value.map((s) => +(s.network_rx_mbps ?? 0).toFixed(3)) },
+        { data: history.value.map((s) => +(s.network_tx_mbps ?? 0).toFixed(3)) },
+      ],
+    },
+    true,
+  )
 }
 
 // ── 负载仪表盘 ──
 function initLoadChart() {
-  if (!loadChartRef.value) return
-  loadChart = init(loadChartRef.value)
+  loadChart.mount()
   const { axisLabel, success, warning, danger } = chartPalette()
-  loadChart.setOption({
+  loadChart.applyOption({
     tooltip: { trigger: 'item' },
     series: [
       {
@@ -418,8 +452,8 @@ function initLoadChart() {
           },
         },
         pointer: { itemStyle: { color: 'auto' }, length: '55%', width: 4 },
-        axisTick: { distance: -8, length: 4, lineStyle: { color: '#fff', width: 1 } },
-        splitLine: { distance: -8, length: 8, lineStyle: { color: '#fff', width: 2 } },
+        axisTick: { distance: -8, length: 4, lineStyle: { color: cssVar('--fp-text-invert'), width: 1 } },
+        splitLine: { distance: -8, length: 8, lineStyle: { color: cssVar('--fp-text-invert'), width: 2 } },
         axisLabel: { color: axisLabel, distance: 14, fontSize: 9 },
         detail: { valueAnimation: true, formatter: '{value}', color: axisLabel, fontSize: 16, offsetCenter: [0, '55%'] },
         data: [{ value: 0 }],
@@ -429,32 +463,82 @@ function initLoadChart() {
 }
 
 function updateLoadChart() {
-  if (!loadChart) return
-  loadChart.setOption({ series: [{ data: [{ value: +snap.load_one.toFixed(2) }] }] })
+  if (!loadChart.instance()) return
+  loadChart.setOption({ series: [{ data: [{ value: +snap.load_one.toFixed(2) }] }] }, true)
 }
 
+// ── F1.3 图表性能：1s 节流合并更新 + 不可见不更新 ─────────────────
+// 后端 WS 推送间隔可能 < 1s，直接每个 tick 都 setOption 会在低端机产生长任务尖刺。
+// 这里统一节流：1s 窗口内只执行一次「合并三图」更新；切到后台（keep-alive 失活）时
+// useECharts 已暂停 setOption，这里额外用 visibility 控制跳过无谓计算。
+let chartTimer: number | null = null
+let chartPending = false
+
+function isChartVisible(): boolean {
+  return document.visibilityState === 'visible'
+}
+
+function flushCharts() {
+  chartTimer = null
+  chartPending = false
+  if (!isChartVisible()) return
+  updateChart()
+  updateNetChart()
+  updateLoadChart()
+}
+
+/** 节流入口：WS tick 调用，最多每 1000ms 合并刷新一次三图 */
+function scheduleCharts() {
+  if (!isChartVisible()) {
+    // 后台：标记待刷新，回到前台时补一次
+    chartPending = true
+    return
+  }
+  if (chartTimer === null) {
+    chartTimer = window.setTimeout(flushCharts, 1000)
+  }
+}
+
+// 页面恢复可见时若积压了更新，立即补一次
+function onChartVisibility() {
+  if (document.visibilityState === 'visible' && chartPending) {
+    if (chartTimer !== null) {
+      window.clearTimeout(chartTimer)
+      chartTimer = null
+    }
+    flushCharts()
+  }
+}
+
+// F1.1：WS 消息与查询缓存同步（WS 写缓存，避免双源真相）
+const metricsQueryClient = useQueryCacheClient()
+function syncMetricsToCache() {
+  metricsQueryClient.setQueryData(['metrics', 'history'], history.value)
+}
+
+const wsMetrics = useWebSocket('/ws/metrics', {
+  onStatus: (connected) => {
+    wsConnected.value = connected
+  },
+  onMessage: (data) => {
+    const msg = data as { type: string; data: MetricsSnapshot }
+    if (msg.type === 'init') {
+      history.value = msg.data as unknown as MetricsSnapshot[]
+    } else if (msg.type === 'tick') {
+      history.value.push(msg.data)
+      if (history.value.length > 120) history.value.shift()
+      Object.assign(snap, msg.data)
+      lastUpdate.value = new Date().toLocaleString()
+    }
+    syncMetricsToCache()
+    scheduleCharts()
+  },
+})
+
+const procPolling = usePolling(refreshProcesses, 10000, { immediate: false })
+
 onMounted(() => {
-  wsConn = connectWithRetry('/ws/metrics', {
-    onStatus: (connected) => {
-      wsConnected.value = connected
-    },
-    onMessage: (data) => {
-      const msg = data as { type: string; data: MetricsSnapshot }
-      if (msg.type === 'init') {
-        history.value = msg.data as unknown as MetricsSnapshot[]
-      } else if (msg.type === 'tick') {
-        history.value.push(msg.data)
-        if (history.value.length > 120) history.value.shift()
-        Object.assign(snap, msg.data)
-        lastUpdate.value = new Date().toLocaleString()
-      }
-      nextTick(() => {
-        updateChart()
-        updateNetChart()
-        updateLoadChart()
-      })
-    },
-  })
+  wsMetrics.connect()
   nextTick(() => {
     initChart()
     initNetChart()
@@ -462,19 +546,20 @@ onMounted(() => {
   })
   themeObserver = new MutationObserver(() => applyChartTheme())
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
+  document.addEventListener('visibilitychange', onChartVisibility)
   refreshProcesses()
   refreshTodos()
   refreshCommonApps()
-  procTimer = window.setInterval(refreshProcesses, 10000)
+  procPolling.start()
 })
 
 onUnmounted(() => {
-  wsConn?.close()
-  chart?.dispose()
-  netChart?.dispose()
-  loadChart?.dispose()
   themeObserver?.disconnect()
-  if (procTimer !== null) clearInterval(procTimer)
+  document.removeEventListener('visibilitychange', onChartVisibility)
+  if (chartTimer !== null) {
+    window.clearTimeout(chartTimer)
+    chartTimer = null
+  }
 })
 </script>
 
@@ -495,11 +580,38 @@ onUnmounted(() => {
   border: 1px solid var(--fp-border);
   transition:
     box-shadow var(--fp-transition-fast),
-    transform 120ms var(--fp-ease-out);
+    transform 120ms var(--fp-ease-out),
+    border-color var(--fp-transition-fast);
+  /* 重置 button 默认样式 */
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: default;
 }
-.stat-card:hover {
-  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.18);
+.stat-card.is-clickable {
+  cursor: pointer;
+}
+.stat-card.is-clickable:hover {
+  box-shadow: var(--fp-shadow-lg);
   transform: translateY(-1px);
+  border-color: var(--fp-brand);
+}
+.stat-card.is-clickable:focus-visible {
+  outline: 2px solid var(--fp-brand);
+  outline-offset: 2px;
+}
+.stat-card.is-clickable:active {
+  transform: translateY(0) scale(0.99);
+}
+.stat-go {
+  color: var(--fp-text-muted);
+  font-size: 14px;
+  flex-shrink: 0;
+  transition: color var(--fp-transition-fast), transform var(--fp-transition-fast);
+}
+.stat-card.is-clickable:hover .stat-go {
+  color: var(--fp-brand);
+  transform: translateX(2px);
 }
 .stat-icon {
   display: flex;
@@ -552,23 +664,6 @@ onUnmounted(() => {
 }
 
 /* 面板 */
-.panel {
-  padding: var(--fp-space-4);
-  border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
-  border: 1px solid var(--fp-border);
-}
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--fp-space-3);
-}
-.panel-title {
-  font-size: 14.5px;
-  font-weight: 600;
-  color: var(--fp-text-primary);
-}
 .panel-empty {
   padding: var(--fp-space-6) var(--fp-space-2);
   text-align: center;

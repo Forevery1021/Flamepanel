@@ -3,23 +3,13 @@ pub mod flame;
 pub mod onepanel;
 
 use crate::core::error::AppError;
-use crate::domain::entity::{AppMetadata, AppVersionInfo, FormField};
+use crate::domain::entity::FormField;
+use async_trait::async_trait;
 use std::path::Path;
 use std::sync::Arc;
 
-/// 应用包适配器：统一 1Panel / 宝塔 / 内置 Flame 三种格式
-pub trait AppPackageAdapter: Send + Sync {
-    fn detect(&self, root: &Path) -> bool;
-
-    fn parse_metadata(&self, root: &Path) -> Result<AppMetadata, AppError>;
-
-    fn list_versions(&self, root: &Path) -> Result<Vec<String>, AppError>;
-
-    fn parse_version(&self, root: &Path, version: &str) -> Result<AppVersionInfo, AppError>;
-
-    /// 本格式支持的标准端口变量列表，供前端预填
-    fn known_port_vars(&self) -> &'static [&'static str];
-}
+// 应用包适配器 trait 定义位于 application 层端口（六边形），此处重新导出。
+pub use crate::application::app_store_ports::AppPackageAdapter;
 
 /// 供适配器复用：排除非版本目录名
 pub fn is_version_dir(name: &str) -> bool {
@@ -56,7 +46,7 @@ pub fn is_version_dir(name: &str) -> bool {
     name.chars().any(|c| c.is_ascii_digit()) || lower.contains("beta") || lower.contains("rc")
 }
 
-/// 根据目录结构自动选择适配器
+/// 根据目录结构自动选择适配器（默认实现，供 `AppAdapterProvider` 使用）
 pub fn select_adapter(root: &Path) -> Result<Arc<dyn AppPackageAdapter>, AppError> {
     let adapters: Vec<Arc<dyn AppPackageAdapter>> = vec![
         Arc::new(flame::FlameAdapter),
@@ -69,6 +59,16 @@ pub fn select_adapter(root: &Path) -> Result<Arc<dyn AppPackageAdapter>, AppErro
         .ok_or_else(|| {
             AppError::BadRequest("无法识别的应用包格式（需包含 app.json 或 data.yml）".into())
         })
+}
+
+/// 适配器选择端口实现：将 `select_adapter` 封装为可注入的端口。
+pub struct DefaultAdapterProvider;
+
+#[async_trait]
+impl crate::application::app_store_ports::AppAdapterProvider for DefaultAdapterProvider {
+    fn select(&self, root: &Path) -> Result<Arc<dyn AppPackageAdapter>, AppError> {
+        select_adapter(root)
+    }
 }
 
 pub(crate) fn field_type_from_str(s: &str) -> crate::domain::entity::FieldType {

@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { watch } from 'vue'
+import { useStorage } from '@vueuse/core'
+import { STORAGE_KEYS, rawStringSerializer } from '@/utils/storage'
 
 export type ThemeMode = 'light' | 'dark'
 export type ThemePreset = 'flame' | 'aurora' | 'infinity' | 'custom'
@@ -19,10 +21,6 @@ export interface CustomTheme {
   loginBackground: string
 }
 
-const MODE_KEY = 'flamepanel.mode'
-const PRESET_KEY = 'flamepanel.theme'
-const CUSTOM_KEY = 'flamepanel.custom'
-
 export const PRESET_META: Record<ThemePreset, { labelKey: string; descKey: string }> = {
   flame: { labelKey: 'settingsTheme.flame', descKey: 'settingsTheme.flameDesc' },
   aurora: { labelKey: 'settingsTheme.aurora', descKey: 'settingsTheme.auroraDesc' },
@@ -30,36 +28,40 @@ export const PRESET_META: Record<ThemePreset, { labelKey: string; descKey: strin
   custom: { labelKey: 'settingsTheme.custom', descKey: 'settingsTheme.customDesc' },
 }
 
-function loadJSON<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? { ...fallback, ...JSON.parse(raw) } : fallback
-  } catch {
-    return fallback
-  }
+const DEFAULT_THEME: CustomTheme = {
+  hue: 35,
+  saturation: 65,
+  lightness: 62,
+  glassBlur: 12,
+  radius: 'standard',
+  density: 'standard',
+  appBackground: '',
+  loginBackground: '',
 }
 
 export const useThemeStore = defineStore('theme', () => {
-  const mode = ref<ThemeMode>(localStorage.getItem(MODE_KEY) === 'light' ? 'light' : 'dark')
-  const preset = ref<ThemePreset>(
-    (localStorage.getItem(PRESET_KEY) as ThemePreset | null) ?? 'flame',
-  )
-  const custom = ref<CustomTheme>(
-    loadJSON<CustomTheme>(CUSTOM_KEY, {
-      hue: 35,
-      saturation: 65,
-      lightness: 62,
-      glassBlur: 12,
-      radius: 'standard',
-      density: 'standard',
-      appBackground: '',
-      loginBackground: '',
-    }),
-  )
+  // P6：改用 @vueuse/core useStorage 统一持久化（保持既有存储格式，避免漂移）
+  const mode = useStorage<ThemeMode>(STORAGE_KEYS.mode, 'dark', undefined, {
+    serializer: rawStringSerializer<ThemeMode>(),
+  })
+  const preset = useStorage<ThemePreset>(STORAGE_KEYS.preset, 'flame', undefined, {
+    serializer: rawStringSerializer<ThemePreset>(),
+  })
+  const custom = useStorage<CustomTheme>(STORAGE_KEYS.custom, DEFAULT_THEME, undefined, {
+    mergeDefaults: true,
+  })
+  /** 玻璃总开关：关闭时全部回退实色表面（低端设备 / 用户偏好） */
+  const glassEnabled = useStorage<boolean>(STORAGE_KEYS.glass, true)
+
+  function setGlassEnabled(next: boolean) {
+    glassEnabled.value = next
+    document.documentElement.classList.toggle('glass-disabled', !next)
+  }
 
   function apply() {
     const root = document.documentElement
     root.classList.toggle('dark', mode.value === 'dark')
+    root.classList.toggle('glass-disabled', !glassEnabled.value)
     root.setAttribute('data-theme', preset.value)
 
     const vars: Record<string, string> = {}
@@ -102,30 +104,27 @@ export const useThemeStore = defineStore('theme', () => {
     vars['--fp-login-bg'] = loginBgValue ? bg(loginBgValue) : 'none'
     root.classList.toggle('app-bg-enabled', !!appBgValue)
 
+    // 批量写 CSS 变量：一次重排，避免逐条 setProperty 多次强制回流（F2.3）
+    const style = root.style
     for (const [k, v] of Object.entries(vars)) {
-      root.style.setProperty(k, v)
+      style.setProperty(k, v)
     }
   }
 
   function setMode(next: ThemeMode) {
     mode.value = next
-    localStorage.setItem(MODE_KEY, next)
   }
 
   function setPreset(next: ThemePreset) {
     preset.value = next
-    localStorage.setItem(PRESET_KEY, next)
   }
 
   function updateCustom(patch: Partial<CustomTheme>) {
     custom.value = { ...custom.value, ...patch }
-    localStorage.setItem(CUSTOM_KEY, JSON.stringify(custom.value))
   }
 
   function resetCustom() {
-    const defaults = { ...DEFAULT_CUSTOM.flame }
-    custom.value = defaults
-    localStorage.setItem(CUSTOM_KEY, JSON.stringify(defaults))
+    custom.value = { ...DEFAULT_CUSTOM.flame }
   }
 
   /** 从后端设置同步背景（登录后调用；空值表示使用本地） */
@@ -142,9 +141,11 @@ export const useThemeStore = defineStore('theme', () => {
     mode,
     preset,
     custom,
+    glassEnabled,
     apply,
     setMode,
     setPreset,
+    setGlassEnabled,
     updateCustom,
     resetCustom,
     syncFromServer,

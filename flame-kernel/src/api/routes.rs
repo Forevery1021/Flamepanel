@@ -1,6 +1,6 @@
 use crate::api::handler::{
     app_store, auth, backup, database, docker, file, firewall, health, log, memo, metrics, node,
-    operation_log, plugin, scheduled_task, settings, user, web_server, website, ws,
+    operation_log, outbox, plugin, scheduled_task, settings, task, user, web_server, website, ws,
 };
 use crate::api::types::AppState;
 use crate::core::error::AppError;
@@ -13,7 +13,7 @@ pub async fn fallback_handler(uri: axum::http::Uri) -> AppError {
 
 /// 组合根：汇聚各 handler 模块的路由表，附加全局中间件（见 middleware::add_middleware）
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
+    let mut app = Router::new()
         .route("/health", get(|| async { "OK" }))
         .merge(health::routes())
         .merge(auth::routes())
@@ -29,12 +29,20 @@ pub fn create_router(state: AppState) -> Router {
         .merge(file::routes())
         .merge(firewall::routes())
         .merge(operation_log::routes())
+        .merge(outbox::routes())
         .merge(backup::routes())
         .merge(scheduled_task::routes())
+        .merge(task::routes())
         .merge(log::routes())
         .merge(memo::routes())
         .merge(metrics::routes())
         .merge(ws::routes())
-        .fallback(fallback_handler)
-        .with_state(state)
+        .fallback(fallback_handler);
+
+    // Stage3.3：OpenAPI 文档 + Swagger UI（feature 控制）
+    app = app
+        .merge(crate::openapi::openapi_router())
+        .merge(crate::openapi::swagger_ui_router());
+
+    app.with_state(state)
 }

@@ -28,11 +28,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = AppConfig::load().unwrap_or_default();
 
+    #[cfg(feature = "sqlite")]
     let factory = if config.database.url != "sqlite://data/app.db" {
         tracing::info!("Using SQLite backend: {}", config.database.url);
         RepoFactory::new_sqlite(&config.database.url).await?
     } else {
         tracing::info!("Using in-memory backend");
+        RepoFactory::new_in_memory()
+    };
+    #[cfg(not(feature = "sqlite"))]
+    let factory = {
+        tracing::info!("SQLite backend disabled (feature `sqlite` off); using in-memory backend");
         RepoFactory::new_in_memory()
     };
 

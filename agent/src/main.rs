@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use axum::{
@@ -11,6 +12,160 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sysinfo::System;
 
+// ─── Agent 动作枚举（Phase A1：危险动作枚举化，禁止任意拼 Shell）────
+// 每个变体对应一个明确、受限的操作，杜绝 Agent 成为无差别 Shell 网关。
+/// Agent 动作枚举（Phase A1）：危险动作枚举化，禁止任意拼 Shell。
+/// 使用 `#[serde(untagged)]` 以便同时支持 `{"action":"ping"}` 与 `{"action":"ping","params":{}}`。
+#[derive(Debug, Deserialize)]
+#[serde(tag = "action", content = "params", rename_all = "snake_case")]
+pub enum AgentAction {
+    /// 健康检查 / 存活探针
+    #[serde(rename_all = "snake_case")]
+    Ping {},
+    /// 系统基本信息（主机名、CPU、内存、磁盘）
+    #[serde(rename_all = "snake_case")]
+    SystemInfo {},
+    /// 服务状态查询（systemd unit）
+    ServiceStatus { name: String },
+    /// 服务启动（systemd）
+    ServiceStart { name: String },
+    /// 服务停止（systemd）
+    ServiceStop { name: String },
+    /// 服务重启（systemd）
+    ServiceRestart { name: String },
+    /// 文件是否存在
+    FileExists { path: String },
+    /// 路径是否目录
+    PathIsDir { path: String },
+    /// 仅允许白名单内的命令（禁止任意 Shell）
+    WhitelistedCommand {
+        command: String,
+        timeout_secs: Option<u64>,
+    },
+}
+
+/// 白名单命令前缀（精确匹配，防止 `&&`、`;`、管道拼接绕过）
+const WHITELISTED_CMD_PREFIXES: &[&str] = &[
+    "systemctl status ",
+    "systemctl start ",
+    "systemctl stop ",
+    "systemctl restart ",
+    "systemctl is-active ",
+    "systemctl is-enabled ",
+    "systemctl enable ",
+    "systemctl disable ",
+    "pgrep -x ",
+    "nginx -t",
+    "docker ps",
+    "docker inspect ",
+    "docker logs ",
+    "ss -tlnp",
+    "free -h",
+    "df -h",
+    "uptime",
+    "uname -a",
+    // 防火墙（Phase A1 扩展：防火墙规则随 execution_mode=agent 迁移）
+    "which ",
+    "ufw status",
+    "ufw --force enable",
+    "ufw disable",
+    "ufw delete ",
+    "ufw allow",
+    "ufw deny",
+    "ufw reject",
+    "firewall-cmd --state",
+    "firewall-cmd --reload",
+    "firewall-cmd --permanent --add-rich-rule=",
+    "firewall-cmd --permanent --remove-rich-rule=",
+    "firewall-cmd --permanent --add-port=",
+    "firewall-cmd --permanent --remove-port=",
+    "iptables -L",
+    "iptables -A ",
+    "iptables -D ",
+    "iptables -F",
+    // 包管理（Phase A1 扩展：PackageManager/ServiceManager 随 execution_mode=agent 迁移）
+    "apt install ",
+    "apt-get remove ",
+    "dpkg -l ",
+    "yum install ",
+    "dnf remove ",
+    "rpm -q ",
+    "apk add ",
+    "apk del ",
+    "apk info ",
+    // Web 引擎管理（Phase A1 扩展：WebServerManager 引擎 reload/启停/config_test 迁移）
+    "killall ",
+    "nginx -s ",
+    "nginx -t",
+    "httpd -k ",
+    "httpd -t",
+    "lshttpd -c ",
+    "/usr/local/lsws/bin/lswsctrl ",
+    "openresty -s ",
+    "openresty -t",
+    "caddy reload",
+    "caddy validate",
+    // Docker compose（Phase A1 扩展：Bollard 降级路径迁移）
+    "docker compose ",
+    "docker-compose ",
+    // Web 引擎原生检测（Phase A1 扩展：WebServerNativeManager 版本/端口扫描迁移）
+    "nginx -v",
+    "httpd -v",
+    "openresty -v",
+    "lshttpd -v",
+    "caddy version",
+    "ss -tln",
+    "netstat -tln",
+    // 原生数据库管理（Phase A1 扩展：MySqlManager/RedisManager 迁移到统一端口）
+    "mysql -u root -e ",
+    "mysqladmin ping ",
+    "mysqladmin -u root ping ",
+    "redis-cli ",
+    "redis-server --version",
+];
+
+fn is_whitelisted(cmd: &str) -> bool {
+    let cmd = cmd.trim();
+    // 禁止危险 shell 元字符注入（&&, ;, |, $(), `, >, <, newline）
+    let dangerous = [';', '|', '&', '$', '`', '>', '<', '\n', '\r', '\0'];
+    if cmd.is_empty() {
+        return false;
+    }
+    // 不允许空命令或只含空白
+    if cmd.chars().all(char::is_whitespace) {
+        return false;
+    }
+    // 不允许括号/子shell/重定向/变量扩展等
+    if cmd.contains("$(") || cmd.contains("${") {
+        return false;
+    }
+    for c in dangerous {
+        if cmd.contains(c) {
+            return false;
+        }
+    }
+    WHITELISTED_CMD_PREFIXES.iter().any(|p| cmd.starts_with(p))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", content = "data", rename_all = "snake_case")]
+pub enum AgentActionResult {
+    Ok(serde_json::Value),
+    Err { code: String, message: String },
+}
+
+impl AgentActionResult {
+    fn ok(v: serde_json::Value) -> Self {
+        Self::Ok(v)
+    }
+    fn err(code: &str, msg: impl Into<String>) -> Self {
+        Self::Err {
+            code: code.into(),
+            message: msg.into(),
+        }
+    }
+}
+
 // ─── Config ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -20,6 +175,10 @@ struct AgentConfig {
     node_host: String,
     agent_port: u16,
     auth_token: String,
+    /// 是否开启原始 `/exec` 任意命令端点（默认关闭，需显式 `ALLOW_EXEC=1`）。
+    allow_exec: bool,
+    /// 文件读写白名单根目录（默认当前目录；未配置则拒绝文件读写）。
+    file_root: String,
 }
 
 impl AgentConfig {
@@ -33,7 +192,12 @@ impl AgentConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(9527),
-            auth_token: std::env::var("AUTH_TOKEN").unwrap_or_else(|_| uuid_v4()),
+            auth_token: std::env::var("AUTH_TOKEN")
+                .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string()),
+            allow_exec: std::env::var("ALLOW_EXEC")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+            file_root: std::env::var("FILE_ROOT").unwrap_or_else(|_| ".".into()),
         }
     }
 }
@@ -52,15 +216,6 @@ fn local_ip() -> String {
         }
     }
     "127.0.0.1".into()
-}
-
-fn uuid_v4() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    format!("node-token-{ts:x}")
 }
 
 // ─── Metrics ───────────────────────────────────────────────────────────────────
@@ -175,9 +330,54 @@ async fn send_heartbeat(panel_url: &str, node_id: i64, metrics: &HeartbeatPayloa
 
 // ─── Agent HTTP Server ─────────────────────────────────────────────────────────
 
+// 启动时由 main 初始化一次；各 handler 经常量时间比较校验 token。
+static AUTH_TOKEN_CELL: OnceLock<String> = OnceLock::new();
+// 是否允许原始 /exec 任意命令端点（默认关闭）。
+static ALLOW_EXEC_CELL: OnceLock<bool> = OnceLock::new();
+// 文件读写白名单根目录。
+static FILE_ROOT_CELL: OnceLock<PathBuf> = OnceLock::new();
+
+/// 常量时间字符串比较，避免基于比较时长的时序侧信道。
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    let mut diff: u8 = 0;
+    for i in 0..a.len() {
+        diff |= a[i] ^ b[i];
+    }
+    diff == 0
+}
+
 fn check_auth(token: &str) -> bool {
-    let expected = std::env::var("AUTH_TOKEN").unwrap_or_else(|_| String::new());
-    token == expected
+    let expected = AUTH_TOKEN_CELL.get().map(|s| s.as_str()).unwrap_or("");
+    !expected.is_empty() && constant_time_eq(token, expected)
+}
+
+/// 校验路径是否位于文件白名单根目录内，防止任意绝对路径读写（S3）。
+fn ensure_within_file_root(
+    path: &PathBuf,
+) -> Result<PathBuf, (axum::http::StatusCode, Json<serde_json::Value>)> {
+    let root = FILE_ROOT_CELL
+        .get()
+        .cloned()
+        .unwrap_or_else(|| PathBuf::from("."));
+    let root_abs = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
+    let target_abs = if path.is_absolute() {
+        path.clone()
+    } else {
+        root_abs.join(path)
+    };
+    let target_abs = std::fs::canonicalize(&target_abs).unwrap_or(target_abs);
+    if !target_abs.starts_with(&root_abs) {
+        return Err((
+            axum::http::StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "path outside allowed file root"})),
+        ));
+    }
+    Ok(target_abs)
 }
 
 fn auth_error() -> (axum::http::StatusCode, Json<serde_json::Value>) {
@@ -235,6 +435,16 @@ async fn exec_endpoint(
         return Err(auth_error());
     }
 
+    // T2：/exec 默认关闭，需 agent 侧显式 ALLOW_EXEC=1 开启，且非空 token 才放行。
+    if !ALLOW_EXEC_CELL.get().copied().unwrap_or(false) {
+        return Err((
+            axum::http::StatusCode::FORBIDDEN,
+            Json(
+                serde_json::json!({"error": "exec endpoint disabled (set ALLOW_EXEC=1 to enable)"}),
+            ),
+        ));
+    }
+
     let timeout = body.timeout_secs.unwrap_or(30);
     let start = std::time::Instant::now();
 
@@ -282,7 +492,10 @@ async fn list_files_endpoint(
     }
 
     let base = q.path.as_deref().unwrap_or(".");
-    let dir = PathBuf::from(base);
+    let dir = match ensure_within_file_root(&PathBuf::from(base)) {
+        Ok(d) => d,
+        Err(e) => return Err(e),
+    };
 
     let mut entries = Vec::new();
     if let Ok(mut rd) = tokio::fs::read_dir(&dir).await {
@@ -326,7 +539,10 @@ async fn download_file_endpoint(
         return Err(auth_error());
     }
 
-    let path = PathBuf::from(&q.path);
+    let path = match ensure_within_file_root(&PathBuf::from(&q.path)) {
+        Ok(p) => p,
+        Err(e) => return Err(e),
+    };
     if !path.is_file() {
         return Err((
             axum::http::StatusCode::NOT_FOUND,
@@ -355,7 +571,10 @@ async fn upload_file_endpoint(
         return Err(auth_error());
     }
 
-    let target = PathBuf::from(&q.path);
+    let target = match ensure_within_file_root(&PathBuf::from(&q.path)) {
+        Ok(t) => t,
+        Err(e) => return Err(e),
+    };
     if let Some(parent) = target.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -372,9 +591,143 @@ async fn upload_file_endpoint(
     ))
 }
 
+// ─── Action 分发（Phase A1）────────────────────────────────────────────
+
+async fn run_whitelisted_cmd(cmd: &str, timeout_secs: Option<u64>) -> (String, i32) {
+    if !is_whitelisted(cmd) {
+        return (format!("command not in whitelist: {cmd}"), -1);
+    }
+    let timeout = timeout_secs.unwrap_or(30);
+    let result = tokio::time::timeout(
+        Duration::from_secs(timeout),
+        tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .output(),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(output)) => (
+            String::from_utf8_lossy(&output.stdout).to_string()
+                + String::from_utf8_lossy(&output.stderr).as_ref(),
+            output.status.code().unwrap_or(-1),
+        ),
+        Ok(Err(e)) => (format!("Command execution error: {e}"), -1),
+        Err(_) => ("Command timed out".into(), -1),
+    }
+}
+
+/// 动作分发端点：`POST /action`，body 为 `{"action":"...","params":{...}}`
+async fn action_endpoint(
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<Json<AgentActionResult>, (axum::http::StatusCode, Json<serde_json::Value>)> {
+    let token = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !check_auth(token) {
+        return Err(auth_error());
+    }
+
+    // 解析动作（失败返回 JSON 400）
+    let action: AgentAction = match serde_json::from_slice(&body) {
+        Ok(a) => a,
+        Err(e) => {
+            return Err((
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!("invalid agent action: {e}"),
+                    "expected": "{\"action\":\"ping\"|\"system_info\"|...}"
+                })),
+            ))
+        }
+    };
+
+    let result = match action {
+        AgentAction::Ping {} => {
+            AgentActionResult::ok(serde_json::json!({ "pong": true, "ts": chrono_timestamp() }))
+        }
+        AgentAction::SystemInfo {} => {
+            let mut sys = System::new_all();
+            sys.refresh_all();
+            let host = System::host_name().unwrap_or_default();
+            let cpu = sys.global_cpu_usage().clamp(0.0, 100.0);
+            let mem_total = sys.total_memory();
+            let mem_used = sys.used_memory();
+            let load = System::load_average();
+            AgentActionResult::ok(serde_json::json!({
+                "hostname": host,
+                "cpu_usage": cpu,
+                "memory_total_bytes": mem_total,
+                "memory_used_bytes": mem_used,
+                "load_one": load.one,
+                "load_five": load.five,
+                "load_fifteen": load.fifteen,
+            }))
+        }
+        AgentAction::ServiceStatus { name } => {
+            let (out, code) = run_whitelisted_cmd(&format!("systemctl status {name}"), None).await;
+            AgentActionResult::ok(
+                serde_json::json!({"service": name, "output": out, "exit_code": code}),
+            )
+        }
+        AgentAction::ServiceStart { name } => {
+            let (out, code) = run_whitelisted_cmd(&format!("systemctl start {name}"), None).await;
+            AgentActionResult::ok(
+                serde_json::json!({"service": name, "output": out, "exit_code": code}),
+            )
+        }
+        AgentAction::ServiceStop { name } => {
+            let (out, code) = run_whitelisted_cmd(&format!("systemctl stop {name}"), None).await;
+            AgentActionResult::ok(
+                serde_json::json!({"service": name, "output": out, "exit_code": code}),
+            )
+        }
+        AgentAction::ServiceRestart { name } => {
+            let (out, code) = run_whitelisted_cmd(&format!("systemctl restart {name}"), None).await;
+            AgentActionResult::ok(
+                serde_json::json!({"service": name, "output": out, "exit_code": code}),
+            )
+        }
+        AgentAction::FileExists { path } => {
+            let ok = std::path::Path::new(&path).exists();
+            AgentActionResult::ok(serde_json::json!({"path": path, "exists": ok}))
+        }
+        AgentAction::PathIsDir { path } => {
+            let ok = std::path::Path::new(&path).is_dir();
+            AgentActionResult::ok(serde_json::json!({"path": path, "is_dir": ok}))
+        }
+        AgentAction::WhitelistedCommand {
+            command,
+            timeout_secs,
+        } => {
+            if !is_whitelisted(&command) {
+                return Ok(Json(AgentActionResult::err(
+                    "ACTION_NOT_ALLOWED",
+                    format!("command not in whitelist: {command}"),
+                )));
+            }
+            let (output, exit_code) = run_whitelisted_cmd(&command, timeout_secs).await;
+            AgentActionResult::ok(serde_json::json!({"output": output, "exit_code": exit_code}))
+        }
+    };
+
+    Ok(Json(result))
+}
+
+fn chrono_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 fn agent_routes() -> Router {
     Router::new()
         .route("/exec", post(exec_endpoint))
+        .route("/action", post(action_endpoint))
         .route("/files/list", get(list_files_endpoint))
         .route("/files/download", get(download_file_endpoint))
         .route("/files/upload", post(upload_file_endpoint))
@@ -386,10 +739,22 @@ fn agent_routes() -> Router {
 async fn main() {
     let config = AgentConfig::from_env();
 
+    // T2：初始化供各 handler 使用的鉴权与权限配置。
+    let _ = AUTH_TOKEN_CELL.set(config.auth_token.clone());
+    let _ = ALLOW_EXEC_CELL.set(config.allow_exec);
+    let _ = FILE_ROOT_CELL.set(PathBuf::from(&config.file_root));
+
     eprintln!("[agent] Flamepanel Agent 启动");
     eprintln!("[agent] 名称: {}", config.node_name);
     eprintln!("[agent] 主机: {}:{}", config.node_host, config.agent_port);
     eprintln!("[agent] 面板: {}", config.panel_url);
+    if config.allow_exec {
+        eprintln!("[agent] 警告: /exec 任意命令端点已开启 (ALLOW_EXEC=1)");
+    }
+    eprintln!("[agent] 文件白名单根目录: {}", config.file_root);
+    if config.auth_token.len() < 16 {
+        eprintln!("[agent] 警告: AUTH_TOKEN 过短，建议设置强随机值");
+    }
 
     // Register with the panel
     let node_id = loop {
@@ -427,4 +792,123 @@ async fn main() {
     axum::serve(listener, app.into_make_service())
         .await
         .expect("Agent HTTP 服务运行异常");
+}
+
+// ── Phase A1 单元测试 ─────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_whitelist_accepts_allowed_commands() {
+        assert!(is_whitelisted("systemctl status nginx"));
+        assert!(is_whitelisted("systemctl start docker"));
+        assert!(is_whitelisted("nginx -t"));
+        assert!(is_whitelisted("docker ps"));
+        assert!(is_whitelisted("ss -tlnp"));
+        assert!(is_whitelisted("uptime"));
+        assert!(is_whitelisted("free -h"));
+        assert!(is_whitelisted("df -h"));
+        // 防火墙命令（Phase A1 扩展）
+        assert!(is_whitelisted("which ufw"));
+        assert!(is_whitelisted("ufw status"));
+        assert!(is_whitelisted("ufw --force enable"));
+        assert!(is_whitelisted("ufw disable"));
+        assert!(is_whitelisted("ufw allow 80/tcp"));
+        assert!(is_whitelisted("ufw delete allow 80/tcp"));
+        assert!(is_whitelisted("firewall-cmd --state"));
+        assert!(is_whitelisted("firewall-cmd --reload"));
+        assert!(is_whitelisted("firewall-cmd --permanent --add-port=80/tcp"));
+        assert!(is_whitelisted(
+            "firewall-cmd --permanent --remove-port=80/tcp"
+        ));
+        assert!(is_whitelisted("iptables -L -n --line-numbers"));
+        assert!(is_whitelisted(
+            "iptables -A INPUT -p tcp --dport 80 -j ACCEPT"
+        ));
+        assert!(is_whitelisted(
+            "iptables -D INPUT -p tcp --dport 80 -j ACCEPT"
+        ));
+        assert!(is_whitelisted("iptables -F"));
+        // 包管理 / 服务管理命令（Phase A1 扩展：PackageManager/ServiceManager 迁移）
+        assert!(is_whitelisted("systemctl enable nginx"));
+        assert!(is_whitelisted("systemctl disable nginx"));
+        assert!(is_whitelisted("pgrep -x nginx"));
+        assert!(is_whitelisted("apt install -y nginx"));
+        assert!(is_whitelisted("apt-get remove -y nginx"));
+        assert!(is_whitelisted("dpkg -l nginx"));
+        assert!(is_whitelisted("yum install -y nginx"));
+        assert!(is_whitelisted("dnf remove -y nginx"));
+        assert!(is_whitelisted("rpm -q nginx"));
+        assert!(is_whitelisted("apk add nginx"));
+        assert!(is_whitelisted("apk del nginx"));
+        assert!(is_whitelisted("apk info -e nginx"));
+        // Web 引擎管理（Phase A1 扩展：WebServerManager 迁移）
+        assert!(is_whitelisted("nginx -s reload"));
+        assert!(is_whitelisted("httpd -k graceful"));
+        assert!(is_whitelisted("httpd -t"));
+        assert!(is_whitelisted("openresty -s reload"));
+        assert!(is_whitelisted("caddy reload"));
+        assert!(is_whitelisted("killall nginx"));
+        assert!(is_whitelisted("/usr/local/lsws/bin/lswsctrl reload"));
+        // Docker compose 降级路径（Phase A1 扩展：Bollard fallback 迁移）
+        assert!(is_whitelisted("docker compose -p proj up -d"));
+        assert!(is_whitelisted("docker compose ls --format json"));
+        assert!(is_whitelisted("docker-compose -p proj down"));
+        // Web 引擎原生检测（Phase A1 扩展：WebServerNativeManager 版本/端口扫描迁移）
+        assert!(is_whitelisted("which nginx"));
+        assert!(is_whitelisted("nginx -v"));
+        assert!(is_whitelisted("httpd -v"));
+        assert!(is_whitelisted("openresty -v"));
+        assert!(is_whitelisted("lshttpd -v"));
+        assert!(is_whitelisted("caddy version"));
+        assert!(is_whitelisted("ss -tln"));
+        assert!(is_whitelisted("netstat -tln"));
+        // 原生数据库管理（Phase A1 扩展：MySqlManager/RedisManager 迁移）
+        assert!(is_whitelisted("mysql -u root -e SELECT 1"));
+        assert!(is_whitelisted("mysqladmin ping -u root"));
+        assert!(is_whitelisted("redis-cli CONFIG GET maxmemory"));
+        assert!(is_whitelisted("redis-server --version"));
+    }
+
+    #[test]
+    fn test_whitelist_rejects_arbitrary_commands() {
+        assert!(!is_whitelisted("rm -rf /"));
+        assert!(!is_whitelisted("cat /etc/shadow"));
+        assert!(!is_whitelisted("echo hello"));
+        assert!(!is_whitelisted("curl http://evil.com"));
+        assert!(!is_whitelisted("systemctl status nginx && rm -rf /"));
+        assert!(!is_whitelisted("bash -c 'ls'"));
+        assert!(!is_whitelisted("sh -c 'rm -rf /'"));
+        assert!(!is_whitelisted("sh -c 'echo x > /etc/passwd'"));
+        assert!(!is_whitelisted("sudo docker ps"));
+        assert!(!is_whitelisted("systemctl start nginx; rm -rf /"));
+        assert!(!is_whitelisted(""));
+    }
+
+    #[test]
+    fn test_action_serialization() {
+        // ping 无参数
+        let v = serde_json::json!({"action": "ping", "params": {}});
+        let action: AgentAction = serde_json::from_value(v).unwrap();
+        assert!(matches!(action, AgentAction::Ping {}));
+
+        // whitelisted_command 带参数
+        let v = serde_json::json!({
+            "action": "whitelisted_command",
+            "params": {"command": "nginx -t", "timeout_secs": 10}
+        });
+        let action: AgentAction = serde_json::from_value(v).unwrap();
+        match action {
+            AgentAction::WhitelistedCommand {
+                command,
+                timeout_secs,
+            } => {
+                assert_eq!(command, "nginx -t");
+                assert_eq!(timeout_secs, Some(10));
+            }
+            other => panic!("expected WhitelistedCommand, got {:?}", other),
+        }
+    }
 }

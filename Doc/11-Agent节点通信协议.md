@@ -101,7 +101,8 @@ Content-Type: application/json
 - 成功：返回 `200`，响应体为节点 `id`（`{"id": 3}`），Agent 保存该 ID 用于后续心跳。
 - 失败：打印错误日志，5 秒后重试，直到注册成功才进入后续流程。
 
-> 对应面板实现：`POST /api/nodes`（`NodeService::register_node`）。注意：当前 Agent 注册时携带的 `auth_token` 字段在面板 `CreateNodeRequest` 中并未持久化到 `nodes` 表，**属于已知的协议缺口**（见下文安全建议）。
+> 对应面板实现：`POST /api/nodes/register`（公开白名单，免 JWT，返回 `{"id": n}`）。
+> Stage5 已落地：Agent 注册时携带的 `auth_token` 与 `agent_port` 会持久化到 `nodes` 表（幂等迁移补列），面板后续远程调用携带 `Authorization: Bearer <auth_token>` 完成 Agent 侧鉴权。
 
 ### 3.2 心跳（周期上报）
 
@@ -213,7 +214,7 @@ Agent 监听 `0.0.0.0:{AGENT_PORT}`，所有接口均需 `Authorization` 头携�
 | 层面 | 现状 | 风险与建议 |
 |------|------|------------|
 | 面板 → Agent 鉴权 | 单一 `AUTH_TOKEN` 明文头比对 | 建议升级为 JWT / mTLS；令牌经 `PANEL_URL` 所在内网分发 |
-| Agent 注册令牌 | 面板未持久化/校验 `auth_token` | 需在面板 `nodes` 表增加 `auth_token` 字段并在注册时校验唯一性 |
+| Agent 注册令牌 | Stage5 已持久化到 `nodes.auth_token`（注册时落库），面板远程调用携带 `Bearer <auth_token>` 校验；建议后续补充注册时令牌唯一性校验 |
 | 命令执行 | 任意 shell 命令 | **高危**。建议增加命令白名单/黑名单、审计日志、操作人绑定 |
 | 传输加密 | 明文 HTTP | 生产必须走 HTTPS / VPN / WireGuard 内网 |
 | 端口暴露 | `0.0.0.0:9527` | 建议仅监听内网地址 `127.0.0.1` 或指定网卡 |
@@ -223,8 +224,8 @@ Agent 监听 `0.0.0.0:{AGENT_PORT}`，所有接口均需 `Authorization` 头携�
 
 | 面板模块 | 与 Agent 的关系 |
 |----------|-----------------|
-| `node` handler | `POST /api/nodes` 承接 Agent 注册（`CreateNodeRequest.node`） |
-| `file` handler | 面板本地文件操作；Agent `/files/*` 是**远程节点**文件操作的对应能力（尚未在面板前端集成） |
+| `node` handler | `POST /api/nodes/register` 承接 Agent 注册（`CreateNodeRequest` 平铺格式 + auth_token + agent_port）；`/api/nodes/{id}/execute`、`/api/nodes/{id}/files*` 远程调用（Stage5） |
+| `file` handler | 面板本地文件操作；Agent `/files/*` 是**远程节点**文件操作的对应能力（Stage5 已在面板前端集成：节点文件弹窗） |
 | `terminal` | 面板本地 bash WebSocket 终端；Agent `/exec` 可视为远程命令的同步版本 |
 | `ws/metrics` | 面板**本机**指标推送；节点指标需 Agent 心跳 + 面板落库后才可汇聚展示 |
 | `event` 总线 | 建议在 Agent 注册/心跳/掉线时发布 `DomainEvent`，驱动通知（见 12 文档） |

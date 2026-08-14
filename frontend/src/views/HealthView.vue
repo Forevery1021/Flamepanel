@@ -37,40 +37,40 @@
         <span class="panel-title">{{ t('health.routes') }}</span>
       </div>
       <FpTable :rows="routes" :paginator="false" size="small">
-        <Column :header="t('health.method')" style="width: 130px">
+        <FpColumn :header="t('health.method')" style="width: 130px">
           <template #body="{ data }">
             <FpTag :severity="methodSeverity(data.method)" :value="data.method" />
           </template>
-        </Column>
-        <Column :header="t('health.path')" field="path">
+        </FpColumn>
+        <FpColumn :header="t('health.path')" field="path">
           <template #body="{ data }">
             <span class="mono path-text">{{ data.path }}</span>
           </template>
-        </Column>
-        <Column :header="t('health.auth')" style="width: 90px">
+        </FpColumn>
+        <FpColumn :header="t('health.auth')" style="width: 90px">
           <template #body="{ data }">
             <FpTag :severity="data.auth ? 'danger' : 'neutral'" :value="data.auth ? t('health.required') : t('health.none')" />
           </template>
-        </Column>
+        </FpColumn>
       </FpTable>
     </div>
   </LayoutContent>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Column from 'openvue/column'
-import { connectWithRetry } from '@/utils/ws'
+
 import { fetchHealthDetail } from '@/api/health'
 import FpTag from '@/components/ui/FpTag.vue'
 import FpTable from '@/components/ui/FpTable.vue'
 import LayoutContent from '@/components/ui/LayoutContent.vue'
-import type { HealthDetail } from '@/types'
+import FpColumn from '@/components/ui/FpColumn.vue'
+import { useWebSocket } from '@/composables/useWebSocket'
+import type { HealthDetail } from '@/api/generated'
 
 const { t } = useI18n()
 const wsOk = ref(false)
-let wsConn: ReturnType<typeof connectWithRetry> | null = null
 
 const health = ref<HealthDetail | null>(null)
 const dbOk = ref(false)
@@ -196,17 +196,17 @@ const routes = [
   { method: 'WS', path: '/ws/terminal', auth: true },
 ]
 
-onMounted(() => {
-  refreshHealth()
-  wsConn = connectWithRetry('/ws/metrics', {
-    onStatus: (connected) => {
-      wsOk.value = connected
-    },
-    onMessage: () => {},
-  })
+const wsMetrics = useWebSocket('/ws/metrics', {
+  onStatus: (connected) => {
+    wsOk.value = connected
+  },
+  onMessage: () => {},
 })
 
-onUnmounted(() => wsConn?.close())
+onMounted(() => {
+  refreshHealth()
+  wsMetrics.connect()
+})
 </script>
 
 <style scoped>
@@ -234,23 +234,6 @@ onUnmounted(() => wsConn?.close())
   font-size: 12px;
   color: var(--fp-text-secondary);
   word-break: break-all;
-}
-.panel {
-  padding: var(--fp-space-4);
-  border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
-  border: 1px solid var(--fp-border);
-}
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--fp-space-3);
-}
-.panel-title {
-  font-size: 14.5px;
-  font-weight: 600;
-  color: var(--fp-text-primary);
 }
 .dot {
   width: 10px;

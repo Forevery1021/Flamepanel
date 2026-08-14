@@ -19,29 +19,29 @@
         :first="(currentPage - 1) * pageSize"
         :empty-text="t('common.noData')"
         striped-rows
-        scrollable
-        scroll-height="620px"
+        virtual
+        virtual-scroll-height="620px"
       >
-        <Column field="id" :header="t('log.id')" style="width: 60px" />
-        <Column field="username" :header="t('log.user')" style="width: 120px" />
-        <Column :header="t('log.action')" style="width: 180px">
+        <FpColumn field="id" :header="t('log.id')" style="width: 60px" />
+        <FpColumn field="username" :header="t('log.user')" style="width: 120px" />
+        <FpColumn :header="t('log.action')" style="width: 180px">
           <template #body="{ data }">
             <FpTag :severity="actionSeverity(data.action)" :value="data.action" />
           </template>
-        </Column>
-        <Column field="target" :header="t('log.target')" style="min-width: 200px" />
-        <Column field="ip" :header="t('log.ip')" style="width: 140px" />
-        <Column field="created_at" :header="t('log.time')" style="width: 180px">
+        </FpColumn>
+        <FpColumn field="target" :header="t('log.target')" style="min-width: 200px" />
+        <FpColumn field="ip" :header="t('log.ip')" style="width: 140px" />
+        <FpColumn field="created_at" :header="t('log.time')" style="width: 180px">
           <template #body="{ data }">
             <span class="mono">{{ data.created_at }}</span>
           </template>
-        </Column>
+        </FpColumn>
       </FpTable>
-      <Paginator
+      <FpPagination
         v-if="total > pageSize"
         :first="(currentPage - 1) * pageSize"
         :rows="pageSize"
-        :total-records="total"
+        :total="total"
         :rows-per-page-options="[20, 50, 100]"
         @update:first="(f) => goPage(f)"
       />
@@ -50,23 +50,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Column from 'openvue/column'
-import Paginator from 'openvue/paginator'
+
+
 import LayoutContent from '@/components/ui/LayoutContent.vue'
 import FpTable from '@/components/ui/FpTable.vue'
 import FpSelect from '@/components/ui/FpSelect.vue'
 import FpTag from '@/components/ui/FpTag.vue'
+import FpColumn from '@/components/ui/FpColumn.vue'
+import FpPagination from '@/components/ui/FpPagination.vue'
 import { listOperationLogs } from '@/api/logs'
+import { useApiQuery } from '@/composables/useApiQuery'
+import { queryKeys } from '@/api/queryKeys'
 import type { OperationLog } from '@/types'
 
 const { t } = useI18n()
-const logs = ref<OperationLog[]>([])
-const loading = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(20)
-const total = ref(0)
 const actionFilter = ref('')
 
 const actionOptions = computed(() => [
@@ -83,33 +84,35 @@ function actionSeverity(action: string): 'success' | 'warning' | 'danger' | 'inf
   return 'info'
 }
 
+// F1.1：分页走统一数据获取层，切换页/筛选保留上一页数据（keepPreviousData）
+const logsQuery = useApiQuery<{ data: OperationLog[]; total: number }>(
+  () => queryKeys.operationLogs.list(currentPage.value, pageSize.value, actionFilter.value),
+  async () => {
+    const res = await listOperationLogs(
+      currentPage.value,
+      pageSize.value,
+      actionFilter.value || undefined,
+    )
+    return { data: { data: res.data.data, total: res.data.total } }
+  },
+  { keepPrevious: true },
+)
+const logs = computed<OperationLog[]>(() => logsQuery.data.value?.data ?? [])
+const loading = logsQuery.loading
+const total = computed(() => logsQuery.data.value?.total ?? 0)
+
 async function fetch() {
-  loading.value = true
-  try {
-    const res = await listOperationLogs(currentPage.value, pageSize.value, actionFilter.value || undefined)
-    logs.value = res.data.data
-    total.value = res.data.total
-  } finally {
-    loading.value = false
-  }
+  await logsQuery.refresh()
 }
 
 function goPage(first: number) {
   currentPage.value = first / pageSize.value + 1
-  fetch()
+  void fetch()
 }
-
-onMounted(fetch)
 </script>
 
 <style scoped>
 .filter-select {
   width: 160px;
-}
-.panel {
-  padding: var(--fp-space-4);
-  border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
-  border: 1px solid var(--fp-border);
 }
 </style>

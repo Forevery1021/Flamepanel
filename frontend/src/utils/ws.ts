@@ -1,3 +1,5 @@
+import { STORAGE_KEYS } from './storage'
+
 /**
  * WebSocket 带自动重连的连接工具（指数退避）
  * 用法:
@@ -6,6 +8,9 @@
  *     onStatus: (connected) => {...},
  *   })
  *   conn.close()  // 停止重连并关闭
+ *
+ * 连接会自动附加当前登录 token（`?token=<access_token>`），
+ * 后端 WS 握手时校验（Stage4.1：WS 鉴权加固）。
  */
 export interface WSConnection {
   close: () => void
@@ -22,6 +27,18 @@ interface WSOptions {
 }
 
 const MAX_RETRY_MS = 30000
+
+/** 从 localStorage 读取当前 access token */
+function currentToken(): string {
+  return localStorage.getItem(STORAGE_KEYS.token) || ''
+}
+
+/** 拼接 `?token=` 查询参数（URL 已带查询时用 & 连接） */
+function withToken(url: string, token: string): string {
+  if (!token) return url
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}token=${encodeURIComponent(token)}`
+}
 
 export function connectWithRetry(url: string, options: WSOptions): WSConnection {
   let ws: WebSocket | null = null
@@ -44,7 +61,8 @@ export function connectWithRetry(url: string, options: WSOptions): WSConnection 
   function connect() {
     if (closed) return
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    ws = new WebSocket(`${protocol}//${location.host}${url}`)
+    // Stage4.1：WS 鉴权 — 握手时携带当前 access token
+    ws = new WebSocket(`${protocol}//${location.host}${withToken(url, currentToken())}`)
 
     ws.onopen = () => {
       retryMs = 1000

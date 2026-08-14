@@ -1,19 +1,8 @@
 import api from './client'
-import type { PaginatedResponse } from '@/types'
+import type { ScheduledTask } from '@/api/generated'
+import type { Page } from '@/api/generated'
 
-export interface ScheduledTask {
-  id: number
-  name: string
-  command: string
-  schedule: string
-  enabled: boolean
-  last_status: string
-  last_output: string
-  last_run_at: string | null
-  next_run_at: string | null
-  created_at: string
-  updated_at: string
-}
+export type { ScheduledTask } from '@/api/generated'
 
 export interface ScheduledTaskInput {
   name: string
@@ -23,7 +12,7 @@ export interface ScheduledTaskInput {
 }
 
 export function listScheduledTasks(page = 1, pageSize = 20) {
-  return api.get<PaginatedResponse<ScheduledTask>>('/scheduled-tasks', {
+  return api.get<Page<ScheduledTask>>('/scheduled-tasks', {
     params: { page, page_size: pageSize },
   })
 }

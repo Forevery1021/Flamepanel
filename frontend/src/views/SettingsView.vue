@@ -1,16 +1,8 @@
 <template>
   <div class="view-container">
-    <Tabs v-model:value="activeTab" class="settings-tabs">
-      <TabList>
-        <Tab value="general">{{ t('settings.panelConfig') }}</Tab>
-        <Tab value="security">{{ t('settings.security') }}</Tab>
-        <Tab value="backup">{{ t('settings.backupSettings') }}</Tab>
-        <Tab value="theme">{{ t('settingsTheme.title') }}</Tab>
-        <Tab value="appearance">{{ t('settingsAppearance.title') }}</Tab>
-      </TabList>
-      <TabPanels>
-        <TabPanel value="general">
-        <div class="settings-card">
+    <FpTabs v-model="activeTab" class="settings-tabs" :items="tabItems">
+<template #general>
+<div class="settings-card">
           <div class="settings-grid">
             <FpInput v-model="settingsForm.panel_name" :label="t('settings.panelName')" />
             <FpSelect
@@ -23,7 +15,7 @@
             />
             <div class="field-col">
               <label class="field-label">{{ t('settings.panelPort') }}</label>
-              <InputNumber
+              <FpNumber
                 v-model="settingsForm.panel_port_num"
                 :min="1024"
                 :max="65535"
@@ -32,7 +24,7 @@
             </div>
             <div class="field-col">
               <label class="field-label">{{ t('settings.sessionTimeout') }}</label>
-              <InputNumber
+              <FpNumber
                 v-model="settingsForm.session_timeout_num"
                 :min="5"
                 :max="43200"
@@ -48,7 +40,7 @@
             />
             <div class="field-col">
               <label class="field-label">{{ t('settings.logRetention') }}</label>
-              <InputNumber
+              <FpNumber
                 v-model="settingsForm.log_retention_num"
                 :min="1"
                 :max="365"
@@ -57,7 +49,7 @@
             </div>
             <div class="field-col field-row">
               <label class="field-label">{{ t('settings.twoFactor') }}</label>
-              <ToggleSwitch v-model="settingsForm.two_factor_enabled_bool" />
+              <FpSwitch v-model="settingsForm.two_factor_enabled_bool" />
             </div>
           </div>
           <div class="settings-actions">
@@ -67,11 +59,9 @@
             <FpButton variant="ghost" @click="resetSettings">{{ t('common.reset') }}</FpButton>
           </div>
         </div>
-      </TabPanel>
-
-      <!-- 安全 -->
-      <TabPanel value="security">
-        <div class="settings-card">
+</template>
+<template #security>
+<div class="settings-card">
           <h3 class="settings-section">{{ t('settings.changePassword') }}</h3>
           <div class="settings-form-col">
             <FpInput v-model="pwForm.old_password" :label="t('settings.oldPassword')" type="password" />
@@ -94,7 +84,7 @@
             </div>
           </div>
 
-          <Divider />
+          <FpDivider />
 
           <h3 class="settings-section">JWT {{ t('settings.jwtSecret') }}</h3>
           <div class="settings-row">
@@ -105,28 +95,26 @@
             <span class="hint">{{ t('common.confirmAction') }}</span>
           </div>
         </div>
-      </TabPanel>
-
-      <!-- 备份 -->
-      <TabPanel value="backup">
-        <div class="settings-card">
+</template>
+<template #backup>
+<div class="settings-card">
           <div class="settings-form-col settings-form-col-narrow">
             <div class="field-col field-row">
               <label class="field-label">{{ t('settings.autoBackup') }}</label>
-              <ToggleSwitch v-model="backupForm.enabled" />
+              <FpSwitch v-model="backupForm.enabled" />
               <span class="hint">{{ t('settings.autoBackupHint') }}</span>
             </div>
             <div class="field-col">
               <label class="field-label">{{ t('settings.backupInterval') }}</label>
               <div class="field-inline">
-                <InputNumber v-model="backupForm.intervalHours" :min="1" :max="168" style="width: 160px" />
+                <FpNumber v-model="backupForm.intervalHours" :min="1" :max="168" style="width: 160px" />
                 <span class="hint">{{ t('settings.hoursUnit') }}</span>
               </div>
             </div>
             <div class="field-col">
               <label class="field-label">{{ t('settings.backupRetention') }}</label>
               <div class="field-inline">
-                <InputNumber v-model="backupForm.retention" :min="1" :max="100" style="width: 160px" />
+                <FpNumber v-model="backupForm.retention" :min="1" :max="100" style="width: 160px" />
                 <span class="hint">{{ t('settings.backupRetentionHint') }}</span>
               </div>
             </div>
@@ -137,93 +125,18 @@
             </div>
           </div>
         </div>
-      </TabPanel>
-
-      <!-- 主题定制 -->
-      <TabPanel value="theme">
-        <div class="settings-card">
-          <h3 class="settings-section">{{ t('settingsTheme.preset') }}</h3>
-          <div class="preset-grid">
-            <button
-              v-for="p in presets"
-              :key="p.id"
-              class="preset-card"
-              :class="{ 'is-active': themeStore.preset === p.id }"
-              @click="themeStore.setPreset(p.id)"
-            >
-              <span class="preset-swatch" :style="swatchStyle(p.id)" />
-              <span class="preset-name">{{ t(p.labelKey) }}</span>
-              <span class="preset-desc">{{ t(p.descKey) }}</span>
-            </button>
-          </div>
-
-          <Divider />
-
-          <h3 class="settings-section">{{ t('settingsTheme.brandColor') }}</h3>
-          <div class="custom-controls">
-            <div class="control-row">
-              <label class="field-label">{{ t('settingsTheme.hue') }}</label>
-              <Slider v-model="custom.hue" :min="0" :max="360" :step="1" class="control-slider" />
-              <span class="mono control-value">{{ custom.hue }}°</span>
-            </div>
-            <div class="control-row">
-              <label class="field-label">{{ t('settingsTheme.saturation') }}</label>
-              <Slider v-model="custom.saturation" :min="0" :max="100" :step="1" class="control-slider" />
-              <span class="mono control-value">{{ custom.saturation }}%</span>
-            </div>
-            <div class="control-row">
-              <label class="field-label">{{ t('settingsTheme.lightness') }}</label>
-              <Slider v-model="custom.lightness" :min="25" :max="80" :step="1" class="control-slider" />
-              <span class="mono control-value">{{ custom.lightness }}%</span>
-            </div>
-            <div class="control-row">
-              <label class="field-label">{{ t('settingsTheme.glassBlur') }}</label>
-              <Slider v-model="custom.glassBlur" :min="0" :max="24" :step="1" class="control-slider" />
-              <span class="mono control-value">{{ custom.glassBlur }}px</span>
-            </div>
-            <div class="control-row">
-              <label class="field-label">{{ t('settingsTheme.radius') }}</label>
-              <SelectButton
-                v-model="custom.radius"
-                :options="radiusOptions"
-                option-label="label"
-                option-value="value"
-              />
-            </div>
-            <div class="control-row">
-              <label class="field-label">{{ t('settingsTheme.density') }}</label>
-              <SelectButton
-                v-model="custom.density"
-                :options="densityOptions"
-                option-label="label"
-                option-value="value"
-              />
-            </div>
-          </div>
-
-          <div class="settings-actions">
-            <FpButton variant="primary" icon="oi oi-download" @click="exportTheme">
-              {{ t('settingsTheme.export') }}
-            </FpButton>
-            <FpButton variant="ghost" icon="oi oi-upload" @click="importTheme">
-              {{ t('settingsTheme.import') }}
-            </FpButton>
-            <FpButton variant="ghost" icon="oi oi-refresh" @click="themeStore.resetCustom()">
-              {{ t('settingsTheme.reset') }}
-            </FpButton>
-          </div>
-          <input ref="importFileRef" type="file" accept="application/json" class="hidden-file" @change="onImportFile" />
-        </div>
-      </TabPanel>
-
-      <!-- 外观 -->
-      <TabPanel value="appearance">
-        <div class="settings-card">
+</template>
+<template #theme>
+        <!-- P5：主题设置拆分为独立组件 -->
+        <SettingsThemeTab />
+      </template>
+      <template #appearance>
+<div class="settings-card">
           <h3 class="settings-section">{{ t('settingsAppearance.interface') }}</h3>
           <div class="settings-form-col settings-form-col-narrow">
             <div class="field-col field-row">
               <label class="field-label">{{ t('settingsAppearance.menuTabs') }}</label>
-              <ToggleSwitch
+              <FpSwitch
                 :model-value="appearance.state.menuTabs"
                 @update:model-value="toggleMenuTabs"
               />
@@ -231,7 +144,7 @@
             </div>
             <div class="field-col field-row">
               <label class="field-label">{{ t('settingsAppearance.menuAccordion') }}</label>
-              <ToggleSwitch
+              <FpSwitch
                 :model-value="appearance.state.menuAccordion"
                 @update:model-value="toggleMenuAccordion"
               />
@@ -252,7 +165,7 @@
             </div>
           </div>
 
-          <Divider />
+          <FpDivider />
 
           <h3 class="settings-section">{{ t('settingsAppearance.background') }}</h3>
           <div class="settings-form-col settings-form-col-narrow">
@@ -284,37 +197,50 @@
             </div>
           </div>
         </div>
-      </TabPanel>
-      </TabPanels>
-    </Tabs>
+</template>
+</FpTabs>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Tabs from 'openvue/tabs'
-import TabList from 'openvue/tablist'
-import Tab from 'openvue/tab'
-import TabPanels from 'openvue/tabpanels'
-import TabPanel from 'openvue/tabpanel'
-import InputNumber from 'openvue/inputnumber'
-import ToggleSwitch from 'openvue/toggleswitch'
-import Slider from 'openvue/slider'
-import SelectButton from 'openvue/selectbutton'
-import Divider from 'openvue/divider'
+
+
+
+
+
+
+
+
+
+
 import { changePassword } from '@/api/auth'
 import { listSettings, updateSetting } from '@/api/settings'
 import { setLanguage } from '@/locales'
-import { useThemeStore, PRESET_META, type ThemePreset } from '@/stores/theme'
+import { useThemeStore } from '@/stores/theme'
 import { useAppearanceStore } from '@/stores/appearance'
 import FpInput from '@/components/ui/FpInput.vue'
 import FpSelect from '@/components/ui/FpSelect.vue'
 import FpButton from '@/components/ui/FpButton.vue'
 import FpTag from '@/components/ui/FpTag.vue'
 import { useFpToast } from '@/components/ui/FpToast'
+import FpDivider from '@/components/ui/FpDivider.vue'
+import FpNumber from '@/components/ui/FpNumber.vue'
+import SettingsThemeTab from '@/components/settings/SettingsThemeTab.vue'
+import FpSwitch from '@/components/ui/FpSwitch.vue'
+import FpTabs from '@/components/ui/FpTabs.vue'
+import type { FpTabItem } from '@/components/ui/FpTabs.vue'
 
 const { t } = useI18n()
+
+const tabItems: FpTabItem[] = [
+  { value: 'general', label: t('settings.panelConfig') },
+  { value: 'security', label: t('settings.security') },
+  { value: 'backup', label: t('settings.backupSettings') },
+  { value: 'theme', label: t('settingsTheme.title') },
+  { value: 'appearance', label: t('settingsAppearance.title') },
+]
 const toast = useFpToast()
 const themeStore = useThemeStore()
 const appearance = useAppearanceStore()
@@ -349,34 +275,6 @@ const settingsForm = reactive({
 
 const backupForm = reactive({ enabled: false, intervalHours: 24, retention: 7 })
 const pwForm = ref({ old_password: '', new_password: '', confirm: '' })
-
-const presets = (Object.keys(PRESET_META) as ThemePreset[]).map((id) => ({
-  id,
-  labelKey: PRESET_META[id].labelKey,
-  descKey: PRESET_META[id].descKey,
-}))
-
-function swatchStyle(id: ThemePreset) {
-  const map: Record<string, string> = {
-    flame: 'linear-gradient(135deg, #f97316, #c2410c)',
-    aurora: 'linear-gradient(135deg, #fbbf24, #f97316)',
-    infinity: 'linear-gradient(135deg, #f59e0b, #78350f)',
-    custom: 'conic-gradient(from 0deg, oklch(0.6 0.2 0), oklch(0.6 0.2 60), oklch(0.6 0.2 120), oklch(0.6 0.2 180), oklch(0.6 0.2 240), oklch(0.6 0.2 300), oklch(0.6 0.2 360))',
-  }
-  return { background: map[id] ?? map.flame }
-}
-
-const custom = computed(() => themeStore.custom)
-const radiusOptions = [
-  { label: t('settingsTheme.radiusSharp'), value: 'sharp' },
-  { label: t('settingsTheme.radiusStandard'), value: 'standard' },
-  { label: t('settingsTheme.radiusRounded'), value: 'rounded' },
-]
-const densityOptions = [
-  { label: t('settingsTheme.densityCompact'), value: 'compact' },
-  { label: t('settingsTheme.densityStandard'), value: 'standard' },
-  { label: t('settingsTheme.densityComfortable'), value: 'comfortable' },
-]
 
 // ── 外观：多页签 / 菜单显隐 ──
 const menuGroupOptions = computed(() => [
@@ -606,41 +504,6 @@ async function handleRotateJwtSecret() {
   }
 }
 
-// ── 主题导出/导入 ──
-function exportTheme() {
-  const payload = { preset: themeStore.preset, custom: themeStore.custom }
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'flamepanel-theme.json'
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-const importFileRef = ref<HTMLInputElement>()
-function importTheme() {
-  importFileRef.value?.click()
-}
-function onImportFile(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  const reader = new FileReader()
-  reader.onload = () => {
-    try {
-      const data = JSON.parse(String(reader.result))
-      if (data.preset) themeStore.setPreset(data.preset)
-      if (data.custom) themeStore.updateCustom(data.custom)
-      toast.success(t('common.success'))
-    } catch {
-      toast.error(t('common.failed'))
-    }
-  }
-  reader.readAsText(file)
-  input.value = ''
-}
-
 onMounted(fetchSettings)
 </script>
 
@@ -709,73 +572,6 @@ onMounted(fetchSettings)
   color: var(--fp-text-muted);
 }
 
-.preset-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: var(--fp-space-3);
-}
-.preset-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: var(--fp-space-3);
-  border-radius: var(--fp-radius-md);
-  border: 1px solid var(--fp-border);
-  background: var(--fp-bg-elevated);
-  cursor: pointer;
-  font-family: var(--fp-font-sans);
-  text-align: left;
-  transition:
-    border-color var(--fp-transition-fast),
-    box-shadow var(--fp-transition-fast),
-    transform 120ms var(--fp-ease-out);
-}
-.preset-card:hover {
-  border-color: var(--fp-brand);
-}
-.preset-card.is-active {
-  border-color: var(--fp-brand);
-  box-shadow: 0 0 0 3px var(--fp-brand-soft);
-}
-.preset-swatch {
-  width: 100%;
-  height: 44px;
-  border-radius: var(--fp-radius-sm);
-}
-.preset-name {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--fp-text-primary);
-}
-.preset-desc {
-  font-size: 11.5px;
-  color: var(--fp-text-muted);
-}
-
-.custom-controls {
-  display: flex;
-  flex-direction: column;
-  gap: var(--fp-space-4);
-  max-width: 560px;
-}
-.control-row {
-  display: flex;
-  align-items: center;
-  gap: var(--fp-space-3);
-}
-.control-slider {
-  flex: 1;
-}
-.control-value {
-  width: 56px;
-  text-align: right;
-  font-size: 12.5px;
-  color: var(--fp-text-secondary);
-}
-.hidden-file {
-  display: none;
-}
 .menu-select {
   max-width: 320px;
 }

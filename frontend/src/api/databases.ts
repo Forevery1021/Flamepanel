@@ -1,8 +1,9 @@
 import api from './client'
-import type { DatabaseInstance, PaginatedResponse } from '@/types'
+import type { DatabaseInstance } from '@/types'
+import type { Page } from '@/api/generated'
 
 export function listDatabases(page = 1, pageSize = 20) {
-  return api.get<PaginatedResponse<DatabaseInstance>>('/databases', {
+  return api.get<Page<DatabaseInstance>>('/databases', {
     params: { page, page_size: pageSize },
   })
 }
@@ -71,4 +72,11 @@ export function dropDatabaseUser(id: number, username: string) {
 
 export function uninstallDatabase(id: number) {
   return api.post(`/databases/${id}/uninstall`)
+}
+
+/**
+ * Phase A2 扩展：批量更新数据库实例状态（后端批量原子写事务）。
+ */
+export function updateDatabasesBatchStatus(updates: Array<[number, string]>) {
+  return api.patch('/databases/batch-status', { updates })
 }

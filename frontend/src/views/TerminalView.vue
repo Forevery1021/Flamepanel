@@ -14,10 +14,10 @@
           <FpButton variant="ghost" :disabled="!connected" @click="sendInterrupt">
             {{ t('terminal.ctrlC') }}
           </FpButton>
-          <FpButton variant="ghost" icon="oi oi-refresh" :loading="reconnecting" @click="reconnect">
+          <FpButton v-permission="{ perm: 'node:execute', mode: 'view' }" variant="ghost" icon="oi oi-refresh" :loading="reconnecting" @click="reconnect">
             {{ t('terminal.reconnect') }}
           </FpButton>
-          <FpButton variant="danger" icon="oi oi-eraser" @click="handleClear">
+          <FpButton v-permission="{ perm: 'node:execute', mode: 'view' }" variant="danger" icon="oi oi-eraser" @click="handleClear">
             {{ t('terminal.clear') }}
           </FpButton>
         </div>
@@ -29,13 +29,13 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-import { connectWithRetry } from '@/utils/ws'
 import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import FpButton from '@/components/ui/FpButton.vue'
 import FpTag from '@/components/ui/FpTag.vue'
+import { useWebSocket } from '@/composables/useWebSocket'
 
 const { t } = useI18n()
 
@@ -45,7 +45,46 @@ const reconnecting = ref(false)
 
 let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
-let wsConn: ReturnType<typeof connectWithRetry> | null = null
+
+const wsTerm = useWebSocket('/ws/terminal', {
+  onStatus: (connectedFlag) => {
+    connected.value = connectedFlag
+    if (connectedFlag) term?.focus()
+  },
+  onMessage: (data) => {
+    const msg = data as { type: string; data: string }
+    if (msg.type === 'output' && msg.data && term) {
+      term.write(msg.data)
+    }
+  },
+})
+
+function terminalTheme() {
+  const v = (name: string, fallback: string) =>
+    getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+  return {
+    background: v('--fp-term-bg', '#1a1b1e'),
+    foreground: v('--fp-term-fg', '#cdd6f4'),
+    cursor: v('--fp-term-cursor', '#f5e0dc'),
+    selectionBackground: v('--fp-term-selection', '#585b70'),
+    black: v('--fp-term-black', '#45475a'),
+    red: v('--fp-term-red', '#f38ba8'),
+    green: v('--fp-term-green', '#a6e3a1'),
+    yellow: v('--fp-term-yellow', '#f9e2af'),
+    blue: v('--fp-term-blue', '#89b4fa'),
+    magenta: v('--fp-term-magenta', '#f5c2e7'),
+    cyan: v('--fp-term-cyan', '#94e2d5'),
+    white: v('--fp-term-white', '#bac2de'),
+    brightBlack: v('--fp-term-bright-black', '#585b70'),
+    brightRed: v('--fp-term-bright-red', '#f38ba8'),
+    brightGreen: v('--fp-term-bright-green', '#a6e3a1'),
+    brightYellow: v('--fp-term-bright-yellow', '#f9e2af'),
+    brightBlue: v('--fp-term-bright-blue', '#89b4fa'),
+    brightMagenta: v('--fp-term-bright-magenta', '#f5c2e7'),
+    brightCyan: v('--fp-term-bright-cyan', '#94e2d5'),
+    brightWhite: v('--fp-term-bright-white', '#a6adc8'),
+  }
+}
 
 function initTerminal() {
   if (!terminalContainer.value) return
@@ -55,28 +94,7 @@ function initTerminal() {
     cursorStyle: 'block',
     fontSize: 14,
     fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace",
-    theme: {
-      background: '#1a1b1e',
-      foreground: '#cdd6f4',
-      cursor: '#f5e0dc',
-      selectionBackground: '#585b70',
-      black: '#45475a',
-      red: '#f38ba8',
-      green: '#a6e3a1',
-      yellow: '#f9e2af',
-      blue: '#89b4fa',
-      magenta: '#f5c2e7',
-      cyan: '#94e2d5',
-      white: '#bac2de',
-      brightBlack: '#585b70',
-      brightRed: '#f38ba8',
-      brightGreen: '#a6e3a1',
-      brightYellow: '#f9e2af',
-      brightBlue: '#89b4fa',
-      brightMagenta: '#f5c2e7',
-      brightCyan: '#94e2d5',
-      brightWhite: '#a6adc8',
-    },
+    theme: terminalTheme(),
     allowTransparency: true,
   })
 
@@ -85,41 +103,30 @@ function initTerminal() {
   term.open(terminalContainer.value)
 
   term.onData((data: string) => {
-    wsConn?.send(JSON.stringify({ type: 'input', data }))
+    wsTerm.send(JSON.stringify({ type: 'input', data }))
   })
 
   nextTick(() => fitAddon?.fit())
 }
 
 function connect() {
-  wsConn = connectWithRetry('/ws/terminal', {
-    onStatus: (connectedFlag) => {
-      connected.value = connectedFlag
-      if (connectedFlag) term?.focus()
-    },
-    onMessage: (data) => {
-      const msg = data as { type: string; data: string }
-      if (msg.type === 'output' && msg.data && term) {
-        term.write(msg.data)
-      }
-    },
-  })
+  wsTerm.connect()
 }
 
 function reconnect() {
   reconnecting.value = true
-  wsConn?.reconnectNow()
+  wsTerm.reconnectNow()
   setTimeout(() => {
     reconnecting.value = false
   }, 500)
 }
 
 function sendEof() {
-  wsConn?.send(JSON.stringify({ type: 'input', data: '\x04' }))
+  wsTerm.send(JSON.stringify({ type: 'input', data: '\x04' }))
 }
 
 function sendInterrupt() {
-  wsConn?.send(JSON.stringify({ type: 'input', data: '\x03' }))
+  wsTerm.send(JSON.stringify({ type: 'input', data: '\x03' }))
 }
 
 function handleClear() {
@@ -138,7 +145,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
-  wsConn?.close()
+  wsTerm.close()
   term?.dispose()
 })
 </script>

@@ -33,5 +33,16 @@ export default defineConfig({
   },
   build: {
     chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        // 重型依赖独立分包：首屏不加载（echarts 仅 Dashboard/Health、xterm 仅 Terminal）
+        manualChunks(id: string) {
+          if (id.includes('node_modules/echarts')) return 'echarts'
+          if (id.includes('@xterm')) return 'xterm'
+          if (id.includes('node_modules/openvue')) return 'openvue'
+          if (id.includes('node_modules/vue-i18n')) return 'vue-i18n'
+        },
+      },
+    },
   },
 })

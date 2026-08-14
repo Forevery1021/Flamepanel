@@ -1,4 +1,6 @@
+use crate::application::execution_mode::{PrivilegedCommand, SharedCommandRunner};
 use crate::core::error::AppError;
+use async_trait::async_trait;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DistroType {
@@ -14,34 +16,29 @@ pub enum DistroType {
 pub struct OsInfo;
 
 impl OsInfo {
+    /// 检测当前发行版（Phase A1 收尾：不再 spawn 外部命令，直接读取 `/etc/os-release`）。
+    ///
+    /// 此前用 `sh -c "cat /etc/os-release ..."` 执行外部命令，属于 A1 剩余的直接命令
+    /// 路径。改为标准库读取文件后，无命令注入面，Agent/Embedded 两种模式行为一致，
+    /// 也不需在 Agent 白名单放行任意 shell。
     pub async fn detect_distro() -> DistroType {
-        let output = tokio::process::Command::new("sh")
-            .args([
-                "-c",
-                "cat /etc/os-release 2>/dev/null || cat /etc/*release 2>/dev/null",
-            ])
-            .output()
-            .await;
-        match output {
-            Ok(out) => {
-                let c = String::from_utf8_lossy(&out.stdout);
-                if c.contains("Ubuntu") {
-                    DistroType::Ubuntu
-                } else if c.contains("Debian") {
-                    DistroType::Debian
-                } else if c.contains("CentOS") {
-                    DistroType::CentOS
-                } else if c.contains("Red Hat") || c.contains("RHEL") {
-                    DistroType::RHEL
-                } else if c.contains("Fedora") {
-                    DistroType::Fedora
-                } else if c.contains("Alpine") {
-                    DistroType::Alpine
-                } else {
-                    DistroType::Unknown("unknown".into())
-                }
-            }
-            Err(_) => DistroType::Unknown("unknown".into()),
+        // 保持 async 以兼容既有调用点；读取为同步 I/O，先让出一次执行权
+        tokio::task::yield_now().await;
+        let c = read_release_info();
+        if c.contains("Ubuntu") {
+            DistroType::Ubuntu
+        } else if c.contains("Debian") {
+            DistroType::Debian
+        } else if c.contains("CentOS") {
+            DistroType::CentOS
+        } else if c.contains("Red Hat") || c.contains("RHEL") {
+            DistroType::RHEL
+        } else if c.contains("Fedora") {
+            DistroType::Fedora
+        } else if c.contains("Alpine") {
+            DistroType::Alpine
+        } else {
+            DistroType::Unknown("unknown".into())
         }
     }
 
@@ -63,7 +60,38 @@ impl OsInfo {
     }
 }
 
-pub struct ServiceManager;
+/// 读取发行版标识文件内容（供 `detect_distro` 判断）。
+///
+/// 依次尝试 `/etc/os-release` 与 `/etc/*release`（回退），找不到时返回空串。
+fn read_release_info() -> String {
+    let os_release = "/etc/os-release";
+    if let Ok(c) = std::fs::read_to_string(os_release) {
+        if !c.trim().is_empty() {
+            return c;
+        }
+    }
+    // 回退：/etc/*release（如 /etc/redhat-release /etc/debian_version 等）
+    if let Ok(entries) = std::fs::read_dir("/etc") {
+        let mut candidates: Vec<_> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name();
+                let n = name.to_string_lossy();
+                e.file_type().map(|t| t.is_file()).unwrap_or(false)
+                    && (n.ends_with("-release") || n.ends_with("_version") || n == "debian_version")
+            })
+            .collect();
+        candidates.sort_by_key(|e| e.file_name());
+        for entry in candidates {
+            if let Ok(c) = std::fs::read_to_string(entry.path()) {
+                if !c.trim().is_empty() {
+                    return c;
+                }
+            }
+        }
+    }
+    String::new()
+}
 
 /// 当前进程是否以 root 运行（供各模块免密码 systemctl 判断）
 pub fn is_root_process() -> bool {
@@ -83,31 +111,38 @@ pub fn is_root_process() -> bool {
         .unwrap_or(false)
 }
 
+/// 系统服务管理器（systemctl）：经 `PrivilegedCommandRunner` 执行（Phase A1 扩展）。
+///
+/// 与 `FirewallManager` 一致，所有 systemctl / pgrep 调用都收敛到统一特权命令执行端口，
+/// 由组合根按 `execution_mode=embedded|agent` 注入具体实现。
+pub struct ServiceManager {
+    runner: SharedCommandRunner,
+}
+
 impl ServiceManager {
-    /// 构造 systemctl 命令（免密码）：
-    /// - root 直接执行
-    /// - 非 root 使用 `sudo -n`（non-interactive，绝不触发密码框/polkit 认证）
-    /// - sudo 不存在时回退直接调用（会失败并返回清晰错误）
-    fn systemctl_cmd(action: &str, name: &str) -> tokio::process::Command {
-        let mut cmd = if is_root_process() {
-            tokio::process::Command::new("systemctl")
-        } else {
-            let mut c = tokio::process::Command::new("sudo");
-            c.arg("-n").arg("systemctl");
-            c
-        };
-        cmd.arg(action).arg(name);
-        cmd
+    /// 注入特权命令执行器（`execution_mode=embedded|agent`）。
+    pub fn new(runner: SharedCommandRunner) -> Self {
+        Self { runner }
     }
 
-    /// 服务状态变更（start/stop/restart/enable/disable）：免密码 systemctl
-    async fn control(action: &str, name: &str) -> Result<(), AppError> {
-        let output = Self::systemctl_cmd(action, name)
-            .output()
-            .await
-            .map_err(|e| AppError::internal(format!("systemctl {} failed: {}", action, e)))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    /// 便捷：默认嵌入式执行器（本地直接执行，行为与重构前一致）。
+    pub fn embedded() -> Self {
+        Self::new(std::sync::Arc::new(
+            crate::infrastructure::execution::EmbeddedCommandRunner,
+        ))
+    }
+
+    /// 经执行器运行一条 systemctl 命令并校验成功。
+    async fn systemctl(&self, action: &str, name: &str) -> Result<(), AppError> {
+        let out = self
+            .runner
+            .run(
+                &PrivilegedCommand::new("systemctl", vec![action.into(), name.into()])
+                    .prefer_root(),
+            )
+            .await?;
+        if !out.success() {
+            let stderr = out.stderr.trim().to_string();
             let hint = if is_root_process() {
                 format!("systemctl {} {}: {}", action, name, stderr)
             } else {
@@ -121,68 +156,119 @@ impl ServiceManager {
         Ok(())
     }
 
-    pub async fn start(name: &str) -> Result<(), AppError> {
-        Self::control("start", name).await
-    }
-
-    pub async fn stop(name: &str) -> Result<(), AppError> {
-        Self::control("stop", name).await
-    }
-
-    pub async fn restart(name: &str) -> Result<(), AppError> {
-        Self::control("restart", name).await
-    }
-
-    pub async fn enable(name: &str) -> Result<(), AppError> {
-        Self::control("enable", name).await
-    }
-
-    pub async fn disable(name: &str) -> Result<(), AppError> {
-        Self::control("disable", name).await
-    }
-
-    pub async fn is_running(name: &str) -> Result<bool, AppError> {
-        let output = Self::systemctl_cmd("is-active", name).output().await;
-        match output {
+    /// 经执行器运行 systemctl is-active，失败时回退 pgrep 探测。
+    async fn is_active(&self, name: &str) -> Result<bool, AppError> {
+        let out = self
+            .runner
+            .run(
+                &PrivilegedCommand::new("systemctl", vec!["is-active".into(), name.into()])
+                    .prefer_root(),
+            )
+            .await;
+        match out {
             Ok(o) => {
-                if o.status.success() {
+                if o.success() {
                     Ok(true)
                 } else {
                     // systemctl 失败（无权限/未安装）时回退 pgrep 探测
-                    let out = tokio::process::Command::new("pgrep")
-                        .arg("-x")
-                        .arg(name)
-                        .output()
-                        .await;
-                    Ok(out.map(|o| o.status.success()).unwrap_or(false))
+                    self.pgrep(name).await
                 }
             }
-            Err(_) => {
-                let out = tokio::process::Command::new("pgrep")
-                    .arg("-x")
-                    .arg(name)
-                    .output()
-                    .await;
-                Ok(out.map(|o| o.status.success()).unwrap_or(false))
+            Err(_) => self.pgrep(name).await,
+        }
+    }
+
+    /// pgrep 探测进程是否存活。
+    async fn pgrep(&self, name: &str) -> Result<bool, AppError> {
+        let out = self
+            .runner
+            .run(&PrivilegedCommand::new(
+                "pgrep",
+                vec!["-x".into(), name.into()],
+            ))
+            .await;
+        Ok(out.map(|o| o.success()).unwrap_or(false))
+    }
+
+    pub async fn start(&self, name: &str) -> Result<(), AppError> {
+        self.systemctl("start", name).await
+    }
+
+    pub async fn stop(&self, name: &str) -> Result<(), AppError> {
+        self.systemctl("stop", name).await
+    }
+
+    pub async fn restart(&self, name: &str) -> Result<(), AppError> {
+        self.systemctl("restart", name).await
+    }
+
+    pub async fn enable(&self, name: &str) -> Result<(), AppError> {
+        self.systemctl("enable", name).await
+    }
+
+    pub async fn disable(&self, name: &str) -> Result<(), AppError> {
+        self.systemctl("disable", name).await
+    }
+
+    pub async fn is_running(&self, name: &str) -> Result<bool, AppError> {
+        self.is_active(name).await
+    }
+
+    /// 免密码 systemctl is-enabled 探测（root 直接；非 root 走 runner 的 prefer_root）。
+    pub async fn is_enabled(&self, name: &str) -> Result<bool, AppError> {
+        let out = self
+            .runner
+            .run(
+                &PrivilegedCommand::new("systemctl", vec!["is-enabled".into(), name.into()])
+                    .prefer_root(),
+            )
+            .await;
+        match out {
+            Ok(o) => {
+                let s = o.stdout.clone();
+                Ok(o.success() && (s.contains("enabled") || s.contains("static")))
             }
+            Err(_) => Ok(false),
         }
     }
 }
 
-pub struct PackageManager;
+/// 系统包管理器（apt/yum/dnf/apk 等）：经 `PrivilegedCommandRunner` 执行（Phase A1 扩展）。
+pub struct PackageManager {
+    runner: SharedCommandRunner,
+}
 
 impl PackageManager {
-    pub async fn install(pkg: &str) -> Result<String, AppError> {
+    /// 注入特权命令执行器（`execution_mode=embedded|agent`）。
+    pub fn new(runner: SharedCommandRunner) -> Self {
+        Self { runner }
+    }
+
+    /// 便捷：默认嵌入式执行器（本地直接执行，行为与重构前一致）。
+    pub fn embedded() -> Self {
+        Self::new(std::sync::Arc::new(
+            crate::infrastructure::execution::EmbeddedCommandRunner,
+        ))
+    }
+
+    /// 经执行器运行一条包管理命令，返回合并输出。
+    async fn run_cmd(
+        &self,
+        program: &str,
+        args: Vec<String>,
+    ) -> Result<crate::application::execution_mode::CommandOutput, AppError> {
+        self.runner
+            .run(&PrivilegedCommand::new(program, args).prefer_root())
+            .await
+    }
+
+    pub async fn install(&self, pkg: &str) -> Result<String, AppError> {
         let distro = OsInfo::detect_distro().await;
         let cmd = OsInfo::package_install_cmd(&distro, pkg);
-        let out = tokio::process::Command::new(&cmd[0])
-            .args(&cmd[1..])
-            .output()
-            .await
-            .map_err(|e| AppError::internal(format!("Package install failed: {}", e)))?;
-        let s = String::from_utf8_lossy(&out.stdout).to_string();
-        let e = String::from_utf8_lossy(&out.stderr).to_string();
-        if !out.status.success() {
+        let out = self.run_cmd(&cmd[0], cmd[1..].to_vec()).await?;
+        let s = out.stdout.clone();
+        let e = out.stderr.clone();
+        if !out.success() {
             return Err(AppError::internal(format!(
                 "Failed to install {}: {}",
                 pkg, e
@@ -195,19 +281,21 @@ impl PackageManager {
         })
     }
 
-    pub async fn is_installed(pkg: &str) -> Result<bool, AppError> {
+    pub async fn is_installed(&self, pkg: &str) -> Result<bool, AppError> {
         let distro = OsInfo::detect_distro().await;
         let (bin, args) = match distro {
-            DistroType::Ubuntu | DistroType::Debian => ("dpkg", vec!["-l", pkg]),
-            DistroType::CentOS | DistroType::RHEL | DistroType::Fedora => ("rpm", vec!["-q", pkg]),
-            DistroType::Alpine => ("apk", vec!["info", "-e", pkg]),
-            DistroType::Unknown(_) => ("dpkg", vec!["-l", pkg]),
+            DistroType::Ubuntu | DistroType::Debian => ("dpkg", vec!["-l".into(), pkg.into()]),
+            DistroType::CentOS | DistroType::RHEL | DistroType::Fedora => {
+                ("rpm", vec!["-q".into(), pkg.into()])
+            }
+            DistroType::Alpine => ("apk", vec!["info".into(), "-e".into(), pkg.into()]),
+            DistroType::Unknown(_) => ("dpkg", vec!["-l".into(), pkg.into()]),
         };
-        let out = tokio::process::Command::new(bin).args(&args).output().await;
-        Ok(out.map(|o| o.status.success()).unwrap_or(false))
+        let out = self.run_cmd(bin, args).await;
+        Ok(out.map(|o| o.success()).unwrap_or(false))
     }
 
-    pub async fn uninstall(pkg: &str) -> Result<(), AppError> {
+    pub async fn uninstall(&self, pkg: &str) -> Result<(), AppError> {
         let distro = OsInfo::detect_distro().await;
         let (cmd, args): (&str, Vec<String>) = match distro {
             DistroType::Ubuntu | DistroType::Debian => {
@@ -219,13 +307,9 @@ impl PackageManager {
             DistroType::Alpine => ("apk", vec!["del".into(), pkg.into()]),
             DistroType::Unknown(_) => ("apt-get", vec!["remove".into(), "-y".into(), pkg.into()]),
         };
-        let out = tokio::process::Command::new(cmd)
-            .args(&args)
-            .output()
-            .await
-            .map_err(|e| AppError::internal(format!("Package uninstall failed: {}", e)))?;
-        if !out.status.success() {
-            let e = String::from_utf8_lossy(&out.stderr);
+        let out = self.run_cmd(cmd, args).await?;
+        if !out.success() {
+            let e = out.stderr.clone();
             return Err(AppError::internal(format!(
                 "Failed to uninstall {}: {}",
                 pkg, e
@@ -234,7 +318,7 @@ impl PackageManager {
         Ok(())
     }
 
-    pub async fn get_version(pkg: &str) -> Result<String, AppError> {
+    pub async fn get_version(&self, pkg: &str) -> Result<String, AppError> {
         let distro = OsInfo::detect_distro().await;
         let args: Vec<&str> = match distro {
             DistroType::Ubuntu | DistroType::Debian => vec!["-l", pkg],
@@ -244,23 +328,20 @@ impl PackageManager {
             DistroType::Alpine => vec!["info", pkg],
             DistroType::Unknown(_) => vec!["-l", pkg],
         };
-        let out = tokio::process::Command::new(
-            if distro == DistroType::CentOS
-                || distro == DistroType::RHEL
-                || distro == DistroType::Fedora
-            {
-                "rpm"
-            } else if distro == DistroType::Alpine {
-                "apk"
-            } else {
-                "dpkg"
-            },
-        )
-        .args(&args)
-        .output()
-        .await
-        .map_err(|e| AppError::internal(format!("Version check failed: {}", e)))?;
-        let s = String::from_utf8_lossy(&out.stdout).to_string();
+        let bin = if distro == DistroType::CentOS
+            || distro == DistroType::RHEL
+            || distro == DistroType::Fedora
+        {
+            "rpm"
+        } else if distro == DistroType::Alpine {
+            "apk"
+        } else {
+            "dpkg"
+        };
+        let out = self
+            .run_cmd(bin, args.iter().map(|s| s.to_string()).collect())
+            .await?;
+        let s = out.stdout.clone();
         for line in s.lines() {
             if line.starts_with("ii") && line.contains(pkg) {
                 let parts: Vec<&str> = line.split_whitespace().collect();
@@ -270,5 +351,85 @@ impl PackageManager {
             }
         }
         Ok("unknown".into())
+    }
+}
+
+// ─── 六边形端口实现 ─────────────────────────────────────────────────────────
+
+/// `ServiceManagerPort` 端口实现：持有 runner，委托给 `ServiceManager`。
+pub struct DefaultServiceManagerPort {
+    manager: ServiceManager,
+}
+
+impl DefaultServiceManagerPort {
+    pub fn new(runner: SharedCommandRunner) -> Self {
+        Self {
+            manager: ServiceManager::new(runner),
+        }
+    }
+
+    /// 便捷：默认嵌入式执行器。
+    pub fn embedded() -> Self {
+        Self::new(std::sync::Arc::new(
+            crate::infrastructure::execution::EmbeddedCommandRunner,
+        ))
+    }
+}
+
+#[async_trait]
+impl crate::application::app_store_ports::ServiceManagerPort for DefaultServiceManagerPort {
+    async fn start(&self, name: &str) -> Result<(), AppError> {
+        self.manager.start(name).await
+    }
+    async fn stop(&self, name: &str) -> Result<(), AppError> {
+        self.manager.stop(name).await
+    }
+    async fn restart(&self, name: &str) -> Result<(), AppError> {
+        self.manager.restart(name).await
+    }
+    async fn enable(&self, name: &str) -> Result<(), AppError> {
+        self.manager.enable(name).await
+    }
+    async fn disable(&self, name: &str) -> Result<(), AppError> {
+        self.manager.disable(name).await
+    }
+    async fn is_running(&self, name: &str) -> Result<bool, AppError> {
+        self.manager.is_running(name).await
+    }
+}
+
+/// `PackageManagerPort` 端口实现：持有 runner，委托给 `PackageManager`。
+pub struct DefaultPackageManagerPort {
+    manager: PackageManager,
+}
+
+impl DefaultPackageManagerPort {
+    pub fn new(runner: SharedCommandRunner) -> Self {
+        Self {
+            manager: PackageManager::new(runner),
+        }
+    }
+
+    /// 便捷：默认嵌入式执行器。
+    pub fn embedded() -> Self {
+        Self::new(std::sync::Arc::new(
+            crate::infrastructure::execution::EmbeddedCommandRunner,
+        ))
+    }
+}
+
+#[async_trait]
+impl crate::application::app_store_ports::PackageManagerPort for DefaultPackageManagerPort {
+    async fn install(&self, pkg: &str) -> Result<String, AppError> {
+        self.manager.install(pkg).await
+    }
+    async fn is_installed(&self, pkg: &str) -> Result<bool, AppError> {
+        self.manager.is_installed(pkg).await
+    }
+    async fn uninstall(&self, pkg: &str) -> Result<(), AppError> {
+        self.manager.uninstall(pkg).await
+    }
+    async fn get_version(&self, pkg: &str) -> Result<String, AppError> {
+        self.manager.get_version(pkg).await
     }
 }

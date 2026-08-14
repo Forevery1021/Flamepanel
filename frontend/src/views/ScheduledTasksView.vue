@@ -1,67 +1,82 @@
 <template>
-  <LayoutContent :title="t('scheduledTask.title')" reload @reload="fetch">
+  <LayoutContent :title="t('scheduledTask.title')" reload @reload="invalidate">
     <template #toolbar>
-      <FpButton variant="primary" icon="oi oi-plus" @click="openCreate">
-        {{ t('scheduledTask.create') }}
-      </FpButton>
+      <!-- P4：统一 PageToolbar -->
+      <PageToolbar v-model="searchText">
+        <template #left>
+          <FpSelect
+            v-model="statusFilter"
+            :options="statusOptions"
+            option-label="label"
+            option-value="value"
+            show-clear
+            class="toolbar-filter"
+          />
+        </template>
+        <template #actions>
+          <FpButton v-permission="{ perm: 'scheduled_task:create', mode: 'view' }" variant="primary" icon="oi oi-plus" @click="openCreate">
+            {{ t('scheduledTask.create') }}
+          </FpButton>
+        </template>
+      </PageToolbar>
     </template>
 
     <div class="panel">
       <FpTable
-        :rows="tasks"
+        :rows="filteredTasks"
         :loading="loading"
-        :first="(currentPage - 1) * pageSize"
+        :first="first"
         :empty-text="t('common.noData')"
       >
-        <Column field="name" :header="t('scheduledTask.name')" style="width: 160px" />
-        <Column :header="t('scheduledTask.command')">
+        <FpColumn field="name" :header="t('scheduledTask.name')" style="width: 160px" />
+        <FpColumn :header="t('scheduledTask.command')">
           <template #body="{ data }">
             <code class="command-cell">{{ data.command }}</code>
           </template>
-        </Column>
-        <Column :header="t('scheduledTask.schedule')" style="width: 130px">
+        </FpColumn>
+        <FpColumn :header="t('scheduledTask.schedule')" style="width: 130px">
           <template #body="{ data }">
             <FpTag severity="info" :value="data.schedule" />
           </template>
-        </Column>
-        <Column :header="t('scheduledTask.enabled')" style="width: 80px">
+        </FpColumn>
+        <FpColumn :header="t('scheduledTask.enabled')" style="width: 80px">
           <template #body="{ data }">
-            <ToggleSwitch
+            <FpSwitch
               :model-value="data.enabled"
               @update:model-value="(v: boolean) => onToggle(data, v)"
             />
           </template>
-        </Column>
-        <Column :header="t('scheduledTask.lastStatus')" style="width: 100px">
+        </FpColumn>
+        <FpColumn :header="t('scheduledTask.lastStatus')" style="width: 100px">
           <template #body="{ data }">
             <FpTag :severity="statusTag(data.last_status)" :value="statusLabel(data.last_status)" />
           </template>
-        </Column>
-        <Column :header="t('scheduledTask.nextRun')" style="width: 160px">
+        </FpColumn>
+        <FpColumn :header="t('scheduledTask.nextRun')" style="width: 160px">
           <template #body="{ data }">{{ data.next_run_at || '-' }}</template>
-        </Column>
-        <Column :header="t('scheduledTask.lastRun')" style="width: 160px">
+        </FpColumn>
+        <FpColumn :header="t('scheduledTask.lastRun')" style="width: 160px">
           <template #body="{ data }">{{ data.last_run_at || '-' }}</template>
-        </Column>
-        <Column :header="t('common.colActions')" style="width: 200px" frozen>
+        </FpColumn>
+        <FpColumn :header="t('common.colActions')" style="width: 200px" frozen>
           <template #body="{ data }">
             <div class="row-actions">
-              <FpButton variant="ghost" icon="oi oi-play-circle" @click="onRun(data)">
+              <FpButton v-permission="{ perm: 'scheduled_task:execute', mode: 'view' }" variant="ghost" icon="oi oi-play-circle" @click="onRun(data)">
                 {{ t('scheduledTask.run') }}
               </FpButton>
-              <FpButton variant="link" @click="openEdit(data)">{{ t('common.edit') }}</FpButton>
-              <FpButton variant="link" @click="onDelete(data)">{{ t('common.delete') }}</FpButton>
+              <FpButton v-permission="{ perm: 'scheduled_task:update', mode: 'view' }" variant="link" @click="openEdit(data)">{{ t('common.edit') }}</FpButton>
+              <FpButton v-permission="{ perm: 'scheduled_task:delete', mode: 'view' }" variant="link" @click="onDelete(data)">{{ t('common.delete') }}</FpButton>
             </div>
           </template>
-        </Column>
+        </FpColumn>
       </FpTable>
-      <Paginator
+      <FpPagination
         v-if="total > pageSize"
-        :first="(currentPage - 1) * pageSize"
+        :first="first"
         :rows="pageSize"
-        :total-records="total"
+        :total="total"
         :rows-per-page-options="[20, 50, 100]"
-        @update:first="(f) => goPage(f)"
+        @update:first="(f) => onFirst(f)"
       />
     </div>
 
@@ -74,7 +89,7 @@
         <FpInput v-model="form.name" :label="t('scheduledTask.name')" :error="formErrors.name" />
         <div class="field-col">
           <label class="field-label">{{ t('scheduledTask.command') }}</label>
-          <Textarea
+          <FpTextarea
             v-model="form.command"
             :rows="3"
             :invalid="!!formErrors.command"
@@ -90,7 +105,7 @@
         />
         <div class="field-row">
           <span class="field-label">{{ t('scheduledTask.enabled') }}</span>
-          <ToggleSwitch v-model="form.enabled" />
+          <FpSwitch v-model="form.enabled" />
         </div>
       </div>
       <template #footer>
@@ -108,12 +123,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Column from 'openvue/column'
-import Paginator from 'openvue/paginator'
-import Textarea from 'openvue/textarea'
-import ToggleSwitch from 'openvue/toggleswitch'
+
+
+
+
 import {
   listScheduledTasks,
   createScheduledTask,
@@ -123,14 +138,23 @@ import {
   toggleScheduledTask,
 } from '@/api/scheduledTasks'
 import type { ScheduledTask } from '@/api/scheduledTasks'
+import { useApiQuery, useQueryCacheClient } from '@/composables/useApiQuery'
+import { queryKeys } from '@/api/queryKeys'
+import { useCrudPage } from '@/composables/useCrudPage'
 import FpTable from '@/components/ui/FpTable.vue'
 import FpModal from '@/components/ui/FpModal.vue'
 import FpInput from '@/components/ui/FpInput.vue'
+import FpSelect from '@/components/ui/FpSelect.vue'
 import FpButton from '@/components/ui/FpButton.vue'
 import FpTag from '@/components/ui/FpTag.vue'
 import LayoutContent from '@/components/ui/LayoutContent.vue'
+import PageToolbar from '@/components/ui/PageToolbar.vue'
 import { useFpToast } from '@/components/ui/FpToast'
 import { useFpConfirm } from '@/components/ui/FpConfirm'
+import FpColumn from '@/components/ui/FpColumn.vue'
+import FpPagination from '@/components/ui/FpPagination.vue'
+import FpSwitch from '@/components/ui/FpSwitch.vue'
+import FpTextarea from '@/components/ui/FpTextarea.vue'
 
 type TagSeverity = 'success' | 'warning' | 'danger' | 'info' | 'neutral'
 
@@ -138,11 +162,31 @@ const { t } = useI18n()
 const toast = useFpToast()
 const { confirmAction } = useFpConfirm()
 
-const tasks = ref<ScheduledTask[]>([])
-const loading = ref(false)
-const currentPage = ref(1)
-const pageSize = ref(20)
-const total = ref(0)
+const queryClient = useQueryCacheClient()
+// P4：统一 CRUD 分页状态
+const crud = useCrudPage()
+const { total, first, pageSize, onFirst } = crud
+
+// M9：搜索 + 状态筛选（当前页客户端过滤）
+const searchText = ref('')
+const statusFilter = ref<string>('')
+const statusOptions = computed(() => [
+  { label: t('scheduledTask.statusEnabled'), value: 'enabled' },
+  { label: t('scheduledTask.statusDisabled'), value: 'disabled' },
+  { label: t('scheduledTask.statusSuccess'), value: 'success' },
+  { label: t('scheduledTask.statusFailed'), value: 'failed' },
+])
+const filteredTasks = computed(() => {
+  const kw = searchText.value.trim().toLowerCase()
+  return tasks.value.filter((tk) => {
+    if (statusFilter.value === 'enabled' && !tk.enabled) return false
+    if (statusFilter.value === 'disabled' && tk.enabled) return false
+    if (statusFilter.value === 'success' && tk.last_status !== 'success') return false
+    if (statusFilter.value === 'failed' && tk.last_status !== 'failed') return false
+    if (!kw) return true
+    return tk.name.toLowerCase().includes(kw) || tk.command.toLowerCase().includes(kw)
+  })
+})
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const editingId = ref(0)
@@ -164,20 +208,21 @@ function statusLabel(status: string) {
   return t('scheduledTask.statusNever')
 }
 
-async function fetch() {
-  loading.value = true
-  try {
-    const res = await listScheduledTasks(currentPage.value, pageSize.value)
-    tasks.value = res.data.data
-    total.value = res.data.total
-  } finally {
-    loading.value = false
-  }
-}
+// P3-A：列表走统一数据获取层 useApiQuery
+const tasksQuery = useApiQuery<{ data: ScheduledTask[]; total: number }>(
+  () => queryKeys.scheduledTasks.list(crud.currentPage.value, crud.pageSize.value),
+  async () => {
+    const res = await listScheduledTasks(crud.currentPage.value, crud.pageSize.value)
+    crud.total.value = res.data.total
+    return { data: { data: res.data.data, total: res.data.total } }
+  },
+  { keepPrevious: true },
+)
+const tasks = computed<ScheduledTask[]>(() => tasksQuery.data.value?.data ?? [])
+const loading = tasksQuery.loading
 
-function goPage(first: number) {
-  currentPage.value = first / pageSize.value + 1
-  fetch()
+function invalidate() {
+  queryClient.invalidateQueries({ queryKey: queryKeys.scheduledTasks.all })
 }
 
 function openCreate() {
@@ -232,7 +277,7 @@ async function handleSave() {
     }
     toast.success(t('common.success'))
     dialogVisible.value = false
-    await fetch()
+    invalidate()
   } catch (e: unknown) {
     toast.error(e, t('common.failed'))
   } finally {
@@ -249,7 +294,7 @@ function onRun(row: ScheduledTask) {
         const res = await runScheduledTask(row.id)
         selectedOutput.value = res.data.last_output
         outputVisible.value = true
-        await fetch()
+        invalidate()
       } catch {
         // cancelled
       }
@@ -261,10 +306,10 @@ async function onToggle(row: ScheduledTask, enabled: boolean) {
   try {
     await toggleScheduledTask(row.id, enabled)
     toast.success(t('common.success'))
-    await fetch()
+    invalidate()
   } catch {
     toast.error(t('common.failed'))
-    await fetch()
+    invalidate()
   }
 }
 
@@ -276,23 +321,18 @@ function onDelete(row: ScheduledTask) {
       try {
         await deleteScheduledTask(row.id)
         toast.success(t('common.success'))
-        await fetch()
+        invalidate()
       } catch {
         // cancelled
       }
     },
   })
 }
-
-onMounted(fetch)
 </script>
 
 <style scoped>
-.panel {
-  padding: var(--fp-space-4);
-  border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
-  border: 1px solid var(--fp-border);
+.toolbar-filter {
+  width: 160px;
 }
 .row-actions {
   display: flex;
@@ -335,8 +375,8 @@ onMounted(fetch)
   white-space: pre-wrap;
   word-break: break-all;
   font-size: 12px;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--fp-bg-terminal);
+  color: var(--fp-text-code);
   padding: 12px;
   border-radius: var(--fp-radius-sm);
 }

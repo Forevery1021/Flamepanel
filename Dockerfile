@@ -37,8 +37,15 @@ COPY nginx.conf /etc/nginx/nginx.conf
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# 沙箱工作区（文件/终端白名单根；镜像内 nginx 需绑定 80 特权端口且可挂载 docker.sock，
+# 故容器保持 root 运行——非 root 加固针对宿主机 systemd 部署，见 Doc/06）
+RUN mkdir -p /app/data /app/logs /app/workspace \
+    && chmod 750 /app/data /app/logs /app/workspace
+
 EXPOSE 80 8080
 VOLUME ["/app/data", "/var/run/docker.sock"]
 
 WORKDIR /app
+ENV OP_FILE_ROOT=/app/workspace \
+    OP_TERMINAL_CWD=/app/workspace
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

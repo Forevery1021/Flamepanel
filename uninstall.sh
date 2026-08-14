@@ -14,6 +14,8 @@ SERVICE_NAME="flamepanel"
 BINARY_PATH="/usr/local/bin/flamepanel"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 NGINX_CONF="/etc/nginx/conf.d/flamepanel.conf"
+RUN_USER="flamepanel"
+RUN_GROUP="flamepanel"
 
 usage() {
     cat << EOF
@@ -148,6 +150,15 @@ if [[ -d "$INSTALL_DIR" ]]; then
     if [[ "$PURGE" == true ]]; then
         rm -rf "$INSTALL_DIR"
         echo -e "${RED}  -> 已删除: $INSTALL_DIR${NC}"
+        # 清理专用运行用户/组（仅完全卸载时）
+        if id "$RUN_USER" >/dev/null 2>&1; then
+            userdel "$RUN_USER" 2>/dev/null || true
+            echo -e "${GREEN}  -> 已删除系统用户 $RUN_USER${NC}"
+        fi
+        if getent group "$RUN_GROUP" >/dev/null 2>&1; then
+            groupdel "$RUN_GROUP" 2>/dev/null || true
+            echo -e "${GREEN}  -> 已删除系统组 $RUN_GROUP${NC}"
+        fi
     else
         echo -e "${YELLOW}  -> 保留: $INSTALL_DIR${NC}"
         echo -e "${YELLOW}  -> 如需删除请手动运行: rm -rf $INSTALL_DIR${NC}"

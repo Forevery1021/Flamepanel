@@ -9,34 +9,46 @@
   >
     <div class="palette">
       <div class="palette-search">
-        <i class="oi oi-search" />
+        <i class="oi oi-search" aria-hidden="true" />
         <input
           ref="inputRef"
           v-model="query"
           class="palette-input"
-          placeholder="搜索菜单或应用…"
+          :placeholder="t('topbar.searchPlaceholder')"
+          role="combobox"
+          aria-label="Command"
+          aria-autocomplete="list"
+          :aria-expanded="model"
+          aria-controls="palette-listbox"
+          :aria-activedescendant="filtered.length ? `palette-option-${cursor}` : undefined"
           @keydown.down.prevent="move(1)"
           @keydown.up.prevent="move(-1)"
+          @keydown.home.prevent="cursor = 0"
+          @keydown.end.prevent="cursor = filtered.length - 1"
           @keydown.enter.prevent="go"
+          @keydown.esc.prevent="model = false"
         />
-        <kbd>ESC</kbd>
+        <kbd aria-hidden="true">ESC</kbd>
       </div>
-      <div class="palette-results">
-        <div v-if="filtered.length" class="palette-group">
+      <div id="palette-listbox" class="palette-results" role="listbox" aria-label="Commands">
+        <div v-if="filtered.length" class="palette-group" role="presentation">
           <div
             v-for="(r, i) in filtered"
+            :id="`palette-option-${i}`"
             :key="r.id"
             class="palette-item"
+            role="option"
+            :aria-selected="i === cursor"
             :class="{ 'is-selected': i === cursor }"
             @mouseenter="cursor = i"
             @click="run(r)"
           >
-            <i class="oi palette-item__icon" :class="r.icon" />
+            <i class="oi palette-item__icon" :class="r.icon" aria-hidden="true" />
             <span class="palette-item__label">{{ r.label }}</span>
             <span v-if="r.hint" class="palette-item__hint">{{ r.hint }}</span>
           </div>
         </div>
-        <div v-else class="palette-empty">{{ t('common.noData') }}</div>
+        <div v-else class="palette-empty" role="status">{{ t('common.noData') }}</div>
       </div>
     </div>
   </Dialog>
@@ -48,7 +60,11 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Dialog from 'openvue/dialog'
 import { useThemeStore } from '@/stores/theme'
-import { menuRoutes } from '@/router'
+import {
+  buildNavigationCommands,
+  buildActionCommands,
+  type CommandItem,
+} from '@/config/commands'
 
 const model = defineModel<boolean>({ required: true })
 
@@ -56,47 +72,30 @@ const { t } = useI18n()
 const router = useRouter()
 const themeStore = useThemeStore()
 
-interface PaletteItem {
-  id: string
-  label: string
-  icon: string
-  hint?: string
-  run: () => void
-}
-
 const query = ref('')
 const cursor = ref(0)
 const inputRef = ref<HTMLInputElement>()
 
-/** 菜单项来自路由表（meta.title + meta.icon），与侧边栏同源 */
-const staticItems: PaletteItem[] = [
-  ...menuRoutes
-    .filter((r) => r.meta?.group)
-    .map((r) => ({
-      id: String(r.name),
-      label: t(r.meta?.title ?? ''),
-      icon: r.meta?.icon ?? 'oi-circle',
-      run: () => router.push(r.path),
-    })),
-  {
-    id: 'toggle-dark',
-    label: t('topbar.toggleDark'),
-    icon: themeStore.mode === 'dark' ? 'oi-sun' : 'oi-moon',
-    run: () => themeStore.setMode(themeStore.mode === 'dark' ? 'light' : 'dark'),
-  },
-]
+/** Modernization M1：命令统一来自 config/commands.ts（导航命令 + 动作命令集中注册） */
+const staticItems = computed<CommandItem[]>(() => [
+  ...buildNavigationCommands(t, router),
+  ...buildActionCommands(t, themeStore),
+])
 
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
-  if (!q) return staticItems
-  return staticItems.filter((i) => i.label.toLowerCase().includes(q))
+  if (!q) return staticItems.value
+  return staticItems.value.filter((i) => {
+    if (i.label.toLowerCase().includes(q)) return true
+    return (i.keywords ?? []).some((k) => k.toLowerCase().includes(q))
+  })
 })
 
 function move(dir: number) {
   cursor.value = (cursor.value + dir + filtered.value.length) % filtered.value.length
 }
 
-function run(item: PaletteItem) {
+function run(item: CommandItem) {
   item.run()
   model.value = false
 }

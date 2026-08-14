@@ -86,6 +86,23 @@ impl UserRepository for InMemoryUserRepository {
         users.retain(|u| u.id != id);
         Ok(())
     }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<User>, AppError> {
+        let limit = limit.clamp(1, 200) as usize;
+        let users = self.users.lock().unwrap();
+        let mut sorted: Vec<User> = users.clone();
+        sorted.sort_by_key(|x| std::cmp::Reverse(x.id));
+        Ok(sorted
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit)
+            .collect())
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        Ok(self.users.lock().unwrap().len() as i64)
+    }
 }
 
 pub struct InMemoryNodeRepository {
@@ -127,6 +144,7 @@ impl NodeRepository for InMemoryNodeRepository {
             last_heartbeat_at: None,
             metrics_json: None,
             auth_token: node.auth_token.clone(),
+            agent_port: node.agent_port,
         };
         let id = node_with_id.id;
         nodes.push(node_with_id);
@@ -167,6 +185,39 @@ impl NodeRepository for InMemoryNodeRepository {
         } else {
             Err(AppError::NotFound("Node not found".into()))
         }
+    }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<ServerNode>, AppError> {
+        let limit = limit.clamp(1, 200) as usize;
+        let nodes = self.nodes.lock().unwrap();
+        let mut sorted: Vec<ServerNode> = nodes.clone();
+        sorted.sort_by_key(|x| std::cmp::Reverse(x.id));
+        Ok(sorted
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit)
+            .collect())
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        Ok(self.nodes.lock().unwrap().len() as i64)
+    }
+
+    /// 离线扫描条件化：筛选心跳早于阈值的节点。
+    async fn list_stale_heartbeats(
+        &self,
+        before: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<ServerNode>, AppError> {
+        let nodes = self.nodes.lock().unwrap();
+        Ok(nodes
+            .iter()
+            .filter(|n| match n.last_heartbeat_at {
+                Some(t) => t < before,
+                None => true,
+            })
+            .cloned()
+            .collect())
     }
 }
 
@@ -211,6 +262,7 @@ impl WebsiteRepository for InMemoryWebsiteRepository {
             proxy_enabled: website.proxy_enabled,
             proxy_pass: website.proxy_pass.clone(),
             created_at: chrono::Utc::now(),
+            resource_version: 0,
         };
         let id = ws.id;
         websites.push(ws);
@@ -221,6 +273,13 @@ impl WebsiteRepository for InMemoryWebsiteRepository {
     async fn update(&self, website: &Website) -> Result<(), AppError> {
         let mut websites = self.websites.lock().unwrap();
         if let Some(existing) = websites.iter_mut().find(|w| w.id == website.id) {
+            // 乐观并发控制（OCC）：版本不匹配则冲突
+            if existing.resource_version != website.resource_version {
+                return Err(AppError::Conflict(format!(
+                    "Website {} 已被其他会话修改，resource_version 冲突（期望 {}）",
+                    website.id, website.resource_version
+                )));
+            }
             existing.name = website.name.clone();
             existing.domain = website.domain.clone();
             existing.root_path = website.root_path.clone();
@@ -228,6 +287,7 @@ impl WebsiteRepository for InMemoryWebsiteRepository {
             existing.ssl_enabled = website.ssl_enabled;
             existing.proxy_enabled = website.proxy_enabled;
             existing.proxy_pass = website.proxy_pass.clone();
+            existing.resource_version += 1;
             Ok(())
         } else {
             Err(AppError::NotFound("Website not found".into()))
@@ -244,6 +304,23 @@ impl WebsiteRepository for InMemoryWebsiteRepository {
         let websites = self.websites.lock().unwrap();
         Ok(websites.clone())
     }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<Website>, AppError> {
+        let limit = limit.clamp(1, 200) as usize;
+        let websites = self.websites.lock().unwrap();
+        let mut sorted: Vec<Website> = websites.clone();
+        sorted.sort_by_key(|x| std::cmp::Reverse(x.id));
+        Ok(sorted
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit)
+            .collect())
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        Ok(self.websites.lock().unwrap().len() as i64)
+    }
 }
 
 pub struct InMemoryDockerRepository {
@@ -259,7 +336,8 @@ impl InMemoryDockerRepository {
 }
 
 #[async_trait]
-impl DockerRepository for InMemoryDockerRepository {
+#[async_trait]
+impl ContainerRepository for InMemoryDockerRepository {
     async fn list_containers(&self, _node_id: i64) -> Result<Vec<DockerContainer>, AppError> {
         let containers = self.containers.lock().unwrap();
         Ok(containers.clone())
@@ -294,36 +372,6 @@ impl DockerRepository for InMemoryDockerRepository {
         Ok(serde_json::json!({"mode": "memory"}))
     }
 
-    async fn list_images(&self) -> Result<Vec<serde_json::Value>, AppError> {
-        Ok(vec![])
-    }
-
-    async fn remove_image(&self, _id: &str) -> Result<(), AppError> {
-        Ok(())
-    }
-
-    async fn compose_deploy(
-        &self,
-        project_name: &str,
-        compose_yaml: &str,
-    ) -> Result<serde_json::Value, AppError> {
-        Ok(serde_json::json!({
-            "mode": "memory",
-            "project_name": project_name,
-            "compose_yaml": compose_yaml,
-            "status": "deployed"
-        }))
-    }
-
-    async fn compose_up(&self, _project_name: &str) -> Result<(), AppError> {
-        Ok(())
-    }
-
-    async fn compose_down(&self, _project_name: &str) -> Result<(), AppError> {
-        Ok(())
-    }
-
-    // ── 容器高级操作（内存降级：返回空/成功，避免破坏单测环境） ──
     async fn inspect_container(&self, _id: &str) -> Result<serde_json::Value, AppError> {
         Ok(serde_json::json!({ "mode": "memory" }))
     }
@@ -349,7 +397,10 @@ impl DockerRepository for InMemoryDockerRepository {
             serde_json::json!({ "mode": "memory", "containers_deleted": null, "space_reclaimed": 0 }),
         )
     }
+}
 
+#[async_trait]
+impl NetworkRepository for InMemoryDockerRepository {
     async fn list_networks(&self) -> Result<Vec<serde_json::Value>, AppError> {
         Ok(vec![])
     }
@@ -387,7 +438,10 @@ impl DockerRepository for InMemoryDockerRepository {
     async fn prune_networks(&self) -> Result<serde_json::Value, AppError> {
         Ok(serde_json::json!({ "mode": "memory", "networks_deleted": null }))
     }
+}
 
+#[async_trait]
+impl VolumeRepository for InMemoryDockerRepository {
     async fn list_volumes(&self) -> Result<Vec<serde_json::Value>, AppError> {
         Ok(vec![])
     }
@@ -407,6 +461,17 @@ impl DockerRepository for InMemoryDockerRepository {
     async fn prune_volumes(&self) -> Result<serde_json::Value, AppError> {
         Ok(serde_json::json!({ "mode": "memory", "volumes_deleted": null }))
     }
+}
+
+#[async_trait]
+impl ImageRepository for InMemoryDockerRepository {
+    async fn list_images(&self) -> Result<Vec<serde_json::Value>, AppError> {
+        Ok(vec![])
+    }
+
+    async fn remove_image(&self, _id: &str) -> Result<(), AppError> {
+        Ok(())
+    }
 
     async fn pull_image(&self, _image: &str) -> Result<String, AppError> {
         Ok(format!("Image {} pulled (memory mode)", _image))
@@ -419,11 +484,45 @@ impl DockerRepository for InMemoryDockerRepository {
     async fn prune_images(&self) -> Result<serde_json::Value, AppError> {
         Ok(serde_json::json!({ "mode": "memory", "images_deleted": null, "space_reclaimed": 0 }))
     }
+}
+
+#[async_trait]
+impl ComposeRepository for InMemoryDockerRepository {
+    async fn run_compose(
+        &self,
+        _args: Vec<String>,
+    ) -> Result<crate::application::execution_mode::CommandOutput, AppError> {
+        Ok(crate::application::execution_mode::CommandOutput::default())
+    }
+
+    async fn compose_deploy(
+        &self,
+        project_name: &str,
+        compose_yaml: &str,
+    ) -> Result<serde_json::Value, AppError> {
+        Ok(serde_json::json!({
+            "mode": "memory",
+            "project_name": project_name,
+            "compose_yaml": compose_yaml,
+            "status": "deployed"
+        }))
+    }
+
+    async fn compose_up(&self, _project_name: &str) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn compose_down(&self, _project_name: &str) -> Result<(), AppError> {
+        Ok(())
+    }
 
     async fn compose_ls(&self) -> Result<Vec<serde_json::Value>, AppError> {
         Ok(vec![])
     }
 }
+
+#[async_trait]
+impl DockerRepository for InMemoryDockerRepository {}
 
 pub struct InMemoryPermissionRepository {
     permissions: Mutex<Vec<Permission>>,
@@ -654,6 +753,115 @@ impl OperationLogRepository for InMemoryOperationLogRepository {
         logs.retain(|l| l.id != id);
         Ok(())
     }
+
+    async fn list_page(
+        &self,
+        limit: i64,
+        offset: i64,
+        action_prefix: Option<&str>,
+    ) -> Result<Vec<OperationLog>, AppError> {
+        let all = self.logs.lock().unwrap();
+        let filtered: Vec<&OperationLog> = match action_prefix {
+            Some(prefix) if !prefix.is_empty() => all
+                .iter()
+                .filter(|l| l.action.starts_with(prefix))
+                .collect(),
+            _ => all.iter().collect(),
+        };
+        let page: Vec<OperationLog> = filtered
+            .into_iter()
+            .skip(offset.max(0) as usize)
+            .take(limit.max(0) as usize)
+            .cloned()
+            .collect();
+        Ok(page)
+    }
+
+    async fn count(&self, action_prefix: Option<&str>) -> Result<i64, AppError> {
+        let all = self.logs.lock().unwrap();
+        let n = match action_prefix {
+            Some(prefix) if !prefix.is_empty() => {
+                all.iter().filter(|l| l.action.starts_with(prefix)).count()
+            }
+            _ => all.len(),
+        };
+        Ok(n as i64)
+    }
+}
+
+pub struct InMemoryOutboxRepository {
+    events: Mutex<Vec<OutboxEvent>>,
+    next_id: Mutex<i64>,
+}
+
+impl InMemoryOutboxRepository {
+    pub fn new() -> Self {
+        Self {
+            events: Mutex::new(Vec::new()),
+            next_id: Mutex::new(1),
+        }
+    }
+}
+
+impl Default for InMemoryOutboxRepository {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl OutboxRepository for InMemoryOutboxRepository {
+    async fn append(
+        &self,
+        event_type: &str,
+        payload: &str,
+        published: bool,
+    ) -> Result<OutboxEvent, AppError> {
+        let mut events = self.events.lock().unwrap();
+        let mut next_id = self.next_id.lock().unwrap();
+        let id = *next_id;
+        *next_id += 1;
+        let ev = OutboxEvent {
+            id,
+            event_type: event_type.into(),
+            payload: payload.into(),
+            published,
+            created_at: Utc::now(),
+        };
+        events.push(ev.clone());
+        Ok(ev)
+    }
+
+    async fn list_page(
+        &self,
+        limit: i64,
+        offset: i64,
+        event_type: Option<&str>,
+    ) -> Result<Vec<OutboxEvent>, AppError> {
+        let all = self.events.lock().unwrap();
+        let mut filtered: Vec<&OutboxEvent> = match event_type {
+            Some(et) if !et.is_empty() => all.iter().filter(|e| e.event_type == et).collect(),
+            _ => all.iter().collect(),
+        };
+        // 按 id 倒序
+        filtered.sort_by_key(|e| std::cmp::Reverse(e.id));
+        let page: Vec<OutboxEvent> = filtered
+            .into_iter()
+            .skip(offset.max(0) as usize)
+            .take(limit.max(0) as usize)
+            .cloned()
+            .collect();
+        Ok(page)
+    }
+
+    async fn count(&self, event_type: Option<&str>) -> Result<i64, AppError> {
+        let all = self.events.lock().unwrap();
+        let n = match event_type {
+            Some(et) if !et.is_empty() => all.iter().filter(|e| e.event_type == et).count(),
+            _ => all.len(),
+        };
+        Ok(n as i64)
+    }
 }
 
 pub struct InMemoryWebServerRepository {
@@ -698,6 +906,7 @@ impl WebServerRepository for InMemoryWebServerRepository {
             binary_path: instance.binary_path.clone(),
             port: instance.port,
             created_at: chrono::Utc::now(),
+            resource_version: 0,
         };
         let id = new.id;
         instances.push(new);
@@ -708,11 +917,25 @@ impl WebServerRepository for InMemoryWebServerRepository {
     async fn update(&self, instance: &WebServerInstance) -> Result<(), AppError> {
         let mut instances = self.instances.lock().unwrap();
         if let Some(existing) = instances.iter_mut().find(|i| i.id == instance.id) {
+            // 乐观并发控制（OCC）：仅当 resource_version 匹配时才更新，并将版本号自增。
+            if existing.resource_version != instance.resource_version {
+                return Err(AppError::Conflict(format!(
+                    "Web server {} 已被其他会话修改，resource_version 冲突（期望 {}）",
+                    instance.id, instance.resource_version
+                )));
+            }
             existing.status = instance.status.clone();
             existing.config_path = instance.config_path.clone();
             existing.binary_path = instance.binary_path.clone();
             existing.port = instance.port;
             existing.version = instance.version.clone();
+            existing.engine = instance.engine.clone();
+            existing.resource_version += 1;
+        } else {
+            return Err(AppError::NotFound(format!(
+                "Web server {} not found",
+                instance.id
+            )));
         }
         Ok(())
     }
@@ -724,6 +947,23 @@ impl WebServerRepository for InMemoryWebServerRepository {
 
     async fn list_all(&self) -> Result<Vec<WebServerInstance>, AppError> {
         Ok(self.instances.lock().unwrap().clone())
+    }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<WebServerInstance>, AppError> {
+        let limit = limit.clamp(1, 200) as usize;
+        let instances = self.instances.lock().unwrap();
+        let mut sorted: Vec<WebServerInstance> = instances.clone();
+        sorted.sort_by_key(|x| std::cmp::Reverse(x.id));
+        Ok(sorted
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit)
+            .collect())
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        Ok(self.instances.lock().unwrap().len() as i64)
     }
 }
 
@@ -807,6 +1047,22 @@ impl LogRepository for InMemoryLogRepository {
         logs.retain(|l| l.id != id);
         Ok(())
     }
+
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<LogEntry>, AppError> {
+        let all = self.logs.lock().unwrap();
+        let page: Vec<LogEntry> = all
+            .iter()
+            .rev()
+            .skip(offset.max(0) as usize)
+            .take(limit.max(0) as usize)
+            .cloned()
+            .collect();
+        Ok(page)
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        Ok(self.logs.lock().unwrap().len() as i64)
+    }
 }
 
 pub struct InMemoryDatabaseRepository {
@@ -878,6 +1134,7 @@ impl DatabaseRepository for InMemoryDatabaseRepository {
             root_user: instance.root_user.clone(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
+            resource_version: 0,
         };
         instances.push(new);
         Ok(id)
@@ -886,6 +1143,13 @@ impl DatabaseRepository for InMemoryDatabaseRepository {
     async fn update(&self, instance: &DatabaseInstance) -> Result<(), AppError> {
         let mut instances = self.instances.lock().unwrap();
         if let Some(existing) = instances.iter_mut().find(|i| i.id == instance.id) {
+            // 乐观并发控制（OCC）：仅当 resource_version 匹配时才更新，并将版本号自增。
+            if existing.resource_version != instance.resource_version {
+                return Err(AppError::Conflict(format!(
+                    "Database instance {} 已被其他会话修改，resource_version 冲突（期望 {}）",
+                    instance.id, instance.resource_version
+                )));
+            }
             existing.port = instance.port;
             existing.status = instance.status.clone();
             existing.version = instance.version.clone();
@@ -894,6 +1158,12 @@ impl DatabaseRepository for InMemoryDatabaseRepository {
             existing.config_file = instance.config_file.clone();
             existing.root_user = instance.root_user.clone();
             existing.updated_at = chrono::Utc::now();
+            existing.resource_version += 1;
+        } else {
+            return Err(AppError::NotFound(format!(
+                "Database instance {} not found",
+                instance.id
+            )));
         }
         Ok(())
     }
@@ -910,6 +1180,36 @@ impl DatabaseRepository for InMemoryDatabaseRepository {
             existing.updated_at = chrono::Utc::now();
         }
         Ok(())
+    }
+
+    async fn update_status_batch(&self, updates: &[(i64, String)]) -> Result<(), AppError> {
+        // 单锁内批量写入：原子（要么全部应用要么全部不应用）
+        let mut instances = self.instances.lock().unwrap();
+        let now = chrono::Utc::now();
+        for (id, status) in updates {
+            if let Some(existing) = instances.iter_mut().find(|i| i.id == *id) {
+                existing.status = status.clone();
+                existing.updated_at = now;
+            }
+        }
+        Ok(())
+    }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<DatabaseInstance>, AppError> {
+        let limit = limit.clamp(1, 200) as usize;
+        let instances = self.instances.lock().unwrap();
+        let mut sorted: Vec<DatabaseInstance> = instances.clone();
+        sorted.sort_by_key(|x| std::cmp::Reverse(x.id));
+        Ok(sorted
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit)
+            .collect())
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        Ok(self.instances.lock().unwrap().len() as i64)
     }
 }
 
@@ -951,6 +1251,28 @@ impl SettingsRepository for InMemorySettingsRepository {
         Ok(())
     }
 
+    async fn set_many(&self, entries: &[(String, String)]) -> Result<(), AppError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        // 单锁内批量写入（原子性：要么全部生效，要么维持原状）
+        let mut settings = self.settings.lock().unwrap();
+        for (key, value) in entries {
+            if let Some(existing) = settings.iter_mut().find(|s| s.key == *key) {
+                existing.value = value.clone();
+                existing.updated_at = Utc::now();
+            } else {
+                settings.push(PanelSetting {
+                    key: key.clone(),
+                    value: value.clone(),
+                    description: String::new(),
+                    updated_at: Utc::now(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     async fn list_all(&self) -> Result<Vec<PanelSetting>, AppError> {
         Ok(self.settings.lock().unwrap().clone())
     }
@@ -961,6 +1283,23 @@ impl SettingsRepository for InMemorySettingsRepository {
             .iter()
             .map(|s| (s.key.clone(), s.value.clone()))
             .collect())
+    }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<PanelSetting>, AppError> {
+        let limit = limit.clamp(1, 200) as usize;
+        let settings = self.settings.lock().unwrap();
+        let mut sorted: Vec<PanelSetting> = settings.clone();
+        sorted.sort_by(|a, b| b.key.cmp(&a.key).reverse());
+        Ok(sorted
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit)
+            .collect())
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        Ok(self.settings.lock().unwrap().len() as i64)
     }
 }
 
@@ -1045,6 +1384,23 @@ impl FirewallRepository for InMemoryFirewallRepository {
         // Ensure rules not in the list keep their priorities
         Ok(())
     }
+
+    // ── 分页下沉（Stage1）──
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<FirewallRule>, AppError> {
+        let limit = limit.clamp(1, 200) as usize;
+        let rules = self.rules.lock().unwrap();
+        let mut sorted: Vec<FirewallRule> = rules.clone();
+        sorted.sort_by_key(|x| std::cmp::Reverse(x.id));
+        Ok(sorted
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit)
+            .collect())
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        Ok(self.rules.lock().unwrap().len() as i64)
+    }
 }
 
 // ─── 定时任务 InMemory 仓储 ────────────────────────────────────────────────
@@ -1111,6 +1467,22 @@ impl ScheduledTaskRepository for InMemoryScheduledTaskRepository {
         tasks.retain(|t| t.id != id);
         Ok(())
     }
+
+    async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<ScheduledTask>, AppError> {
+        let all = self.tasks.lock().unwrap();
+        let page: Vec<ScheduledTask> = all
+            .iter()
+            .rev()
+            .skip(offset.max(0) as usize)
+            .take(limit.max(0) as usize)
+            .cloned()
+            .collect();
+        Ok(page)
+    }
+
+    async fn count(&self) -> Result<i64, AppError> {
+        Ok(self.tasks.lock().unwrap().len() as i64)
+    }
 }
 // ─── 应用商店 InMemory 仓储 ──────────────────────────────────────────────────
 
@@ -1157,6 +1529,23 @@ impl AppPackageRepository for InMemoryAppPackageRepository {
     async fn delete(&self, id: i64) -> Result<(), AppError> {
         self.packages.lock().unwrap().retain(|p| p.id != id);
         Ok(())
+    }
+
+    async fn create_many(&self, pkgs: &[AppPackage]) -> Result<usize, AppError> {
+        // 单锁内批量写入：原子（要么全部成功要么全部不写）
+        let mut packages = self.packages.lock().unwrap();
+        let mut new_ids: Vec<AppPackage> = Vec::new();
+        for pkg in pkgs {
+            if packages.iter().any(|p| p.key == pkg.key) {
+                continue; // 幂等：已存在则跳过
+            }
+            let mut p = pkg.clone();
+            p.id = (packages.len() as i64 + new_ids.len() as i64) + 1;
+            new_ids.push(p);
+        }
+        let count = new_ids.len();
+        packages.extend(new_ids);
+        Ok(count)
     }
 }
 
@@ -1410,6 +1799,53 @@ impl MemoRepository for InMemoryMemoRepository {
         if memos.len() == before {
             return Err(AppError::NotFound("Memo not found".into()));
         }
+        Ok(())
+    }
+}
+
+// ─── 统一 Task 状态机持久化（Phase B1 扩展）────────────────────────────────
+
+/// 进程内 TaskStore：仅内存，供默认/测试路径使用（不落盘）。
+#[derive(Default, Clone)]
+pub struct InMemoryTaskStore {
+    records: std::sync::Arc<
+        std::sync::Mutex<std::collections::HashMap<u64, crate::runtime::task_state::TaskRecord>>,
+    >,
+}
+
+impl InMemoryTaskStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::runtime::task_state::TaskStore for InMemoryTaskStore {
+    async fn insert(&self, record: &crate::runtime::task_state::TaskRecord) -> Result<(), String> {
+        self.records
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert(record.id, record.clone());
+        Ok(())
+    }
+    async fn update(&self, record: &crate::runtime::task_state::TaskRecord) -> Result<(), String> {
+        self.records
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert(record.id, record.clone());
+        Ok(())
+    }
+    async fn load_all(&self) -> Result<Vec<crate::runtime::task_state::TaskRecord>, String> {
+        Ok(self
+            .records
+            .lock()
+            .map_err(|e| e.to_string())?
+            .values()
+            .cloned()
+            .collect())
+    }
+    async fn remove(&self, id: u64) -> Result<(), String> {
+        self.records.lock().map_err(|e| e.to_string())?.remove(&id);
         Ok(())
     }
 }

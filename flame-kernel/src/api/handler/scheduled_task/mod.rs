@@ -8,7 +8,41 @@ use axum::{
     routing::get,
     Json,
 };
+use utoipa::ToSchema;
 
+#[derive(serde::Deserialize, ToSchema)]
+pub struct CreateTaskRequest {
+    pub name: String,
+    pub command: String,
+    pub schedule: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(serde::Deserialize, ToSchema)]
+pub struct UpdateTaskRequest {
+    pub name: Option<String>,
+    pub command: Option<String>,
+    pub schedule: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(serde::Deserialize, ToSchema)]
+pub struct ToggleTaskRequest {
+    pub enabled: bool,
+}
+
+/// 定时任务列表（分页）
+#[utoipa::path(
+    get,
+    path = "/api/scheduled-tasks",
+    tag = "scheduled_tasks",
+    params(PaginationParams),
+    responses(
+        (status = 200, description = "任务列表", body = PaginatedResponse<ScheduledTask>),
+        (status = 401, description = "未认证"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list_tasks(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
@@ -18,6 +52,18 @@ pub async fn list_tasks(
     ))
 }
 
+/// 创建定时任务
+#[utoipa::path(
+    post,
+    path = "/api/scheduled-tasks",
+    tag = "scheduled_tasks",
+    request_body = CreateTaskRequest,
+    responses(
+        (status = 200, description = "创建成功", body = ScheduledTask),
+        (status = 400, description = "参数错误"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn create_task(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<CreateTaskRequest>,
@@ -38,6 +84,19 @@ pub async fn create_task(
     Ok(Json(state.scheduled_task_service.create_task(task).await?))
 }
 
+/// 更新定时任务
+#[utoipa::path(
+    put,
+    path = "/api/scheduled-tasks/{id}",
+    tag = "scheduled_tasks",
+    params(("id" = i64, Path, description = "任务 ID")),
+    request_body = UpdateTaskRequest,
+    responses(
+        (status = 200, description = "更新成功", body = ScheduledTask),
+        (status = 404, description = "任务不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn update_task(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -61,6 +120,18 @@ pub async fn update_task(
     ))
 }
 
+/// 删除定时任务
+#[utoipa::path(
+    delete,
+    path = "/api/scheduled-tasks/{id}",
+    tag = "scheduled_tasks",
+    params(("id" = i64, Path, description = "任务 ID")),
+    responses(
+        (status = 200, description = "删除成功"),
+        (status = 404, description = "任务不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn delete_task(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -69,6 +140,18 @@ pub async fn delete_task(
     Ok(Json(()))
 }
 
+/// 立即执行定时任务
+#[utoipa::path(
+    post,
+    path = "/api/scheduled-tasks/{id}/run",
+    tag = "scheduled_tasks",
+    params(("id" = i64, Path, description = "任务 ID")),
+    responses(
+        (status = 200, description = "执行结果", body = ScheduledTask),
+        (status = 404, description = "任务不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn run_task(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -89,42 +172,21 @@ pub async fn toggle_task(
     ))
 }
 
-#[derive(serde::Deserialize)]
-pub struct CreateTaskRequest {
-    pub name: String,
-    pub command: String,
-    pub schedule: Option<String>,
-    pub enabled: Option<bool>,
-}
-
-#[derive(serde::Deserialize)]
-pub struct UpdateTaskRequest {
-    pub name: Option<String>,
-    pub command: Option<String>,
-    pub schedule: Option<String>,
-    pub enabled: Option<bool>,
-}
-
-#[derive(serde::Deserialize)]
-pub struct ToggleTaskRequest {
-    pub enabled: bool,
-}
-
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/scheduled-tasks", get(list_tasks).post(create_task))
         .route(
-            "/api/scheduled-tasks/:id",
+            "/api/scheduled-tasks/{id}",
             axum::routing::get(crate::api::handler::scheduled_task::get_task)
                 .put(update_task)
                 .delete(delete_task),
         )
         .route(
-            "/api/scheduled-tasks/:id/run",
+            "/api/scheduled-tasks/{id}/run",
             axum::routing::post(run_task),
         )
         .route(
-            "/api/scheduled-tasks/:id/toggle",
+            "/api/scheduled-tasks/{id}/toggle",
             axum::routing::post(toggle_task),
         )
 }

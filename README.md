@@ -1,440 +1,179 @@
-# FlamePanel
+<div align="center">
 
-> 基于 Rust + Vue 3 的服务器运维管理面板
+# 🔥 FlamePanel
+
+> **现代化、高性能、自托管的服务器运维管理面板**
+
+基于 **Rust + Vue 3** 构建，采用六边形（Clean）架构，参考 1Panel 能力设计，提供 Docker、Web 服务器、数据库、应用商店、防火墙等全栈运维能力。
 
 ![Rust](https://img.shields.io/badge/Rust-1.85-orange)
+![Axum](https://img.shields.io/badge/Axum-0.8-red)
 ![Vue](https://img.shields.io/badge/Vue-3.5-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-6.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-blue)
+![PRs](https://img.shields.io/badge/PRs-welcome-brightgreen)
 
-**FlamePanel** 是一个现代化、高性能、自托管的服务器运维面板。后端采用 Rust + Axum 六边形架构，前端使用 Vue 3 + OpenVue（PrimeVue v4 社区延续版），支持 JWT + RBAC 权限体系。
+</div>
 
-## 核心特性
+---
 
-- **系统监控** — WebSocket 实时推送 CPU/内存/磁盘/负载/网络 IO，ECharts 趋势图 + 负载仪表 + 进程 TOP
-- **Docker 管理** — 容器/镜像/网络/卷/Compose 全生命周期管理（29 端点，参考 1Panel）：容器 inspect/重命名/暂停/恢复/强杀/清理，网络创建/连接/断开/清理，卷创建/删除/清理，镜像拉取/打标签/清理，Compose 项目列表
-- **Web 服务器引擎** — 原生支持 Nginx/Apache/OpenLiteSpeed/OpenResty/Caddy，自动生成配置，进程管理（25 端点）；性能预设（low/medium/high/ultra 资源感知推荐）+ 一键引擎切换；原生控制：系统包管理器安装/卸载、systemd 开机自启、安装状态/版本/监听端口自动检测（1Panel 风格）
-- **数据库管理** — MySQL/MariaDB/Redis 原生安装（apt/yum/apk），数据库/用户 CRUD，服务启停（15 端点）
-- **应用商店** — 统一支持 1Panel / 宝塔 / Flame 内置三格式应用包，容器 / 原生 / WASM 三模式安装编排（compose 模板变量映射 + 安全扫描 + 失败回滚），升级 / 卸载 / 日志全生命周期（11 端点）
-- **文件管理** — Web 端浏览/编辑/上传/下载/重命名/权限（10 端点）
-- **防火墙管理** — ufw/firewalld/iptables 自动检测，规则 CRUD/应用/开关（11 端点）
-- **Web 终端** — xterm.js + WebSocket，浏览器内直接连接服务器 Shell
-- **WASM 插件系统** — wasmtime 沙箱，生命周期钩子/指标追踪/热重载/依赖校验；内置 WASM 工具（插件表持久化 + 启动恢复）
-- **面板配置** — Key-Value 配置，主题/多语言/端口/日志/2FA/JWT 密钥轮换；自动备份（间隔/保留份数，后台任务）
-- **用户 & RBAC** — JWT + bcrypt + 滑动过期刷新，admin/operator/viewer 三角色，64 项权限；认证+RBAC 合并中间件（一次查库）；新装面板强制改密、登录失败锁定（5 次/5 分钟）
-- **节点管理** — Agent 心跳对接：`POST /api/nodes/heartbeat/:id`（白名单 + Agent 令牌校验）、在线状态惰性判定（30s 超时）、实时指标快照；前端节点状态/指标 10s 轮询
-- **统一错误体系** — 全部错误（含中间件/404/JSON 解析失败）返回 `{code, error, message}` JSON，9 个稳定错误码，前端按码国际化提示；内部错误完整日志链
-- **国际化** — 简体中文 / English / 日本語 三语言支持，前端实时切换
-- **备忘录 & TODO** — 后端持久化（memos 表），备忘录/待办双视图，Dashboard 今日待办快捷卡
-- **应用推荐 & 常用** — 商店推荐位 + 已装状态角标；启动次数统计驱动常用应用（Dashboard/顶栏快捷入口）
-- **多页签工作区** — 访问过的页面以可关闭页签展示（右键菜单：刷新/关闭/关闭其他/关闭全部），keep-alive 缓存保持页面状态
-- **1Panel 风格顶栏** — 全局命令面板（Ctrl+K 菜单搜索跳转）、快捷应用、实时状态（节点/容器）、通知中心
-- **主题定制系统** — 4 套预设（Flame/Aurora/Infinity/自定义）+ 品牌色 HSL 实时调色（OKLCH）、玻璃模糊/圆角/密度可调、JSON 配置导入导出；明暗双主题跟随系统 / 手动切换 / 持久化
-- **外观自定义** — 主界面/登录页自定义背景（上传图片自动压缩，服务端持久化）、侧边栏菜单分组显隐、多页签开关；自定义背景下面板自动切换玻璃材质（blur 联动）
-- **审计日志 & 系统日志** — 写操作自动审计落库（中间件）+ 登录成功/失败审计 + `?action=` 过滤；系统日志 REST + WebSocket 双通道
-- **弹性与容错** — Circuit Breaker + Retry，Docker 不可用时 InMemory 自动降级
+## ✨ 核心特性
 
-## 技术栈
+| 模块 | 说明 |
+|------|------|
+| 🖥️ **系统监控** | WebSocket 实时推送 CPU / 内存 / 磁盘 / 负载 / 网络 IO，ECharts 趋势图 + 负载仪表 + 进程 TOP |
+| 🐳 **Docker 管理** | 容器 / 镜像 / 网络 / 卷 / Compose 全生命周期管理（33 端点，参考 1Panel） |
+| 🌐 **Web 服务器** | 原生支持 Nginx / Apache / OpenLiteSpeed / OpenResty / Caddy，自动生成配置，性能预设 + 引擎一键切换 |
+| 🗄️ **数据库管理** | MySQL / MariaDB / Redis 原生安装与启停、数据库 / 用户 CRUD |
+| 🧩 **应用商店** | 统一支持 1Panel / 宝塔 / Flame 三格式应用包，容器 / 原生 / WASM 三模式安装编排 |
+| 📁 **文件管理** | Web 端浏览 / 编辑 / 上传 / 下载 / 重命名 / 权限控制 |
+| 🛡️ **防火墙管理** | ufw / firewalld / iptables 自动检测，规则 CRUD / 应用 / 开关 |
+| 💻 **Web 终端** | xterm.js + WebSocket，浏览器内直接连接服务器 Shell |
+| ⚙️ **WASM 插件系统** | wasmtime 沙箱，生命周期钩子 / 指标追踪 / 热重载 / 依赖校验 |
+| 🔐 **用户 & RBAC** | JWT + bcrypt + 滑动过期刷新，admin / operator / viewer 三角色，73 项权限 |
+| 🛰️ **节点管理** | Agent 心跳对接，在线状态惰性判定 + 实时指标快照，批量命令执行 |
+| 🌍 **国际化** | 简体中文 / English / 日本語 三语言，前端实时切换 |
+
+> 另含：多页签工作区、⌘K 命令面板、主题定制系统（4 预设 + 品牌色实时调色）、统一任务中心（生命周期状态机）、审计日志、事件驱动 + Outbox + 邮件通知、Circuit Breaker / Retry 容错、统一错误体系、vue-query 数据层 + 虚拟列表性能优化。
+
+---
+
+## 🧱 技术栈
 
 | 层面 | 技术 |
 |------|------|
-| 后端架构 | Clean Architecture + Hexagonal (domain → application → infrastructure → api) |
-| 后端框架 | Rust + Axum 0.6 |
-| 数据库 | SQLite (sqlx 0.9) + InMemory 双模式 |
-| 认证 | jsonwebtoken 9 + bcrypt |
-| WASM | wasmtime 29 |
-| 前端 | Vue 3.5 + TypeScript 6.0 + OpenVue 0.7 + Vite 8 + UnoCSS |
-| 状态/路由 | Pinia 3 + Vue Router 5 |
-| 国际化 | vue-i18n 10（zh-CN / en-US / ja-JP） |
-| 终端 | xterm.js 5.5 + @xterm/addon-fit |
-| 图表 | ECharts 6（按需引入，主题令牌自适应） |
+| **后端架构** | Clean Architecture + Hexagonal（domain → application → infrastructure → api） |
+| **后端框架** | Rust + Axum 0.8 |
+| **数据库** | SQLite（sqlx 0.9）+ InMemory 双模式 |
+| **认证** | jsonwebtoken 9 + bcrypt |
+| **WASM 沙箱** | wasmtime |
+| **前端框架** | Vue 3.5 + TypeScript 6.0 + Vite 8 |
+| **UI 组件库** | OpenVue 0.7（PrimeVue v4 社区延续版） |
+| **状态 / 路由** | Pinia 3 + Vue Router 5 |
+| **样式** | UnoCSS + OKLCH 设计令牌 |
+| **图表** | ECharts 6（按需引入） |
+| **国际化** | vue-i18n 10（zh-CN / en-US / ja-JP） |
+| **终端** | xterm.js 5.5 + @xterm/addon-fit |
+| **节点 Agent** | 轻量 Rust（reqwest + sysinfo） |
 
-## 项目结构
+---
 
-```
-Flamepanel/
-├── flame-kernel/          # Rust 核心后端
-│   ├── src/
-│   │   ├── domain/        # 实体 (User/Node/Website/Plugin/AppMetadata/DatabaseInstance/…)
-│   │   ├── application/   # 服务层 (UserService/DockerService/AppStoreService/…)
-│   │   ├── infrastructure/# 仓库实现 (InMemory + SQLite + Bollard + OS 抽象)
-│   │   │   └── app_store/ # 应用商店适配器 (Flame/1Panel/宝塔) + 变量映射 + 安全扫描
-│   │   ├── api/           # HTTP 层 (17 个 handler 模块各带 routes(), 153 路由, 统一错误/中间件)
-│   │   ├── plugin/        # WASM 沙箱 + 注册表
-│   │   ├── webserver/     # 5 引擎配置生成 + 性能预设 + 进程管理
-│   │   ├── database/      # MySQL/Redis 原生管理
-│   │   ├── firewall/      # 防火墙管理器 (ufw/firewalld/iptables)
-│   │   ├── terminal/      # Web 终端 (bash 子进程管道)
-│   │   ├── event/         # 事件总线
-│   │   ├── utils/         # JWT/bcrypt/验证
-│   │   └── resilience/    # Circuit Breaker + Retry
-│   └── tests/             # 84 集成测试 + 55 单元测试
-├── frontend/              # Vue 3 + OpenVue 前端 (20 个视图, 3 语言 i18n)
-│   ├── src/theme/         # 设计令牌 (OKLCH) + OpenVue 品牌预设 + 玻璃材质
-│   ├── src/components/ui/ # Fp* 封装层 (FpTable/FpModal/FpToast/FpConfirm 等)
-│   ├── src/components/layout/ # AppSidebar/AppHeader/CommandPalette/AppFooter
-├── agent/                 # 轻量 Rust Agent
-├── docker-compose.yml
-├── install.sh
-└── uninstall.sh
-```
-
-## 环境要求
-
-| 组件 | 版本 | 用途 |
-|------|------|------|
-| Rust | 1.85+ | 编译后端 |
-| Node.js | 20+ | 构建前端 |
-| Docker (可选) | 任意 | 容器化部署 |
-
-## 快速开发
+## 🚀 快速开始
 
 ```bash
 # 终端 1：启动后端（端口 8080）
 cd flame-kernel
 cargo run
 
-# 终端 2：启动前端（端口 5173，自动代理 /api/* -> :8080）
+# 终端 2：启动前端（端口 5173，自动代理 /api 与 /ws）
 cd frontend
 npm install
 npm run dev
 ```
 
-访问 `http://localhost:5173`，默认账号 `admin` / `admin123`。
+访问 `http://localhost:5173`，默认账号 `admin` / `admin123`（新装面板首次登录**强制修改密码**）。
 
-> 新装面板（v0.6.0+）首次登录会**强制修改初始密码**（`must_change_password` 机制），改密前面板功能受限。
+生产环境推荐使用 `install.sh` 一键安装，或参考 [部署文档](./Doc/06-部署运维指南.md)。
 
-## 构建与发行
+---
 
-### 开发常用命令（justfile）
+## 📁 项目结构
 
-| 命令 | 说明 |
+```
+Flamepanel/
+├── flame-kernel/        # Rust 核心后端（Axum + 六边形架构）
+│   ├── src/
+│   │   ├── domain/          # 实体 + Repository trait + 领域端口（零依赖）
+│   │   ├── application/     # 服务层（每域一文件：user/node/website/docker/role/web_server…）
+│   │   ├── infrastructure/  # 仓库实现（InMemory/SQLite/Docker/OS + app_store/firewall 适配器）
+│   │   ├── api/             # HTTP 层（22 个 handler 模块 + 分域拆分 types/dto/permissions）
+│   │   ├── plugin/          # WASM 沙箱 + 注册表
+│   │   ├── webserver/       # 5 种 Web 引擎 + 性能预设 + 原生控制
+│   │   ├── database/        # MySQL / Redis 原生管理
+│   │   ├── firewall/        # 防火墙管理（ufw/firewalld/iptables）
+│   │   ├── terminal/        # Web 终端（bash 子进程管道）
+│   │   ├── event/           # 事件总线 + Outbox + 邮件通知
+│   │   ├── resilience/      # Circuit Breaker + Retry
+│   │   └── utils/           # JWT / bcrypt / AuthCache / 校验
+│   └── tests/               # 集成 + 单元测试
+├── frontend/            # Vue 3 + OpenVue 前端（23 个视图，3 语言 i18n）
+├── agent/               # 轻量 Rust 节点 Agent
+├── Doc/                 # 19 份开发 / 部署 / API 权威文档
+├── install.sh           # 一键安装脚本
+├── docker-compose.yml   # Docker 部署
+├── Dockerfile
+└── justfile             # 开发 / 构建 / 测试命令
+```
+
+---
+
+## 🗺️ 进度与方向
+
+> 最新进展详见 [CHANGELOG.md](./CHANGELOG.md) 与 [开发路线图](./Doc/13-开发路线图与后续规划.md)。
+
+### ✅ 已完成（Phase 1 – 8）
+
+| 阶段 | 内容 |
 |------|------|
-| `just dev` | 后端热重载（需 cargo-watch） |
-| `just build` | 完整构建（前端 + 后端 release） |
-| `just test` | 后端全量测试 |
-| `just lint` | 前端 ESLint + 后端 Clippy |
-| `just typecheck` | 前端 vue-tsc 类型检查 |
-| `just check-full` | **发版前全量验证**（test + lint + typecheck + build） |
-| `just release` | 打包发行资产（见下） |
-| `just release-v 0.6.0` | 指定版本打包 |
-| `just release-verify` | 校验发行资产 SHA256 |
-
-### 打包发行资产
-
-`scripts/package-release.sh` 生成 `install.sh` 依赖的 GitHub Releases 产物：
-
-```bash
-./scripts/package-release.sh [输出目录] [版本号]
-# 默认输出 release-assets/，版本号自动从 Cargo.toml 读取
-```
-
-产物：
-
-```
-release-assets/
-├── flamepanel-linux-amd64.tar.gz      # 后端二进制（顶层为 flamepanel）
-├── flamepanel-linux-arm64.tar.gz      # ARM64 后端二进制
-├── flamepanel-frontend.tar.gz         # 前端静态资源（dist 内容）
-└── flamepanel-<VERSION>-checksums.txt # SHA256 校验和
-```
-
-脚本自动：跑后端测试 → 构建 release → 构建前端 → 打包 → 生成校验和。
-
-### 发布流程
-
-```bash
-# 1. 全量验证
-just check-full
-
-# 2. 打包发行资产
-just release
-
-# 3. 打标签触发 CI 自动发布（.github/workflows/release.yml 双架构构建 + 自动生成 Release）
-git tag v0.6.0 && git push origin v0.6.0
-
-# 4. 或手动上传 release-assets/ 产物到 GitHub Releases
-```
-
-> CI 发布流水线（`release.yml`）：tag `v*` 触发 → amd64/arm64 双架构交叉编译 → 打包后端+前端 → 生成校验和 → 创建 GitHub Release。`install.sh` 通过 `releases/latest/download/` 自动下载对应架构产物。
-
-## 生产部署
-
-### 方式一：一键安装脚本（推荐 Linux）
-
-```bash
-# 交互式安装
-sudo ./install.sh
-
-# 静默安装
-sudo ./install.sh -n
-
-# 自定义安装
-sudo ./install.sh -u admin -p 'YourP@ss123' -P 9090 -s 'your-jwt-secret'
-```
-
-脚本自动完成：安装依赖 → 创建 `/opt/flamepanel` → 部署后端二进制与前端静态资源 → 配置 nginx 反向代理（80 端口）→ 注册 systemd 服务 → 启动。
-
-> 脚本优先使用本地构建产物（`target/release/flame-kernel`、`frontend/dist`），否则从 GitHub Releases 下载；密钥写入 `/opt/flamepanel/flamepanel.env`（600 权限），不出现在 systemd unit 中。
->
-> 访问面板：`http://<服务器IP>/`（经 nginx），后端 API 位于 `http://<IP>:<端口>/api`。
-
-### 方式二：手动 systemd 部署
-
-```bash
-# 1. 编译后端
-cd flame-kernel && cargo build --release
-
-# 2. 构建前端
-cd frontend && npm ci && npm run build
-
-# 3. 准备目录
-sudo mkdir -p /opt/flamepanel/{data,logs,frontend}
-sudo cp ../target/release/flame-kernel /usr/local/bin/flamepanel
-sudo cp -r ../frontend/dist /opt/flamepanel/frontend/
-
-# 4. 环境变量文件（600 权限）
-sudo tee /opt/flamepanel/flamepanel.env > /dev/null << 'EOF'
-OP_PORT=8080
-OP_HOST=0.0.0.0
-OP_DATABASE_URL=sqlite:/opt/flamepanel/data/flamepanel.db?mode=rwc
-OP_JWT_SECRET=your-secret-key
-EOF
-sudo chmod 600 /opt/flamepanel/flamepanel.env
-
-# 5. 创建 systemd 服务
-sudo tee /etc/systemd/system/flamepanel.service > /dev/null << 'EOF'
-[Unit]
-Description=FlamePanel
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/flamepanel
-WorkingDirectory=/opt/flamepanel
-EnvironmentFile=/opt/flamepanel/flamepanel.env
-Restart=always
-RestartSec=5
-LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# 6. Nginx 反向代理（静态资源 + API + WebSocket）
-#    参考仓库 nginx.conf 或运行 install.sh 自动生成
-sudo tee /etc/nginx/conf.d/flamepanel.conf > /dev/null << 'EOF'
-server {
-    listen 80;
-    server_name _;
-    root /opt/flamepanel/frontend/dist;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-    location /api/ {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-    location /ws/ {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "Upgrade";
-    }
-    location /assets/ {
-        expires 30d;
-        add_header Cache-Control "public";
-    }
-}
-EOF
-
-# 7. 启动
-sudo systemctl daemon-reload
-sudo systemctl enable --now flamepanel nginx
-```
-
-### 方式三：Docker Compose 部署
-
-```bash
-# 构建并启动
-docker compose up -d
-
-# 查看日志
-docker compose logs -f
-
-# 停止
-docker compose down
-```
-
-默认 Docker 配置（`docker-compose.yml`）：
-- 端口 `8080:80`（容器内 nginx 提供前端静态资源 + API/WS 反向代理）
-- 挂载 `./data` 持久化数据库
-- 挂载 `/var/run/docker.sock` 实现 Docker 管理
-
-### 方式四：Nginx 反向代理 + 后端
-
-适用于生产环境，Nginx 负责 TLS 证书和静态资源，后端处理 API 请求。
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name panel.example.com;
-
-    ssl_certificate     /etc/ssl/certs/panel.crt;
-    ssl_certificate_key /etc/ssl/private/panel.key;
-
-    root /opt/flamepanel/frontend/dist;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /ws/ {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "Upgrade";
-    }
-}
-```
-
-## 配置
-
-### 环境变量
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `OP_PORT` | `8080` | 监听端口 |
-| `OP_HOST` | `0.0.0.0` | 监听地址 |
-| `OP_DATABASE_URL` | `sqlite:data/app.db?mode=rwc` | 数据库连接 |
-| `OP_JWT_SECRET` | `flamepanel-secret` | JWT 签名密钥（生产环境务必修改） |
-| `OP_ADMIN_USERNAME` | `admin` | 初始管理员用户名 |
-| `OP_ADMIN_PASSWORD` | `admin123` | 初始管理员密码 |
-| `OP_SMTP_HOST` | `localhost` | SMTP 服务器地址 |
-| `OP_SMTP_PORT` | `25` | SMTP 端口 |
-| `OP_SMTP_USERNAME` | 空 | SMTP 用户名 |
-| `OP_SMTP_PASSWORD` | 空 | SMTP 密码 |
-| `OP_SMTP_FROM` | `noreply@flamepanel.local` | 发件人地址 |
-| `OP_SMTP_TLS` | `false` | 启用 TLS |
-| `RUST_LOG` | `info` | 日志级别 |
-
-### 面板运行时设置
-
-首次登录后通过面板设置页面修改（存储在 `panel_settings` 表）：
-
-| 设置项 | 默认值 | 说明 |
-|--------|--------|------|
-| `panel_name` | `FlamePanel` | 面板名称 |
-| `theme` | `light` | 主题 (`light` / `dark`) |
-| `language` | `zh-CN` | 语言 (`zh-CN` / `en-US` / `ja-JP`) |
-| `session_timeout_minutes` | `1440` | 会话超时 (分钟) |
-| `log_level` | `info` | 日志级别 |
-| `log_retention_days` | `30` | 日志保留天数 |
-| `two_factor_enabled` | `false` | 2FA 开关 |
-
-## 卸载
-
-### Systemd 部署
-
-```bash
-# 卸载（保留数据）
-sudo ./uninstall.sh
-
-# 完全卸载（删除所有数据）
-sudo ./uninstall.sh -p
-
-# 或手动卸载
-sudo systemctl stop flamepanel
-sudo systemctl disable flamepanel
-sudo rm -f /usr/local/bin/flamepanel
-sudo rm -f /etc/systemd/system/flamepanel.service
-sudo rm -f /etc/nginx/conf.d/flamepanel.conf && sudo systemctl restart nginx
-sudo systemctl daemon-reload
-sudo rm -rf /opt/flamepanel   # 删除数据
-```
-
-### Docker 部署
-
-```bash
-docker compose down
-rm -rf ./data   # 删除数据
-```
-
-## 服务管理
-
-```bash
-# Systemd
-sudo systemctl start|stop|restart|status flamepanel
-sudo journalctl -u flamepanel -f
-
-# Docker
-docker compose up -d|down|restart
-docker compose logs -f
-
-# 数据库备份
-cp /opt/flamepanel/data/flamepanel.db /backup/flamepanel-$(date +%Y%m%d).db
-```
-
-> 默认凭据：`admin` / `admin123`（首次启动自动创建，建议立即修改）
-
-## API 端点概览
-
-| 模块 | 端点数 | 路径前缀 |
-|------|--------|----------|
-| 健康检查 | 1 | `GET /health` |
-| 认证 | 4 | `/api/auth/*` |
-| 用户 | 4 | `/api/users` |
-| 节点 | 7 | `/api/nodes` |
-| 网站 | 6 | `/api/websites` |
-| Docker | 29 | `/api/docker/*` |
-| 插件 | 13 | `/api/plugins/*` |
-| 应用商店 | 11 | `/api/app-store/*` |
-| Web 服务器 | 25 | `/api/web-servers/*` |
-| 数据库 | 15 | `/api/databases/*` |
-| 文件 | 10 | `/api/files/*` |
-| 防火墙 | 11 | `/api/firewall/*` |
-| 配置 | 3 | `/api/settings` |
-| 操作日志 | 2 | `/api/operation-logs` |
-| 系统日志 | 2 | `/api/logs` |
-| WebSocket | 3 | `/ws/metrics`, `/ws/logs`, `/ws/terminal` |
-
-## 开发进度
-
-- **Phase 1** ✅ 核心框架：Clean Architecture、错误处理、JWT + RBAC
-- **Phase 2** ✅ 业务模块：用户/节点/网站/Docker CRUD、日志、实时 WS
-- **Phase 3** ✅ 高级特性：WASM 插件沙箱、Docker Compose、Circuit Breaker/Retry、多 Web 引擎、面板配置、数据库管理、文件管理、防火墙管理、Web 终端
-- **Phase 4** ✅ 前端 UI 重构：i18n 国际化（zh-CN/en-US/ja-JP）、暗色主题、语言切换器、TopBar 重组、全部 15 个视图 i18n 化
-- **Phase 4** ✅ 分页支持：后端所有列表端点支持 `?page=&page_size=` 分页查询，前端统一分页控件
-- **Phase 4** ✅ CRUD 补全：Website 完整 CRUD、User/Node 更新、OperationLog/Log 删除端点
-- **Phase 4** ✅ 前端编辑对话框：用户/节点/网站视图编辑功能
-- **Phase 4** ✅ 优雅关闭：SIGTERM/Ctrl+C 信号处理
-- **Phase 4** ✅ 定时任务：cron 解析 + 服务 + API + 前端视图（v0.4.2）
-- **Phase 4** ✅ 备份系统：手动备份/恢复/下载/删除（v0.4.1）+ 自动备份（v0.6.0）
-- **Phase 5** ✅ 应用商店：1Panel/宝塔/Flame 三格式适配器 + 容器/原生/WASM 三模式安装编排（变量映射、安全扫描、失败回滚）、WASM 内置工具持久化、完整 API + 前端商店视图（动态表单安装向导）
-- **Phase 5** ✅ Web 引擎统一：性能预设（资源感知推荐）+ 引擎一键切换（Web 服务器 & 网站）+ 预设应用，前端预设/切换 UI
-- **Phase 6** ✅ 内核优化：统一错误体系（8 稳定错误码 + JSON 化中间件/404/ApiJson）、认证+RBAC 合并中间件、Services 聚合 + 路由分模块、release profile 优化（18MB stripped）、前端错误码 i18n
-- **Phase 6** ✅ Docker 增强（参考 1Panel）：容器 inspect/重命名/暂停/恢复/强杀/清理，网络/卷管理（创建/连接/断开/清理），镜像拉取/打标签/清理，Compose 项目列表（Docker 端点 13→29）
-- **Phase 6** ✅ Web 服务器原生控制：系统包管理器安装/卸载、systemd 开机自启、安装状态/版本/监听端口自动检测（原生 Tab 一键操作）
-- **Phase 7** ✅ P0 生产可用（v0.6.0）：节点心跳对接（heartbeat/status/metrics 端点 + Agent 令牌校验 + 前端实时状态）、生产安全（强制改密 + JWT 滑动刷新 + 登录失败锁定 + /api/auth/me）、自动备份（间隔/保留策略 + 后台任务 + 设置 UI）
-- **Phase 7** ✅ 发行体系：package-release.sh 打包脚本（版本号自动读取 + SHA256 校验和）、CI 双架构发布流水线（amd64/arm64）、justfile 发版命令（check-full/release/release-verify）、docker-compose healthcheck 与数据卷、Agent Dockerfile
-- **Phase 7** ✅ 可观测性与审计（v0.6.0）：审计中间件（写操作自动落库 + 登录成败 + action 过滤）、`RUST_LOG_FORMAT=json` 结构化日志、`GET /api/health` 依赖检查、事件驱动深化（应用/防火墙/备份/节点下线告警）、前端 WS 指数退避重连
-- **测试** ✅ 180 测试全部通过（113 集成 + 67 单元）
-- **Phase 8** ✅ 前端全面重构（v0.7.0）：Element Plus → OpenVue 0.7（80+ 组件，Aura 预设派生品牌主题）、OKLCH 设计令牌体系、Fp* 组件封装层（8 态按钮/虚拟滚动表格/统一 Toast/Confirm）、主题定制面板（4 预设 + 品牌色/玻璃/圆角/密度 + JSON 导入导出）、⌘K 命令面板、轻玻璃顶栏 + 火焰品牌视觉、全部 20 视图迁移、首屏 gzip 151KB（预算 <200KB）
-
-## License
-
-MIT
+| **Phase 1–2** | 核心框架：Clean Architecture、错误体系、JWT + RBAC；用户 / 节点 / 网站 / Docker CRUD、实时 WS |
+| **Phase 3** | 高级特性：WASM 插件沙箱、Compose、Circuit Breaker / Retry、多 Web 引擎、数据库 / 文件 / 防火墙管理、Web 终端 |
+| **Phase 4** | 前端 UI 重构：i18n 三语言、暗色主题、分页、CRUD 补全、定时任务、备份系统 |
+| **Phase 5** | 应用商店（三格式 / 三模式）、Web 引擎统一（性能预设 + 引擎切换） |
+| **Phase 6** | 内核优化：统一错误体系、Docker 增强（参考 1Panel）、Web 服务器原生控制 |
+| **Phase 7** | **P0 生产可用（v0.6.0）**：节点心跳、生产安全（强制改密 / 登录锁定 / 审计）、自动备份、发行体系、可观测性 |
+| **Phase 8** | **前端全面重构（v0.7.0）**：Element Plus → OpenVue 0.7、OKLCH 设计令牌、主题定制、⌘K 命令面板 |
+| **后端重构（Stage 0–9）** | 按 [Doc/19](./Doc/19-后端架构分析与完善落地手册.md) 完成：分页下沉、鉴权短缓存 AuthCache、限流升级（去全局锁+分级限额）、任务生命周期、权限路由元数据化+默认拒绝、错误映射细分、JWT 加固、Docker 门面拆分、事件 Outbox 可重试 |
+
+**当前基线**：179 条 HTTP 路由 + 3 条 WebSocket · 73 项 RBAC 权限 · 295 个测试全部通过
+
+### 🧩 前端现代化（已落地）
+
+> 依据 [Doc/17 重构与现代化落地手册](./Doc/17-重构与现代化落地手册.md) 完成，核心硬性规范见 [Doc/04 前端开发指南 §15](./Doc/04-前端开发指南.md#15-修复计划与现代化规范与-doc17-衔接)。
+
+| 阶段 | 内容 |
+|------|------|
+| **F0 稳定性** | 统一请求与错误处理、keep-alive 资源销毁（useECharts/useWebSocket/usePolling）、FpStatePanel 三态 |
+| **F1 数据与性能** | vue-query 统一数据层、FpTable 虚拟列表、Dashboard 图表节流 |
+| **F2 设计系统** | OKLCH 令牌补全、玻璃降级、Fp* 封装层 30+ 组件、views 收敛 |
+| **F3 a11y & IA** | 命令面板 a11y、角色化侧栏、v-permission 指令 76 处落地、平板响应式 |
+| **F4 工程化** | OpenAPI 类型单源、/dev/ui 预览页、vitest + CI typecheck |
+| **M1–M11 现代化** | 命令集中配置、vue-query 覆盖 6 视图、主题 JSON v2 导入导出、Fp 组件文档、列表筛选条、eslint 强制 Fp* 边界 |
+
+### 🔭 进行中 / 规划方向
+
+| 优先级 | 方向 | 说明 |
+|--------|------|------|
+| **P0** | 生产安全加固 | HTTPS 重定向、登录图形验证码、备份二次确认 |
+| **P1** | 认证增强 | "记住我"令牌有效期选择、验证码 |
+| **P1** | 前端功能联调 | 文件上传 / 下载编辑器、防火墙规则编辑表单补全 |
+| **P2** | 应用商店生态 | NativeInstaller trait 抽象、Compose 生命周期钩子、包签名与可信来源、远程商店源 |
+| **P2** | 多节点能力 | 远程文件管理、节点聚合指标面板 |
+| **P2** | 高可用与生态 | docker-compose 健康检查 / 重启策略、WASM 插件市场、备份异地存储（SFTP / S3） |
+
+---
+
+## 📖 文档中心
+
+| 主题 | 文档 |
+|------|------|
+| 🏗️ 架构设计 | [01-架构设计](./Doc/01-架构设计.md) |
+| 📡 API 接口 | [02-API接口文档](./Doc/02-API接口文档.md) |
+| 🗄️ 数据库设计 | [03-数据库设计](./Doc/03-数据库设计.md) |
+| 💻 前端 / 后端开发 | [04-前端指南](./Doc/04-前端开发指南.md) · [05-后端指南](./Doc/05-后端开发指南.md) |
+| 🚀 部署运维 | [06-部署运维指南](./Doc/06-部署运维指南.md) |
+| 🔐 权限体系 | [07-权限体系设计](./Doc/07-权限体系设计.md) |
+| 🧩 应用商店 & SDK | [08-应用商店与插件系统](./Doc/08-应用商店与插件系统.md) · [15-SDK开发指南](./Doc/15-应用商店SDK开发指南.md) · [16-1Panel兼容](./Doc/16-1Panel与原生软件兼容性开发指导.md) |
+| 🛠️ 重构与现代化 | [17-重构与现代化落地手册](./Doc/17-重构与现代化落地手册.md) |
+| 🔒 兼容性与安全 | [18-兼容性与安全基线](./Doc/18-兼容性与安全基线.md) |
+| 📐 后端架构完善 | [19-后端架构分析与完善落地手册](./Doc/19-后端架构分析与完善落地手册.md) |
+| 🗺️ 路线图 | [13-开发路线图](./Doc/13-开发路线图与后续规划.md) |
+| 🧪 测试 / 排障 | [09-测试指南](./Doc/09-测试指南.md) · [10-故障排查手册](./Doc/10-故障排查手册.md) |
+| 🤝 协作 / 事件 | [11-Agent节点通信协议](./Doc/11-Agent节点通信协议.md) · [12-事件与通知系统](./Doc/12-事件与通知系统.md) · [14-开发协作与发布流程](./Doc/14-开发协作与发布流程.md) |
+| 📜 变更日志 | [CHANGELOG.md](./CHANGELOG.md) |
+| 📚 文档导航 | [Doc/README](./Doc/README.md) |
+
+---
+
+## 📜 License
+
+[MIT](./LICENSE)

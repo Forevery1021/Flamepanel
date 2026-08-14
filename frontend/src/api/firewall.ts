@@ -1,8 +1,9 @@
 import api from './client'
-import type { FirewallRule, FirewallStatus, PaginatedResponse } from '@/types'
+import type { FirewallRule, FirewallStatus } from '@/types'
+import type { Page } from '@/api/generated'
 
 export function listFirewallRules(page = 1, pageSize = 20) {
-  return api.get<PaginatedResponse<FirewallRule>>('/firewall/rules', {
+  return api.get<Page<FirewallRule>>('/firewall/rules', {
     params: { page, page_size: pageSize },
   })
 }

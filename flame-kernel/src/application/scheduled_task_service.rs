@@ -1,4 +1,4 @@
-use crate::api::types::{paginate_slice, PaginatedResponse, PaginationParams};
+use crate::api::types::{PaginatedResponse, PaginationParams};
 use crate::core::error::AppError;
 use crate::domain::entity::ScheduledTask;
 use crate::domain::repository::ScheduledTaskRepository;
@@ -25,9 +25,12 @@ impl ScheduledTaskService {
         &self,
         params: &PaginationParams,
     ) -> Result<PaginatedResponse<ScheduledTask>, AppError> {
-        let tasks = self.task_repo.list_all().await?;
-        let total = tasks.len() as i64;
-        let data = paginate_slice(&tasks, params);
+        // 分页下沉（Stage2）：数据库层直接 LIMIT/OFFSET
+        let total = self.task_repo.count().await?;
+        let data = self
+            .task_repo
+            .list_page(params.page_size(), params.offset())
+            .await?;
         Ok(PaginatedResponse::new(data, total, params))
     }
 

@@ -392,53 +392,62 @@ pub async fn compose_ls(
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/docker/containers", axum::routing::get(list))
-        .route("/api/docker/containers/:id", axum::routing::get(get))
+        .route("/api/docker/containers/{id}", axum::routing::get(get))
         .route(
-            "/api/docker/containers/:id/start",
+            "/api/docker/containers/{id}/start",
             axum::routing::post(start),
         )
-        .route("/api/docker/containers/:id/stop", axum::routing::post(stop))
         .route(
-            "/api/docker/containers/:id/restart",
+            "/api/docker/containers/{id}/stop",
+            axum::routing::post(stop),
+        )
+        .route(
+            "/api/docker/containers/{id}/restart",
             axum::routing::post(restart),
         )
         .route(
-            "/api/docker/containers/:id/remove",
+            "/api/docker/containers/{id}/remove",
             axum::routing::post(remove),
         )
-        .route("/api/docker/containers/:id/logs", axum::routing::get(logs))
+        .route("/api/docker/containers/{id}/logs", axum::routing::get(logs))
         .route(
-            "/api/docker/containers/:id/stats",
+            "/api/docker/containers/{id}/stats",
             axum::routing::get(stats),
         )
         .route("/api/docker/images", axum::routing::get(list_images))
         .route("/api/docker/images/pull", axum::routing::post(pull_image))
         .route(
-            "/api/docker/images/:id/remove",
+            "/api/docker/images/{id}/remove",
             axum::routing::post(remove_image),
         )
-        .route("/api/docker/images/:id/tag", axum::routing::post(tag_image))
+        .route(
+            "/api/docker/images/{id}/tag",
+            axum::routing::post(tag_image),
+        )
         .route(
             "/api/docker/images/prune",
             axum::routing::post(prune_images),
         )
         .route(
-            "/api/docker/containers/:id/inspect",
+            "/api/docker/containers/{id}/inspect",
             axum::routing::get(inspect),
         )
         .route(
-            "/api/docker/containers/:id/rename",
+            "/api/docker/containers/{id}/rename",
             axum::routing::post(rename),
         )
         .route(
-            "/api/docker/containers/:id/pause",
+            "/api/docker/containers/{id}/pause",
             axum::routing::post(pause),
         )
         .route(
-            "/api/docker/containers/:id/unpause",
+            "/api/docker/containers/{id}/unpause",
             axum::routing::post(unpause),
         )
-        .route("/api/docker/containers/:id/kill", axum::routing::post(kill))
+        .route(
+            "/api/docker/containers/{id}/kill",
+            axum::routing::post(kill),
+        )
         .route(
             "/api/docker/containers/prune",
             axum::routing::post(prune_containers),
@@ -450,15 +459,15 @@ pub fn routes() -> Router<AppState> {
             axum::routing::post(prune_networks),
         )
         .route(
-            "/api/docker/networks/:id",
+            "/api/docker/networks/{id}",
             axum::routing::delete(remove_network),
         )
         .route(
-            "/api/docker/networks/:id/connect",
+            "/api/docker/networks/{id}/connect",
             axum::routing::post(connect_network),
         )
         .route(
-            "/api/docker/networks/:id/disconnect",
+            "/api/docker/networks/{id}/disconnect",
             axum::routing::post(disconnect_network),
         )
         .route("/api/docker/volumes", axum::routing::get(list_volumes))
@@ -468,7 +477,7 @@ pub fn routes() -> Router<AppState> {
             axum::routing::post(prune_volumes),
         )
         .route(
-            "/api/docker/volumes/:name",
+            "/api/docker/volumes/{name}",
             axum::routing::delete(remove_volume),
         )
         .route("/api/docker/compose", axum::routing::get(compose_ls))
@@ -477,11 +486,11 @@ pub fn routes() -> Router<AppState> {
             axum::routing::post(compose_deploy),
         )
         .route(
-            "/api/docker/compose/:project_name/up",
+            "/api/docker/compose/{project_name}/up",
             axum::routing::post(compose_up),
         )
         .route(
-            "/api/docker/compose/:project_name/down",
+            "/api/docker/compose/{project_name}/down",
             axum::routing::post(compose_down),
         )
 }
