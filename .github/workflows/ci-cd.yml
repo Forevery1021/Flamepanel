@@ -35,6 +35,14 @@ jobs:
       - name: Build Frontend
         run: cd frontend && npm run build
 
+      # F4.3：前端类型检查（严格模式，新增文件不得引入大量 ignore）
+      - name: Frontend Typecheck
+        run: cd frontend && npm run typecheck
+
+      # F4.3：前端单元测试（vitest，关键 composable / 工具函数回归）
+      - name: Frontend Unit Tests
+        run: cd frontend && npm run test:unit
+
       - name: Lint Frontend
         run: cd frontend && npm run lint
 
@@ -46,6 +54,25 @@ jobs:
 
       - name: Run Tests
         run: cargo test --all
+
+      # Stage3.5：依赖安全审计（cargo-audit 失败即阻断）
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Security Audit (Rust)
+        run: cargo audit
+
+      # Phase A3：前端依赖安全审计（npm-audit 高危即阻断，中低危仅告警）
+      - name: Security Audit (Frontend)
+        run: |
+          cd frontend && npm audit --audit-level=high
+
+      # Stage3.1：Feature Flags 组合编译（default + 全 feature + 裁剪组合）
+      - name: Build All Features
+        run: cargo build --package flame-kernel --all-features
+
+      - name: Build Minimal (no-default-features + sqlite)
+        run: cargo build --package flame-kernel --no-default-features --features sqlite
 
       - name: Build Release
         run: cargo build --release --package flame-kernel
@@ -62,10 +89,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker Build & Push
+      # 多架构镜像：QEMU 模拟 + BuildKit，构建 amd64/arm64 双架构并推送 manifest
+      - name: Set up QEMU
+        if: github.ref == 'refs/heads/main'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: github.ref == 'refs/heads/main'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker Build & Push (multi-arch)
         if: github.ref == 'refs/heads/main'
         uses: docker/build-push-action@v7
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ghcr.io/${{ steps.lower_repo.outputs.repo }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

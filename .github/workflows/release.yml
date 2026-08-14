@@ -12,12 +12,22 @@ jobs:
   release:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
+          # GNU 动态链接（默认，兼容主流发行版）
           - target: x86_64-unknown-linux-gnu
             pkg_arch: amd64
           - target: aarch64-unknown-linux-gnu
             pkg_arch: arm64
+          # musl 静态链接（单一二进制，无需系统依赖，适合 alpine / 最小容器）
+          - target: x86_64-unknown-linux-musl
+            pkg_arch: amd64-musl
+          - target: aarch64-unknown-linux-musl
+            pkg_arch: arm64-musl
+          # ARMv7（32 位，树莓派等）
+          - target: armv7-unknown-linux-gnueabihf
+            pkg_arch: armv7
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -26,6 +36,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      # cargo-zigbuild：基于 zig 的跨平台编译，统一处理 gnu/musl 目标链接，无需手工配置各架构链接器
+      - name: Install cargo-zigbuild
+        run: |
+          python3 -m pip install ziglang 2>/dev/null || true
+          cargo install cargo-zigbuild --locked
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -38,7 +54,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Build backend (release, ${{ matrix.pkg_arch }})
-        run: cargo build --release --package flame-kernel --target ${{ matrix.target }}
+        run: cargo zigbuild --release --package flame-kernel --target ${{ matrix.target }}
 
       - name: Build frontend
         run: |
@@ -62,19 +78,10 @@ jobs:
           sha256sum flamepanel-linux-*.tar.gz flamepanel-frontend.tar.gz > flamepanel-${VERSION}-checksums.txt
           cat flamepanel-${VERSION}-checksums.txt
 
-      - name: Upload artifacts (amd64)
-        if: matrix.pkg_arch == 'amd64'
+      - name: Upload artifacts
         uses: actions/upload-artifact@v5
         with:
-          name: release-amd64
-          path: release-assets/*
-          if-no-files-found: error
-
-      - name: Upload artifacts (arm64)
-        if: matrix.pkg_arch == 'arm64'
-        uses: actions/upload-artifact@v5
-        with:
-          name: release-arm64
+          name: release-${{ matrix.pkg_arch }}
           path: release-assets/*
           if-no-files-found: error
 
