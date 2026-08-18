@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+### feat: Setup 向导 + 安全加固（Part A/B，见《flamepanel-setup-wizard-guide.md》）
+
+#### 首次部署 Setup 向导（Part B）
+- **后端 `SetupService`**（`application/setup_service.rs`）：`GET /api/setup/status`（`in_progress`/`completed`/`unattended` + docker/nginx 尽力探测 + theme/language 预填）、`POST /api/setup/initialize` 两阶段（`database`：SQLite/MySQL/MariaDB 校验与尽力建库；`admin`：创建管理员 + 写 `setup_completed_at`/theme/language + 签发令牌 + 发布 `SetupCompleted` 事件）。初始化唯一判据为 settings 表 `setup_completed_at`；老库（已有用户）启动期自动补写。
+- **无人值守模式**：配置 `OP_ADMIN_PASSWORD`（或 TOML `admin_password`）后跳过向导，启动全量种子并强制首次登录改密；向导接口返回 `unattended`、`initialize` 一律 409。
+- **自签证书**（`infrastructure/cert.rs`，rcgen ECDSA P-256）：以访问域名（Host 头）为 SAN 生成 `data/certs/panel.{crt,key}`，幂等，私钥 0600。
+- **前端**：`/setup` 路由 + 路由守卫（未初始化自动引导、已登录跳转、语言与状态并行预载）、Pinia `setup` store（单飞状态探测）、`SetupView` 6 步向导（欢迎/管理员/数据库/服务器/主题/完成）+ 3 语言 i18n、主题与语言即时预览。
+- 两路由均为公开路由（状态挂 Health 档、initialize 挂 Login 档限流），不进 RBAC。
+
+#### 安全加固（Part A）
+- **A3.2 节点注册引导令牌**：`POST /api/nodes/register` 需携带 `X-Bootstrap-Token`（与 `OP_BOOTSTRAP_TOKEN`/配置 `bootstrap_token` 常量时间比较，缺失/错误 401）；Agent 新增 `BOOTSTRAP_TOKEN` 环境变量并在注册时携带。
+- **A3.3 配置解析失败拒绝启动**：TOML 解析错误携带 `文件:行:列` 报错并拒绝启动（文件缺失仍走默认值）。
+- **A3.5 JWT 轮换强随机**：前端密钥轮换改用 `crypto.getRandomValues`。
+- **A1 心跳鉴权**：`POST /api/nodes/heartbeat/{id}` 校验 `Authorization: Bearer <agent_token>`（常量时间比较，兼容无 token 旧节点）。
+- **A3.1 上传路径加固**：Agent 文件根目录 canonicalize + 上传 `O_NOFOLLOW`。
+
+#### 门禁与基线
+- `cargo fmt --check` / `cargo clippy --all-targets -- -D warnings` / `cargo test --workspace`（327 例：152 单元 + 151 集成 + 13 setup + 7 stage5 + 4 agent）；前端 typecheck / lint / vitest（15）/ build 全绿。
+- 路由基线：181 条 HTTP + 3 条 WebSocket。
+
 ### refactor: 后端工程质量 P3——migrations 索引 / panic 清理 / 死代码 / 配置化（T13-T16，见《后端架构分析与重构方案》)
 
 按《flamepanel-backend-refactoring.md》P3 工程质量阶段落地 **T13-T16**：补索引与循环写事务、清理生产路径 panic 与阻塞 IO、清理死代码、配置化硬编码路径。

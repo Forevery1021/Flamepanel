@@ -464,10 +464,7 @@ mod tests {
             crate::utils::auth_cache::AuthCache::new(),
         ));
         // 证书写入临时目录，避免污染工作区
-        let data_dir = std::env::temp_dir().join(format!(
-            "fp-setup-svc-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let data_dir = std::env::temp_dir().join(format!("fp-setup-svc-{}", uuid::Uuid::new_v4()));
         let svc = SetupService::new(
             user_service,
             settings_service,

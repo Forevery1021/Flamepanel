@@ -749,7 +749,69 @@ sequenceDiagram
 
 `kind` 取值：`install` / `engine_switch` / `batch_node` / `generic`；`state` 取值：`pending` / `running` / `success` / `failed` / `cancelled`；`progress` 为 0–100 整数。
 
-## 22. Outbox 事件接口 `/api/outbox-events`
+## 22. Setup 初始化模块 `/api/setup`
+
+> 首次部署 Setup 向导接口（Phase 9，见 [06-部署运维指南.md](./06-部署运维指南.md)）。初始化完成前面板不存在可认证用户，故两路由**均为公开路由**（不进 RBAC 权限表）：`status` 挂健康检查限流档（600 次/分钟/IP），`initialize` 挂登录限流档（5 次/分钟/IP）。初始化唯一判据为 settings 表 `setup_completed_at`；老库（已有用户但缺该键）视为已完成，启动期自动补写。
+
+### `GET /api/setup/status`
+
+初始化状态 + 向导所需环境信息（公开，无需认证）：
+
+```json
+{
+  "status": "in_progress",
+  "theme": "flame",
+  "language": "zh-CN",
+  "docker": true,
+  "nginx": false
+}
+```
+
+- `status`：`in_progress`（新装，待向导）/ `completed`（已初始化）/ `unattended`（无人值守模式，配置了 `OP_ADMIN_PASSWORD`）
+- `docker` / `nginx`：尽力探测（bollard ping / `nginx -v`），探测失败静默返回 `null`，不返回 500
+- `theme` 仅返回 4 个预设值之一（`flame` / `aurora` / `infinity` / `custom`），默认 `flame`
+
+### `POST /api/setup/initialize`
+
+两阶段初始化（公开，Login 档限流）。请求体：
+
+```json
+{
+  "step": "database",
+  "database": {
+    "db_type": "sqlite",
+    "host": "",
+    "port": 3306,
+    "name": "",
+    "user": "",
+    "password": "",
+    "mysql_root_password": ""
+  },
+  "theme": "flame",
+  "language": "zh-CN"
+}
+```
+
+- `step`：`database` | `admin`
+  - **database 步**：校验 `db_type`（`sqlite` / `mysql` / `mariadb`，非法返回 400）；SQLite 直接落库 `db_type` 设置；MySQL/MariaDB 尽力用 `mysql_root_password` 创建数据库与用户（失败不 500，向向导返回原因）。
+  - **admin 步**（终态）：携带 `{ "step": "admin", "admin": { "username", "password" }, "theme", "language" }` —— 校验密码 ≥ 8 位，事务内并发兜底重查（重复初始化或已有用户返回 409），创建管理员、写入 `setup_completed_at` / `theme` / `language`、以访问域名（Host 头）为 SAN 签发自签证书（`data/certs/panel.{crt,key}`）、发布 `SetupCompleted` 事件并签发登录令牌。
+
+成功响应（admin 步）：
+
+```json
+{
+  "status": "completed",
+  "message": "Setup completed",
+  "token": "<jwt>",
+  "refresh_token": "<jwt>",
+  "username": "admin",
+  "role": "admin"
+}
+```
+
+错误码：`400`（未知 step / 非法 db_type / 弱密码 / 缺 admin 段）、`409`（已初始化 / 已有用户 / 无人值守模式拒绝向导）。前端需在向导提交前查询 `status` 引导用户，避免直接触发 409。
+
+## 23. Outbox 事件接口 `/api/outbox-events`
 
 > 事件落库（Outbox）查询接口（Stage 9，事件驱动一致性，见 [12-事件与通知系统.md](./12-事件与通知系统.md)）。业务事件先写本地 Outbox 表持久化，再异步分发；该接口用于审计与排障查询。
 
@@ -776,7 +838,7 @@ sequenceDiagram
 }
 ```
 
-## 23. WebSocket 接口
+## 24. WebSocket 接口
 
 | 路径 | 说明 | 消息格式 |
 |------|------|----------|
@@ -832,7 +894,7 @@ sequenceDiagram
 - `input`：写入终端（`data` 为字符串，含 `\r` 换行）；`resize`：调整 PTY 尺寸（缺省 80×24）。
 - 连接建立时后端创建独立 `TerminalSession`，客户端断开后自动关闭会话并清理。
 
-## 24. 快速调试示例
+## 25. 快速调试示例
 
 ```bash
 # 登录获取 token
@@ -848,7 +910,7 @@ curl -s http://localhost:8080/api/users?page=1&page_size=10 \
 curl -s http://localhost:8080/health
 ```
 
-## 25. 权限速查
+## 26. 权限速查
 
 | 资源 | 动作 |
 |------|------|

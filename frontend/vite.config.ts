@@ -4,6 +4,8 @@ import UnoCSS from 'unocss/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import { resolve } from 'path'
 
+const rootDir = import.meta.dirname
+
 export default defineConfig({
   plugins: [
     vue(),
@@ -15,7 +17,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src'),
+      '@': resolve(rootDir, 'src'),
     },
   },
   server: {

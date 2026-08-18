@@ -70,7 +70,7 @@ cd frontend && npm install && npm run dev
 cd agent && PANEL_URL=http://127.0.0.1:8080 AUTH_TOKEN=dev-token cargo run
 ```
 
-访问 `http://localhost:5173`，默认账号 `admin` / `admin123`。
+访问 `http://localhost:5173`。首次启动进入 Setup 向导创建管理员；配置了 `OP_ADMIN_PASSWORD` 的环境变量时自动创建并强制首次登录改密。
 
 > 详细开发步骤见 [05-后端开发指南.md](./05-后端开发指南.md) 与 [04-前端开发指南.md](./04-前端开发指南.md)。
 > Agent 协议见 [11-Agent节点通信协议.md](./11-Agent节点通信协议.md)。

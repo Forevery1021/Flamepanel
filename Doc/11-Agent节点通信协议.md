@@ -89,6 +89,8 @@ Agent 启动后**循环重试**（间隔 5 秒）向面板注册：
 ```
 POST {PANEL_URL}/api/nodes/register
 Content-Type: application/json
+X-Bootstrap-Token: <面板引导令牌>       # 可选但建议：与面板 OP_BOOTSTRAP_TOKEN 一致
+Authorization: Bearer <AUTH_TOKEN>
 
 {
   "name": "node-01",
@@ -101,7 +103,7 @@ Content-Type: application/json
 - 成功：返回 `200`，响应体为节点 `id`（`{"id": 3}`），Agent 保存该 ID 用于后续心跳。
 - 失败：打印错误日志，5 秒后重试，直到注册成功才进入后续流程。
 
-> 对应面板实现：`POST /api/nodes/register`（公开白名单，免 JWT，返回 `{"id": n}`）。
+> 对应面板实现：`POST /api/nodes/register`（公开路由但受 **Bootstrap Token 防护**——需携带 `X-Bootstrap-Token` 头且与面板 `OP_BOOTSTRAP_TOKEN`/配置 `bootstrap_token` 常量时间比较一致，缺失或错误返回 `401`；未配置时面板启动生成随机令牌并打印一次）。Agent 通过环境变量 `BOOTSTRAP_TOKEN` 配置该令牌（留空则不携带，适用于未启用引导令牌的旧面板）。
 > Stage5 已落地：Agent 注册时携带的 `auth_token` 与 `agent_port` 会持久化到 `nodes` 表（幂等迁移补列），面板后续远程调用携带 `Authorization: Bearer <auth_token>` 完成 Agent 侧鉴权。
 
 ### 3.2 心跳（周期上报）
@@ -120,7 +122,7 @@ Content-Type: application/json
 }
 ```
 
-> ⚠️ **已知缺口**：面板当前 `node` 模块仅有 `GET/POST/PUT/DELETE /api/nodes` 4 个端点，**尚未实现 `/api/nodes/heartbeat/:id` 路由**。Agent 侧心跳会收到 404。这是后续开发建议（见 14 文档路线图）中"节点在线状态 + 指标落库"的待办项。
+> 对应面板实现：`POST /api/nodes/heartbeat/{id}`（公开白名单免 JWT，但校验 Agent token——`Authorization: Bearer <auth_token>` 与库中节点 token 常量时间比较，无效返回 401；兼容旧 Agent：库中无 token 时放行）。心跳记录 `last_heartbeat_at` 与最新指标快照，节点在线状态由前端惰性判定。
 
 ### 3.3 指标采集逻辑（Agent 侧）
 

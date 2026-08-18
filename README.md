@@ -31,7 +31,8 @@
 | 💻 **Web 终端** | xterm.js + WebSocket，浏览器内直接连接服务器 Shell |
 | ⚙️ **WASM 插件系统** | wasmtime 沙箱，生命周期钩子 / 指标追踪 / 热重载 / 依赖校验 |
 | 🔐 **用户 & RBAC** | JWT + bcrypt + 滑动过期刷新，admin / operator / viewer 三角色，73 项权限 |
-| 🛰️ **节点管理** | Agent 心跳对接，在线状态惰性判定 + 实时指标快照，批量命令执行 |
+| 🛰️ **节点管理** | Agent 心跳对接（Bearer token 鉴权），在线状态惰性判定 + 实时指标快照，批量命令执行；节点注册受 Bootstrap Token 保护 |
+| 🧭 **Setup 向导** | 首次部署 6 步可视化向导（管理员 / 数据库 / 端口 / 主题），自签证书自动签发，支持无人值守环境变量一键初始化 |
 | 🌍 **国际化** | 简体中文 / English / 日本語 三语言，前端实时切换 |
 
 > 另含：多页签工作区、⌘K 命令面板、主题定制系统（4 预设 + 品牌色实时调色）、统一任务中心（生命周期状态机）、审计日志、事件驱动 + Outbox + 邮件通知、Circuit Breaker / Retry 容错、统一错误体系、vue-query 数据层 + 虚拟列表性能优化。
@@ -67,13 +68,15 @@ cargo run
 
 # 终端 2：启动前端（端口 5173，自动代理 /api 与 /ws）
 cd frontend
-npm install
-npm run dev
+npm install        # 或 pnpm install
+npm run dev        # 或 pnpm run dev
 ```
 
-访问 `http://localhost:5173`，默认账号 `admin` / `admin123`（新装面板首次登录**强制修改密码**）。
+访问 `http://localhost:5173`，**首次启动会自动进入 6 步 Setup 向导**（管理员账号 / 数据库 / 端口 / 主题 / 语言），完成后跳转登录页。老版本数据库（已有用户）启动后直接进入登录页，无需向导。
 
-生产环境推荐使用 `install.sh` 一键安装，或参考 [部署文档](./Doc/06-部署运维指南.md)。
+无人值守部署：配置 `OP_ADMIN_PASSWORD` 环境变量后跳过向导，启动时自动创建管理员（并强制首次登录改密）。更多配置见 [部署文档](./Doc/06-部署运维指南.md)。
+
+生产环境推荐使用 `install.sh` 一键安装。
 
 ---
 
@@ -122,9 +125,10 @@ Flamepanel/
 | **Phase 6** | 内核优化：统一错误体系、Docker 增强（参考 1Panel）、Web 服务器原生控制 |
 | **Phase 7** | **P0 生产可用（v0.6.0）**：节点心跳、生产安全（强制改密 / 登录锁定 / 审计）、自动备份、发行体系、可观测性 |
 | **Phase 8** | **前端全面重构（v0.7.0）**：Element Plus → OpenVue 0.7、OKLCH 设计令牌、主题定制、⌘K 命令面板 |
+| **Phase 9** | **Setup 向导 + 安全加固**：首次部署 6 步向导（`/api/setup/status|initialize`）、自签证书签发、无人值守初始化；Agent 注册 Bootstrap Token 防护、心跳 Bearer 鉴权、配置解析失败拒绝启动、上传路径 `O_NOFOLLOW` 加固、JWT 轮换密钥强随机 |
 | **后端重构（Stage 0–9）** | 按 [Doc/19](./Doc/19-后端架构分析与完善落地手册.md) 完成：分页下沉、鉴权短缓存 AuthCache、限流升级（去全局锁+分级限额）、任务生命周期、权限路由元数据化+默认拒绝、错误映射细分、JWT 加固、Docker 门面拆分、事件 Outbox 可重试 |
 
-**当前基线**：179 条 HTTP 路由 + 3 条 WebSocket · 73 项 RBAC 权限 · 295 个测试全部通过
+**当前基线**：181 条 HTTP 路由 + 3 条 WebSocket · 73 项 RBAC 权限 · 327 个测试全部通过
 
 ### 🧩 前端现代化（已落地）
 
