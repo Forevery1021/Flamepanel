@@ -61,6 +61,14 @@ impl EmailNotifier {
         Self { config }
     }
 
+    /// SMTP 是否已配置：默认值（localhost:25 且无账号密码）视为未配置，
+    /// 事件通知应静默跳过而不是反复报连接失败。
+    pub fn is_configured(&self) -> bool {
+        !(self.config.host == "localhost"
+            && self.config.username.is_empty()
+            && self.config.password.is_empty())
+    }
+
     pub async fn send(&self, to: &str, subject: &str, body: &str) -> Result<(), AppError> {
         let email = Message::builder()
             .from(
@@ -180,6 +188,13 @@ impl AsyncNotificationChannel for EmailChannel {
     }
 
     async fn notify(&self, event: &DomainEvent) -> Result<(), AppError> {
+        if !self.notifier.is_configured() {
+            tracing::debug!(
+                "SMTP not configured; skipping email notification for {:?}",
+                event
+            );
+            return Ok(());
+        }
         if let Some((subject, body)) = self.render(event) {
             self.notifier.send(&self.recipient, &subject, &body).await
         } else {

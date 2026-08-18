@@ -32,7 +32,7 @@ fn line_col(content: &str, offset: usize) -> Option<(usize, usize)> {
     Some((line, col))
 }
 
-/// 随机初始管理员密码：字母/数字混排（剔除易混淆字符），约 16 字符。
+/// 随机令牌：字母/数字混排（剔除易混淆字符），约 16 字符（bootstrap_token 生成用）。
 fn random_password() -> String {
     const CHARS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
     let mut out = String::with_capacity(16);
@@ -288,11 +288,10 @@ impl AppConfig {
             config.jwt_secret = generated;
             tracing::warn!("No OP_JWT_SECRET provided; using a generated signing secret");
         }
-        // admin_password 未提供时生成随机密码（日志打印交给种子逻辑：仅首次种子且自动生成时打印）。
-        if config.admin_password.is_empty() {
-            let generated = random_password();
-            config.admin_password = generated;
-        }
+        // admin_password 未提供时保持为空 → 向导模式（Setup 向导创建管理员）。
+        // 无人值守（B1）仅当显式配置了 admin_password（OP_ADMIN_PASSWORD / TOML）时启用；
+        // 这里不再自动填充随机密码，否则「空密码」语义被破坏、向导永远不会出现。
+        // install.sh 交互模式会自动生成并打印管理员密码，无需内核代为生成。
         // A3.2：bootstrap token 未提供时生成随机值并仅打印一次（节点注册端点鉴权用）。
         if config.bootstrap_token.is_empty() {
             let generated = random_password();
@@ -368,5 +367,27 @@ mod tests {
         assert!(config.bootstrap_token.is_empty());
         config.bootstrap_token = "manual".into();
         assert_eq!(config.bootstrap_token, "manual");
+    }
+
+    #[test]
+    fn admin_password_stays_empty_without_env() {
+        // 回归（向导模式）：未显式设置 OP_ADMIN_PASSWORD 时 admin_password 必须保持为空，
+        // 否则内核会误判为无人值守模式直接种子 admin，Setup 向导永远不会出现。
+        std::env::remove_var("OP_ADMIN_PASSWORD");
+        let mut config = AppConfig::default();
+        config.apply_env_overrides();
+        assert!(config.admin_password.is_empty());
+
+        // 空字符串环境变量同样表示「未配置」→ 保持向导模式
+        std::env::set_var("OP_ADMIN_PASSWORD", "");
+        let mut config = AppConfig::default();
+        config.apply_env_overrides();
+        assert!(config.admin_password.is_empty());
+
+        // 显式设置非空密码 → 无人值守模式
+        std::env::set_var("OP_ADMIN_PASSWORD", "UnattendedPass123");
+        let mut config = AppConfig::default();
+        config.apply_env_overrides();
+        assert_eq!(config.admin_password, "UnattendedPass123");
     }
 }

@@ -15,7 +15,9 @@
 - **P1 终端审计**：Web 终端会话开/关写入操作审计日志（`OPEN_WS_TERMINAL` / `CLOSE_WS_TERMINAL` + 会话 id），任意命令执行面可追溯（`handler/ws/mod.rs`，经 `Username` 扩展获取身份）。
 - **P1 路径穿越否定用例**：新增 symlink 逃逸（白名单内符号链接指向根外）与写目标穿越（`..` 规范化逃逸/裸 `..` 文件名）集成测试，与既有 `..`/绝对路径用例共同锁定沙箱行为。
 - **文档**：README 与 Doc/06 增加「root 容器 + docker.sock」危险组合警告、生产推荐拓扑（systemd 非 root / 默认 profile / Agent 白名单）、compose 两套 profile 说明、安全清单补 docker.sock 与终端审计项。
-- 测试基线：329 个测试全部通过（152 单元 + 153 集成 + 13 setup + 7 stage5 + 4 agent）。
+- **Bug 修复（向导模式失效）**：`config/loader.rs` 不再在 `admin_password` 缺失时自动填充随机密码——原逻辑导致「未配置 `OP_ADMIN_PASSWORD`」永远被判定为无人值守模式、Setup 向导永不出现；现空密码保持为空 → 向导模式，显式配置才进入无人值守。新增回归测试 `admin_password_stays_empty_without_env`。
+- **SMTP 未配置噪音**：`EmailNotifier::is_configured()` 判定默认 `localhost:25` 无凭据视为未配置，事件通知静默跳过（debug 日志），不再对每次 `UserCreated` 等事件报 `Connection refused` ERROR。
+- 测试基线：330 个测试全部通过（153 单元 + 153 集成 + 13 setup + 7 stage5 + 4 agent）。
 
 ### feat: Setup 向导 + 安全加固（Part A/B，见《flamepanel-setup-wizard-guide.md》）
 
