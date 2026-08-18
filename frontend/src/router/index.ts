@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useSetupStore } from '@/stores/setup'
+import { preloadSavedLocale } from '@/locales'
 
 /** 菜单分组 key（AppSidebar 按此聚合） */
 export type MenuGroup = 'main' | 'web' | 'apps' | 'storage' | 'ops' | 'system'
@@ -165,6 +167,11 @@ const router = createRouter({
       component: () => import('@/views/LoginView.vue'),
     },
     {
+      path: '/setup',
+      name: 'Setup',
+      component: () => import('@/views/setup/SetupView.vue'),
+    },
+    {
       path: '/',
       component: () => import('@/components/Layout.vue'),
       redirect: '/dashboard',
@@ -182,9 +189,29 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to, _from) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
-  if (to.name !== 'Login' && !auth.isLoggedIn) {
+  const setup = useSetupStore()
+
+  // Setup 向导：始终可访问（初始化完成前后端无可认证用户）
+  if (to.name === 'Setup') return true
+
+  // B6：初始化状态探测与语言包预载并行（不互相阻塞，避免首屏白屏翻倍）
+  const [s] = await Promise.all([setup.ensureStatus(), preloadSavedLocale()])
+
+  if (to.name === 'Login') {
+    // 已登录且已初始化：避免登录页闪回
+    if (auth.isLoggedIn) return '/'
+    // 未初始化：登录页也导向安装向导
+    return s?.status === 'in_progress' ? '/setup' : true
+  }
+
+  if (s?.status === 'in_progress') {
+    // 未初始化：无论目标页面一律导向安装向导
+    return '/setup'
+  }
+  // unattended（无人值守）/ completed：走正常登录流程
+  if (!auth.isLoggedIn) {
     return '/login'
   }
 })

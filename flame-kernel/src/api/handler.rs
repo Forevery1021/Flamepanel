@@ -15,6 +15,7 @@ pub mod outbox;
 pub mod plugin;
 pub mod scheduled_task;
 pub mod settings;
+pub mod setup;
 pub mod task;
 pub mod user;
 pub mod web_server;

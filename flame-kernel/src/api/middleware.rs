@@ -48,8 +48,14 @@ fn is_public_path(path: &str) -> bool {
         || path == "/metrics"
         || path == "/api/auth/login"
         || path == "/api/auth/refresh"
-        || path == "/api/nodes/register"
+        || path == "/api/setup/status"
+        || path == "/api/setup/initialize"
         || path.starts_with("/api/nodes/heartbeat/")
+}
+
+/// A3.2：节点注册端点（免 JWT 但要求 bootstrap token）。
+fn is_bootstrap_guarded_path(method: &axum::http::Method, path: &str) -> bool {
+    method == axum::http::Method::POST && path == "/api/nodes/register"
 }
 
 /// WebSocket 握手路径（需 token 校验，见 `auth_middleware`）
@@ -192,6 +198,25 @@ async fn auth_middleware(
         return Ok(next.run(req).instrument(auth_span).await);
     }
     if is_public_path(path) {
+        return Ok(next.run(req).await);
+    }
+    // A3.2：节点注册端点免 JWT，但必须携带与 OP_BOOTSTRAP_TOKEN 匹配的 X-Bootstrap-Token
+    // （常量时间比较防时序侧信道；token 未配置视为拒绝）。
+    if is_bootstrap_guarded_path(req.method(), path) {
+        let provided = req
+            .headers()
+            .get("X-Bootstrap-Token")
+            .and_then(|v| v.to_str().ok());
+        let expected = state.bootstrap_token.as_str();
+        let valid = !expected.is_empty()
+            && provided
+                .map(|p| crate::utils::constant_time_eq(expected.as_bytes(), p.as_bytes()))
+                .unwrap_or(false);
+        if !valid {
+            return Err(AppError::Unauthorized(
+                "Invalid or missing X-Bootstrap-Token".to_string(),
+            ));
+        }
         return Ok(next.run(req).await);
     }
 

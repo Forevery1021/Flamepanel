@@ -4,6 +4,7 @@ pub mod backup_service;
 pub mod execution_mode;
 pub mod scheduled_task_service;
 pub mod service;
+pub mod setup_service;
 pub mod task_service;
 
 // T8：`service.rs` 上帝文件拆分 → 每域一文件（`service.rs` 保留为兼容再导出层）

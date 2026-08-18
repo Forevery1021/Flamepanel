@@ -128,9 +128,23 @@ async fn setup_router() -> (axum::Router, AppState) {
             InMemoryScheduledTaskRepository::new(),
         ))),
         task_service: Arc::new(TaskService::new(TaskTracker::new())),
+        setup_service: Arc::new(SetupService::new(
+            Arc::new(UserService::new(
+                Arc::new(InMemoryUserRepository::new()),
+                EventBus::new(100),
+                AuthCache::new(),
+            )),
+            Arc::new(SettingsService::new(Arc::new(
+                InMemorySettingsRepository::new(),
+            ))),
+            EventBus::new(100),
+            std::path::PathBuf::from("."),
+            runner.clone(),
+            false,
+        )),
         event_bus: EventBus::new(100),
     };
-    let state = AppState::new(
+    let mut state = AppState::new(
         "test-secret".to_string(),
         services,
         metrics_history,
@@ -138,6 +152,8 @@ async fn setup_router() -> (axum::Router, AppState) {
         log_tx,
         terminal_manager,
     );
+    // A3.2：测试状态显式配置 bootstrap token（节点注册端点鉴权用）
+    state.bootstrap_token = "test-bootstrap-token".into();
     (routes::create_router(state.clone()), state)
 }
 

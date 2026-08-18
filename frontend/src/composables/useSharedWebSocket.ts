@@ -4,8 +4,6 @@ import { connectWithRetry, type WSConnection } from '@/utils/ws'
 export interface UseWebSocketOptions {
   onMessage: (data: unknown) => void
   onStatus?: (connected: boolean) => void
-  /** 手动重连时立即重连 */
-  manual?: boolean
 }
 
 export interface UseWebSocket {
@@ -48,8 +46,6 @@ class SharedConnectionRegistry {
 
   private conns = new Map<string, WSConnection>()
   private subscribers = new Map<string, Set<SharedSubscriber>>()
-  /** 手动重连请求标记（键为 url） */
-  private manualRetryFlags = new Map<string, boolean>()
 
   private activeCount(url: string): number {
     let n = 0

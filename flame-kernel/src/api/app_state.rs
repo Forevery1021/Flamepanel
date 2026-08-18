@@ -2,6 +2,7 @@ use crate::application::app_store_service::AppStoreService;
 use crate::application::backup_service::BackupServiceRef;
 use crate::application::scheduled_task_service::ScheduledTaskService;
 use crate::application::service::*;
+use crate::application::setup_service::SetupService;
 use crate::application::task_service::TaskService;
 use crate::domain::entity::{LogEntry, MetricsSnapshot};
 use crate::domain::repository::PluginRepository;
@@ -40,6 +41,8 @@ pub struct AppState {
     pub scheduled_task_service: Arc<ScheduledTaskService>,
     pub task_service: Arc<TaskService>,
     pub terminal_manager: Arc<TerminalManager>,
+    /// 首次部署 Setup 服务（B1/B2）
+    pub setup_service: Arc<SetupService>,
     /// 登录失败锁定存储（进程内）
     pub login_attempts: Arc<crate::api::login_attempt::LoginAttemptStore>,
     /// 事件总线（handler 层发布业务事件）
@@ -54,6 +57,8 @@ pub struct AppState {
     pub rate_limit_window_secs: u64,
     /// 当前 JWT 签名密钥（支持运行时轮换，读取时加锁）
     pub jwt_secret_store: Arc<std::sync::RwLock<String>>,
+    /// A3.2：节点注册引导令牌（Agent 注册端点 `POST /api/nodes/register` 鉴权用）
+    pub bootstrap_token: String,
     /// Stage 7（JWT 加固）：共享的 JwtUtils 实例，禁止每次请求 new；
     /// 基于启动时密钥构建；密钥轮换时整体替换实例（见 `rotate_secret`）。
     /// 热路径经 `shared_jwt()` 取共享读锁获取 `Arc<JwtUtils>`，并发不互斥。
@@ -85,6 +90,8 @@ pub struct Services {
     pub task_service: Arc<TaskService>,
     pub backup_service: BackupServiceRef,
     pub event_bus: EventBus,
+    /// 首次部署 Setup 服务（B1/B2）
+    pub setup_service: Arc<SetupService>,
 }
 
 impl AppState {
@@ -141,6 +148,7 @@ impl AppState {
             std::path::PathBuf::from("."),
             120,
             60,
+            String::new(),
         )
     }
 
@@ -157,6 +165,7 @@ impl AppState {
         terminal_cwd: std::path::PathBuf,
         rate_limit_max: u64,
         rate_limit_window_secs: u64,
+        bootstrap_token: String,
     ) -> Self {
         Self {
             jwt_secret: jwt_secret.clone(),
@@ -185,6 +194,7 @@ impl AppState {
             task_service: services.task_service,
             backup_service: services.backup_service,
             terminal_manager: Arc::new(terminal_manager),
+            setup_service: services.setup_service,
             login_attempts: Arc::new(crate::api::login_attempt::LoginAttemptStore::new()),
             event_bus: services.event_bus.clone(),
             file_root,
@@ -195,6 +205,7 @@ impl AppState {
             jwt_utils: Arc::new(std::sync::RwLock::new(Arc::new(
                 crate::utils::jwt::JwtUtils::new_pair(&jwt_secret),
             ))),
+            bootstrap_token,
         }
     }
 }

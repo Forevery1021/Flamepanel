@@ -175,6 +175,10 @@ pub enum DomainEvent {
         node_id: i64,
         node_name: String,
     },
+    /// 首次部署向导完成（初始化流程终态）
+    SetupCompleted {
+        username: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -164,6 +164,10 @@ impl EmailChannel {
                 "Firewall Rules Applied".to_string(),
                 format!("{} firewall rules applied.", rule_count),
             )),
+            DomainEvent::SetupCompleted { username } => Some((
+                "Setup Completed".to_string(),
+                format!("Panel initialized by {}.", username),
+            )),
         }
     }
 }

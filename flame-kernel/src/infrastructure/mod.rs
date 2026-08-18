@@ -1,5 +1,6 @@
 pub mod agent_client;
 pub mod app_store;
+pub mod cert;
 pub mod db;
 pub mod execution;
 pub mod factory;

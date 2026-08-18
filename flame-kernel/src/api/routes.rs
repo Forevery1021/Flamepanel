@@ -1,6 +1,7 @@
 use crate::api::handler::{
     app_store, auth, backup, database, docker, file, firewall, health, log, memo, metrics, node,
-    operation_log, outbox, plugin, scheduled_task, settings, task, user, web_server, website, ws,
+    operation_log, outbox, plugin, scheduled_task, settings, setup, task, user, web_server,
+    website, ws,
 };
 use crate::api::types::AppState;
 use crate::core::error::AppError;
@@ -24,6 +25,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(plugin::routes())
         .merge(web_server::routes())
         .merge(settings::routes())
+        .merge(setup::routes())
         .merge(database::routes())
         .merge(app_store::routes())
         .merge(file::routes())

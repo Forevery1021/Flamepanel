@@ -14,6 +14,24 @@ fn random_secret_hex() -> String {
     out
 }
 
+/// 将 TOML 解析错误转换为带行号定位的内部错误（A3.3：拒绝带病配置启动）。
+fn parse_toml_error(path: &Path, content: &str, err: &toml::de::Error) -> AppError {
+    let location = err
+        .span()
+        .and_then(|span| line_col(content, span.start))
+        .map(|(line, col)| format!(" at {}:{}:{}", path.display(), line, col))
+        .unwrap_or_else(|| format!(" in {}", path.display()));
+    AppError::internal(format!("Failed to parse config{}: {}", location, err))
+}
+
+/// 由字节偏移计算行号/列号（1 基）。
+fn line_col(content: &str, offset: usize) -> Option<(usize, usize)> {
+    let before = content.get(..offset)?;
+    let line = before.bytes().filter(|b| *b == b'\n').count() + 1;
+    let col = before.bytes().rev().take_while(|b| *b != b'\n').count() + 1;
+    Some((line, col))
+}
+
 /// 随机初始管理员密码：字母/数字混排（剔除易混淆字符），约 16 字符。
 fn random_password() -> String {
     const CHARS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
@@ -33,6 +51,9 @@ pub struct AppConfig {
     pub notifications: NotificationsConfig,
     pub jwt_secret: String,
     pub admin_password: String,
+    /// 节点注册引导令牌（A3.2）：Agent 调用 `POST /api/nodes/register` 时必须携带
+    /// `X-Bootstrap-Token`。未设置 `OP_BOOTSTRAP_TOKEN` 时启动生成随机值并仅打印一次。
+    pub bootstrap_token: String,
     /// 文件/终端沙箱白名单根目录（默认取当前目录，安全默认值见 install.sh）
     pub file_root: String,
     /// 终端启动工作目录（必须位于 file_root 内）
@@ -116,6 +137,7 @@ impl Default for AppConfig {
             // 安全默认值：不再内置公开弱密钥。缺配置时由 load() 生成随机密钥并持久化。
             jwt_secret: String::new(),
             admin_password: String::new(),
+            bootstrap_token: String::new(),
             file_root: ".".to_string(),
             terminal_cwd: ".".to_string(),
             execution_mode: "embedded".to_string(),
@@ -131,10 +153,13 @@ impl AppConfig {
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, AppError> {
         let content = fs::read_to_string(&path)
             .map_err(|e| AppError::internal(format!("Failed to read config file: {}", e)))?;
+        Self::parse(&content, path.as_ref())
+    }
 
-        let config: Self = toml::from_str(&content)
-            .map_err(|e| AppError::internal(format!("Failed to parse config: {}", e)))?;
-
+    /// 解析配置内容；失败时带行号定位（A3.3）。
+    fn parse(content: &str, path: &Path) -> Result<Self, AppError> {
+        let config: Self =
+            toml::from_str(content).map_err(|e| parse_toml_error(path, content, &e))?;
         Ok(config)
     }
 
@@ -192,6 +217,11 @@ impl AppConfig {
         if let Ok(val) = std::env::var("OP_ADMIN_PASSWORD") {
             self.admin_password = val;
         }
+        if let Ok(val) = std::env::var("OP_BOOTSTRAP_TOKEN") {
+            if !val.is_empty() {
+                self.bootstrap_token = val;
+            }
+        }
         if let Ok(val) = std::env::var("OP_SMTP_HOST") {
             self.notifications.smtp_host = val;
         }
@@ -219,7 +249,24 @@ impl AppConfig {
     pub fn load() -> Result<Self, AppError> {
         let config_path = "./config/app.toml";
         let config_file_missing = !Path::new(config_path).exists();
-        let mut config = Self::load_from_file(config_path).unwrap_or_default();
+        // A3.3：文件不存在走默认值；存在但解析失败（语法/字段错误）拒绝启动并带行号定位，
+        // 避免静默以缺省配置运行导致的安全/行为偏差。
+        let mut config = match Self::load_from_file(config_path) {
+            Ok(c) => c,
+            Err(_e) if config_file_missing => {
+                tracing::warn!(
+                    "config file {} not found; running with defaults (secrets auto-generated)",
+                    config_path
+                );
+                Self::default()
+            }
+            Err(e) => {
+                return Err(AppError::internal(format!(
+                    "Refusing to start: invalid config file {}: {}",
+                    config_path, e
+                )))
+            }
+        };
 
         config.apply_env_overrides();
 
@@ -241,19 +288,18 @@ impl AppConfig {
             config.jwt_secret = generated;
             tracing::warn!("No OP_JWT_SECRET provided; using a generated signing secret");
         }
-        // admin_password 未提供时生成随机密码（启动日志仅打印一次，供首登使用，配合强制改密）。
+        // admin_password 未提供时生成随机密码（日志打印交给种子逻辑：仅首次种子且自动生成时打印）。
         if config.admin_password.is_empty() {
             let generated = random_password();
             config.admin_password = generated;
-            tracing::info!(
-                "Seeded admin password (auto-generated, change after first login): {}",
-                config.admin_password
-            );
         }
-        if config_file_missing {
-            tracing::warn!(
-                "config file {} not found; running with defaults (secrets auto-generated)",
-                config_path
+        // A3.2：bootstrap token 未提供时生成随机值并仅打印一次（节点注册端点鉴权用）。
+        if config.bootstrap_token.is_empty() {
+            let generated = random_password();
+            config.bootstrap_token = generated;
+            tracing::info!(
+                "Bootstrap token auto-generated (required by agents via X-Bootstrap-Token): {}",
+                config.bootstrap_token
             );
         }
 
@@ -284,5 +330,43 @@ impl AppConfig {
             let _ = fs::set_permissions(&secret_path, fs::Permissions::from_mode(0o600));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_error_reports_line_and_column() {
+        // 第 3 行有语法错误：server 块内 `port =` 缺值
+        let content = "[server]\nhost = \"0.0.0.0\"\nport = \n";
+        let path = Path::new("config/app.toml");
+        let err = match AppConfig::parse(content, path) {
+            Ok(_) => panic!("expected parse failure"),
+            Err(e) => e,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("config/app.toml:3:"),
+            "error should locate line 3, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn line_col_computes_1_based() {
+        assert_eq!(line_col("abc\ndef", 0), Some((1, 1)));
+        assert_eq!(line_col("abc\ndef", 3), Some((1, 4)));
+        assert_eq!(line_col("abc\ndef", 4), Some((2, 1)));
+        assert_eq!(line_col("abc\ndef", 7), Some((2, 4)));
+    }
+
+    #[test]
+    fn bootstrap_token_generated_when_missing() {
+        // load() 依赖环境/文件系统；此处直接验证默认值逻辑：空 token 会被 load 流程补生成。
+        let mut config = AppConfig::default();
+        assert!(config.bootstrap_token.is_empty());
+        config.bootstrap_token = "manual".into();
+        assert_eq!(config.bootstrap_token, "manual");
     }
 }

@@ -158,7 +158,9 @@ impl NodeService {
     ) -> Result<bool, AppError> {
         let node = self.get_node(id).await?;
         match node.auth_token {
-            Some(stored) => Ok(Some(stored.as_str()) == provided),
+            Some(stored) => Ok(provided
+                .map(|p| crate::utils::constant_time_eq(stored.as_bytes(), p.as_bytes()))
+                .unwrap_or(false)),
             None => {
                 tracing::warn!(
                     "Node {} has no auth_token recorded; heartbeat token check skipped",

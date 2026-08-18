@@ -127,16 +127,33 @@ async fn minimal_state() -> AppState {
         task_service: Arc::new(flame_kernel::application::task_service::TaskService::new(
             flame_kernel::runtime::task_state::TaskTracker::new(),
         )),
+        setup_service: Arc::new(flame_kernel::application::setup_service::SetupService::new(
+            Arc::new(UserService::new(
+                Arc::new(InMemoryUserRepository::new()),
+                EventBus::new(100),
+                AuthCache::new(),
+            )),
+            Arc::new(SettingsService::new(Arc::new(
+                InMemorySettingsRepository::new(),
+            ))),
+            EventBus::new(100),
+            std::path::PathBuf::from("."),
+            runner.clone(),
+            false,
+        )),
         event_bus: EventBus::new(100),
     };
-    AppState::new(
+    let mut state = AppState::new(
         "test-secret".to_string(),
         services,
         metrics_history,
         metrics_tx,
         log_tx,
         terminal_manager,
-    )
+    );
+    // A3.2：测试状态显式配置 bootstrap token（节点注册端点鉴权用）
+    state.bootstrap_token = "test-bootstrap-token".into();
+    state
 }
 
 async fn register_test_node(app: &axum::Router, token: &str, ip: &str, port: u16) -> i64 {
@@ -146,6 +163,7 @@ async fn register_test_node(app: &axum::Router, token: &str, ip: &str, port: u16
             Request::builder()
                 .method(Method::POST)
                 .uri("/api/nodes/register")
+                .header("X-Bootstrap-Token", "test-bootstrap-token")
                 .header("Content-Type", "application/json")
                 .body(Body::from(
                     serde_json::to_string(&json!({
@@ -188,6 +206,55 @@ async fn stage5_agent_register_public_endpoint() {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
+}
+
+/// A3.2：注册端点必须携带匹配的 X-Bootstrap-Token，缺失/错误一律 401。
+#[tokio::test]
+async fn stage5_agent_register_requires_bootstrap_token() {
+    let app = setup_router().await;
+    let body = serde_json::to_string(&json!({
+        "name": "agent-node",
+        "host": "10.0.0.9",
+        "ip_address": "10.0.0.9",
+        "agent_port": 9527,
+        "auth_token": "agent-secret",
+    }))
+    .unwrap();
+
+    // 无 token → 401
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/nodes/register")
+                .header("Content-Type", "application/json")
+                .body(Body::from(body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // 错误 token → 401
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/nodes/register")
+                .header("X-Bootstrap-Token", "wrong-token")
+                .header("Content-Type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // 正确 token → 200
+    let id = register_test_node(&app, "agent-secret", "10.0.0.9", 9527).await;
+    assert!(id > 0);
 }
 
 #[tokio::test]
@@ -269,4 +336,76 @@ async fn stage5_remote_files_requires_permission() {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+// ── A1：Agent 心跳全链路联调 ─────────────────────────────────
+
+fn heartbeat_body() -> String {
+    serde_json::to_string(&json!({
+        "cpu_usage": 12.5,
+        "memory_usage_percent": 33.3,
+        "disk_usage_percent": 45.0,
+        "load_one": 0.8,
+    }))
+    .unwrap()
+}
+
+async fn send_heartbeat_req(
+    app: &axum::Router,
+    node_id: i64,
+    token: Option<&str>,
+) -> axum::response::Response {
+    let mut builder = Request::builder()
+        .method(Method::POST)
+        .uri(format!("/api/nodes/heartbeat/{}", node_id))
+        .header("Content-Type", "application/json");
+    if let Some(t) = token {
+        builder = builder.header(header::AUTHORIZATION, format!("Bearer {}", t));
+    }
+    app.clone()
+        .oneshot(builder.body(Body::from(heartbeat_body())).unwrap())
+        .await
+        .unwrap()
+}
+
+/// A1 回归：注册 → 心跳（带注册时 token）→ 再心跳，全链路断言 200；
+/// token 错误断言 401（曾回归为全部 401）。
+#[tokio::test]
+async fn agent_heartbeat_full_chain_with_token() {
+    let app = setup_router().await;
+    let id = register_test_node(&app, "agent-secret-abc", "10.0.0.9", 9527).await;
+
+    // 带正确 token 的心跳 → 200
+    let res = send_heartbeat_req(&app, id, Some("agent-secret-abc")).await;
+    assert_eq!(
+        res.status(),
+        StatusCode::OK,
+        "heartbeat with token should succeed"
+    );
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["status"], "ok");
+    assert!(v["last_heartbeat_at"].is_string() || v["last_heartbeat_at"].is_null());
+
+    // 第二次心跳仍成功
+    let res = send_heartbeat_req(&app, id, Some("agent-secret-abc")).await;
+    assert_eq!(
+        res.status(),
+        StatusCode::OK,
+        "second heartbeat should succeed"
+    );
+
+    // 错误 token → 401
+    let res = send_heartbeat_req(&app, id, Some("wrong-token")).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // 无 token → 401（新 Agent 必须带 token）
+    let res = send_heartbeat_req(&app, id, None).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // 节点不存在 → 404
+    let res = send_heartbeat_req(&app, 9999, Some("agent-secret-abc")).await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }

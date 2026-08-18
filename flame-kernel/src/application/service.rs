@@ -31,6 +31,7 @@ pub use crate::application::misc_service::*;
 pub use crate::application::node_service::*;
 pub use crate::application::role_service::*;
 pub use crate::application::settings_service::*;
+pub use crate::application::setup_service::*;
 pub use crate::application::user_service::*;
 pub use crate::application::web_server_service::*;
 pub use crate::application::website_service::*;

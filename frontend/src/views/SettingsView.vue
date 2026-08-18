@@ -491,10 +491,10 @@ function resetSettings() {
 async function handleRotateJwtSecret() {
   rotating.value = true
   try {
-    const secret = Array.from(
-      { length: 32 },
-      () => 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)],
-    ).join('')
+    // A3.5：用 CSPRNG 生成 32 字节密钥（Math.random 不可用于密钥材料）
+    const bytes = new Uint8Array(32)
+    crypto.getRandomValues(bytes)
+    const secret = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
     await updateSetting('jwt_secret', secret)
     toast.success(t('common.success'))
   } catch {

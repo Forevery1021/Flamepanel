@@ -175,6 +175,8 @@ struct AgentConfig {
     node_host: String,
     agent_port: u16,
     auth_token: String,
+    /// A3.2：面板节点注册引导令牌（`X-Bootstrap-Token` 头，注册请求携带）
+    bootstrap_token: String,
     /// 是否开启原始 `/exec` 任意命令端点（默认关闭，需显式 `ALLOW_EXEC=1`）。
     allow_exec: bool,
     /// 文件读写白名单根目录（默认当前目录；未配置则拒绝文件读写）。
@@ -194,6 +196,7 @@ impl AgentConfig {
                 .unwrap_or(9527),
             auth_token: std::env::var("AUTH_TOKEN")
                 .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string()),
+            bootstrap_token: std::env::var("BOOTSTRAP_TOKEN").unwrap_or_default(),
             allow_exec: std::env::var("ALLOW_EXEC")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
@@ -282,13 +285,15 @@ async fn register(config: &AgentConfig) -> Option<i64> {
     };
 
     let client = reqwest::Client::new();
-    match client
+    let mut builder = client
         .post(format!("{}/api/nodes/register", config.panel_url))
         .json(&payload)
-        .timeout(Duration::from_secs(10))
-        .send()
-        .await
-    {
+        .timeout(Duration::from_secs(10));
+    // A3.2：注册携带引导令牌（未配置时省略，由面板按 401 拒绝）
+    if !config.bootstrap_token.is_empty() {
+        builder = builder.header("X-Bootstrap-Token", config.bootstrap_token.clone());
+    }
+    match builder.send().await {
         Ok(resp) => {
             let status = resp.status();
             if status.is_success() {
@@ -310,10 +315,16 @@ async fn register(config: &AgentConfig) -> Option<i64> {
 
 // ─── Heartbeat ─────────────────────────────────────────────────────────────────
 
-async fn send_heartbeat(panel_url: &str, node_id: i64, metrics: &HeartbeatPayload) {
+async fn send_heartbeat(
+    panel_url: &str,
+    node_id: i64,
+    metrics: &HeartbeatPayload,
+    auth_token: &str,
+) {
     let client = reqwest::Client::new();
     match client
         .post(format!("{panel_url}/api/nodes/heartbeat/{node_id}"))
+        .bearer_auth(auth_token)
         .json(metrics)
         .timeout(Duration::from_secs(10))
         .send()
@@ -357,6 +368,10 @@ fn check_auth(token: &str) -> bool {
 }
 
 /// 校验路径是否位于文件白名单根目录内，防止任意绝对路径读写（S3）。
+///
+/// A3.1：写目标（可能不存在）不能直接 canonicalize（失败回退原路径会绕过符号链接校验）——
+/// 改为对**父目录** canonicalize（解析父链上的符号链接）后拼接文件名，再校验 `starts_with(root)`，
+/// 对齐 kernel 侧 `file/mod.rs::sanitize_write_target` 的实现，杜绝 symlink 逃逸。
 fn ensure_within_file_root(
     path: &PathBuf,
 ) -> Result<PathBuf, (axum::http::StatusCode, Json<serde_json::Value>)> {
@@ -365,19 +380,78 @@ fn ensure_within_file_root(
         .cloned()
         .unwrap_or_else(|| PathBuf::from("."));
     let root_abs = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
-    let target_abs = if path.is_absolute() {
+    let raw = if path.is_absolute() {
         path.clone()
     } else {
         root_abs.join(path)
     };
-    let target_abs = std::fs::canonicalize(&target_abs).unwrap_or(target_abs);
-    if !target_abs.starts_with(&root_abs) {
+    let normalized = normalize_path(&raw);
+    if !normalized.starts_with(&root_abs) {
         return Err((
             axum::http::StatusCode::FORBIDDEN,
             Json(serde_json::json!({"error": "path outside allowed file root"})),
         ));
     }
-    Ok(target_abs)
+    // 已存在路径：canonicalize 解析符号链接后再校验（读/列目录路径）
+    if normalized.exists() {
+        let canonical = std::fs::canonicalize(&normalized).map_err(|_| {
+            (
+                axum::http::StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"error": "path cannot be resolved"})),
+            )
+        })?;
+        if !canonical.starts_with(&root_abs) {
+            return Err((
+                axum::http::StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"error": "path escapes allowed file root via symlink"})),
+            ));
+        }
+        return Ok(canonical);
+    }
+    // 未创建目标（写/上传）：父目录必须存在且位于根内，返回 父目录canonical + 文件名
+    let name = normalized
+        .file_name()
+        .filter(|n| n.to_string_lossy() != "..")
+        .ok_or_else(|| {
+            (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid path"})),
+            )
+        })?;
+    let parent = normalized.parent().ok_or_else(|| {
+        (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid path"})),
+        )
+    })?;
+    let canonical_parent = std::fs::canonicalize(parent).map_err(|_| {
+        (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "parent directory does not exist"})),
+        )
+    })?;
+    if !canonical_parent.starts_with(&root_abs) {
+        return Err((
+            axum::http::StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "path escapes allowed file root via symlink"})),
+        ));
+    }
+    Ok(canonical_parent.join(name))
+}
+
+/// 词法规范化路径（解析 `.`/`..` 段，不触碰文件系统），防 `..` 词法穿越。
+fn normalize_path(path: &std::path::Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 fn auth_error() -> (axum::http::StatusCode, Json<serde_json::Value>) {
@@ -579,12 +653,38 @@ async fn upload_file_endpoint(
         let _ = std::fs::create_dir_all(parent);
     }
 
-    tokio::fs::write(&target, &body).await.map_err(|e| {
-        (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("Write error: {e}")})),
-        )
-    })?;
+    // A3.1：写文件加 O_NOFOLLOW 直接写入句柄（避免二次打开 TOCTOU），
+    // 拒绝写入解析为符号链接的目标（与父目录 canonicalize 校验互为纵深防御）
+    #[cfg(unix)]
+    {
+        use tokio::io::AsyncWriteExt;
+        let mut opts = tokio::fs::OpenOptions::new();
+        opts.create(true)
+            .write(true)
+            .truncate(true)
+            .custom_flags(libc::O_NOFOLLOW);
+        let mut file = opts.open(&target).await.map_err(|e| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Write error: {e}")})),
+            )
+        })?;
+        file.write_all(&body).await.map_err(|e| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Write error: {e}")})),
+            )
+        })?;
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::fs::write(&target, &body).await.map_err(|e| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Write error: {e}")})),
+            )
+        })?;
+    }
 
     Ok(Json(
         serde_json::json!({"message": "ok", "size": body.len()}),
@@ -769,6 +869,7 @@ async fn main() {
 
     // Spawn heartbeat task
     let panel_url = config.panel_url.clone();
+    let auth_token = config.auth_token.clone();
     tokio::spawn(async move {
         let mut sys = System::new_all();
         tokio::time::sleep(Duration::from_secs(3)).await;
@@ -776,7 +877,7 @@ async fn main() {
         loop {
             interval.tick().await;
             let metrics = collect_metrics(&mut sys);
-            send_heartbeat(&panel_url, node_id, &metrics).await;
+            send_heartbeat(&panel_url, node_id, &metrics, &auth_token).await;
         }
     });
 

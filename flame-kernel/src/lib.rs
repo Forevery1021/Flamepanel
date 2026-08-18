@@ -23,7 +23,7 @@ use tokio::sync::Mutex;
 
 use api::types::{AppState, Services};
 use application::app_store_service::AppStoreService;
-use application::backup_service::{db_path_from_url, BackupService};
+use application::backup_service::{db_path_from_url, BackupService, BackupServiceRef};
 use application::scheduled_task_service::ScheduledTaskService;
 use application::service::*;
 use config::AppConfig;
@@ -153,12 +153,26 @@ impl FlameKernel {
             shared_task_tracker,
         ));
 
+        let user_service = Arc::new(UserService::new(
+            user_repo,
+            event_bus.clone(),
+            auth_cache.clone(),
+        ));
+        let settings_service = Arc::new(SettingsService::new(settings_repo));
+        let backup_service: BackupServiceRef =
+            Arc::new(BackupService::new("data/app.db", "data/backups"));
+        // B1：SetupService（data_dir 与无人值守标志由 new_with_backend 按 config 覆盖）
+        let setup_service = Arc::new(crate::application::setup_service::SetupService::new(
+            user_service.clone(),
+            settings_service.clone(),
+            event_bus.clone(),
+            std::path::PathBuf::from("data"),
+            command_runner.clone(),
+            false,
+        ));
+
         Services {
-            user_service: Arc::new(UserService::new(
-                user_repo,
-                event_bus.clone(),
-                auth_cache.clone(),
-            )),
+            user_service,
             node_service,
             website_service: Arc::new(WebsiteService::new(website_repo, event_bus.clone())),
             docker_service,
@@ -175,12 +189,13 @@ impl FlameKernel {
             plugin_repo,
             app_store_service,
             web_server_service,
-            settings_service: Arc::new(SettingsService::new(settings_repo)),
+            settings_service,
             database_service,
             firewall_service: Arc::new(FirewallService::new(firewall_repo, command_runner)),
             scheduled_task_service: Arc::new(ScheduledTaskService::new(scheduled_task_repo)),
             task_service,
-            backup_service: Arc::new(BackupService::new("data/app.db", "data/backups")),
+            backup_service,
+            setup_service,
             event_bus,
         }
     }
@@ -193,13 +208,27 @@ impl FlameKernel {
             crate::infrastructure::execution::make_command_runner(mode, None, None);
         let mut services = Self::build_services(
             &factory,
-            command_runner,
+            command_runner.clone(),
             &config.mysql_config_file,
             &config.redis_config_file,
         );
         // 用真实数据库路径覆盖备份服务（build_services 使用默认路径）
         let db_path = db_path_from_url(&config.database.url);
-        services.backup_service = Arc::new(BackupService::new(db_path, "data/backups"));
+        services.backup_service = Arc::new(BackupService::new(db_path.clone(), "data/backups"));
+
+        // B1：按 config 覆盖 SetupService 的 data_dir 与无人值守标志（admin_password 非空即无人值守）
+        let data_dir = db_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from("data"));
+        services.setup_service = Arc::new(crate::application::setup_service::SetupService::new(
+            services.user_service.clone(),
+            services.settings_service.clone(),
+            services.event_bus.clone(),
+            data_dir,
+            command_runner,
+            !config.admin_password.is_empty(),
+        ));
 
         // 后台任务 Supervisor（CancellationToken + JoinSet，统一生命周期）
         let mut supervisor = TaskSupervisor::new();
@@ -386,6 +415,7 @@ impl FlameKernel {
             std::path::PathBuf::from(&config.terminal_cwd),
             config.rate_limit_max,
             config.rate_limit_window_secs,
+            config.bootstrap_token.clone(),
         );
 
         // 事件订阅经 Supervisor 注册（可取消，避免 shutdown 后残留循环）
@@ -420,6 +450,69 @@ impl FlameKernel {
             plugin_registry,
             app_state,
             supervisor,
+        }
+    }
+
+    /// 初始化状态分叉（B4/A3.4）：
+    ///
+    /// - 无人值守（config.admin_password 非空，即 OP_ADMIN_PASSWORD 已设置）：
+    ///   全量种子 admin + 写 `setup_completed_at` + 首次登录强制改密。
+    /// - 向导模式（admin_password 为空）且用户表为空：进入「待初始化」状态，不做任何种子
+    ///   （等待 Setup 向导完成；不再打印随机密码——向导模式下初始密码由向导创建）。
+    /// - 老库兼容：users 非空但缺 `setup_completed_at` → 启动补写该键。
+    ///
+    /// 返回初始化结果供调用方记录日志。
+    pub async fn bootstrap_initialization_state(
+        &self,
+    ) -> Result<InitializationOutcome, crate::core::error::AppError> {
+        let users = self.app_state.user_service.list_users().await?;
+        let setup_completed = self
+            .app_state
+            .settings_service
+            .get("setup_completed_at")
+            .await?
+            .is_some();
+        let unattended = !self.config.admin_password.is_empty();
+
+        if users.is_empty() {
+            if unattended {
+                // 无人值守全量：种子 admin（密码来自配置/环境变量，不在日志重复打印——A3.4）
+                let hash =
+                    crate::utils::password::PasswordUtils::hash(&self.config.admin_password)?;
+                let admin = self
+                    .app_state
+                    .user_service
+                    .create_user("admin", &hash, "admin")
+                    .await?;
+                self.app_state
+                    .user_service
+                    .set_must_change_password(admin.id, true)
+                    .await?;
+                let now = chrono::Utc::now().to_rfc3339();
+                self.app_state
+                    .settings_service
+                    .set_many(&[
+                        ("setup_completed_at".into(), now),
+                        ("theme".into(), "flame".into()),
+                        ("language".into(), "zh-CN".into()),
+                    ])
+                    .await?;
+                Ok(InitializationOutcome::SeededUnattended {
+                    username: admin.username,
+                })
+            } else {
+                Ok(InitializationOutcome::PendingWizard)
+            }
+        } else if !setup_completed {
+            // 老库兼容：补写 setup_completed_at（用户已存在，说明面板此前已初始化过）
+            let now = chrono::Utc::now().to_rfc3339();
+            self.app_state
+                .settings_service
+                .set("setup_completed_at", &now)
+                .await?;
+            Ok(InitializationOutcome::LegacyBackfilled)
+        } else {
+            Ok(InitializationOutcome::Completed)
         }
     }
 
@@ -468,22 +561,20 @@ impl FlameKernel {
             terminal_cwd.display()
         );
 
-        // Seed admin user if no users exist
-        let users = self.app_state.user_service.list_users().await?;
-        if users.is_empty() {
-            let admin_password = &self.config.admin_password;
-            let hash = crate::utils::password::PasswordUtils::hash(admin_password)?;
-            let admin = self
-                .app_state
-                .user_service
-                .create_user("admin", &hash, "admin")
-                .await?;
-            // 新装面板：种子 admin 首次登录强制改密
-            self.app_state
-                .user_service
-                .set_must_change_password(admin.id, true)
-                .await?;
-            tracing::info!("Seeded admin user (password from config)");
+        // 初始化状态分叉（B4）：无人值守全量种子 / 向导模式待初始化 / 老库兼容补写
+        match self.bootstrap_initialization_state().await? {
+            InitializationOutcome::SeededUnattended { username } => {
+                tracing::info!("Seeded admin user '{}' (unattended mode); password change required on first login", username);
+            }
+            InitializationOutcome::PendingWizard => {
+                tracing::info!(
+                    "Fresh install: waiting for setup wizard (GET /api/setup/status, POST /api/setup/initialize)"
+                );
+            }
+            InitializationOutcome::LegacyBackfilled => {
+                tracing::info!("Legacy database detected: backfilled setup_completed_at");
+            }
+            InitializationOutcome::Completed => {}
         }
 
         let app = api::routes::create_router(self.app_state.clone());
@@ -510,6 +601,19 @@ impl FlameKernel {
         }
         Ok(())
     }
+}
+
+/// 初始化状态分叉结果（`FlameKernel::bootstrap_initialization_state`）
+#[derive(Debug)]
+pub enum InitializationOutcome {
+    /// 无人值守模式：已全量种子 admin
+    SeededUnattended { username: String },
+    /// 新装待向导（不做任何种子）
+    PendingWizard,
+    /// 已初始化（正常状态）
+    Completed,
+    /// 老库兼容：补写了 setup_completed_at
+    LegacyBackfilled,
 }
 
 async fn shutdown_signal() {

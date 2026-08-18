@@ -20,9 +20,9 @@ enum Tier {
 impl Tier {
     /// 根据请求路径判定类别。
     fn from_path(path: &str) -> Self {
-        if path == "/api/auth/login" {
+        if path == "/api/auth/login" || path == "/api/setup/initialize" {
             Tier::Login
-        } else if path == "/health" || path == "/api/health" {
+        } else if path == "/health" || path == "/api/health" || path == "/api/setup/status" {
             Tier::Health
         } else {
             Tier::Api
@@ -193,6 +193,9 @@ mod tests {
         assert_eq!(Tier::from_path("/health"), Tier::Health);
         assert_eq!(Tier::from_path("/api/health"), Tier::Health);
         assert_eq!(Tier::from_path("/api/users"), Tier::Api);
+        // B6：setup 路由挂档（status → Health 宽松，initialize → Login 严格）
+        assert_eq!(Tier::from_path("/api/setup/status"), Tier::Health);
+        assert_eq!(Tier::from_path("/api/setup/initialize"), Tier::Login);
     }
 
     #[test]
