@@ -1,7 +1,7 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
+        Extension, State,
     },
     response::IntoResponse,
     routing::get,
@@ -9,7 +9,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 
-use crate::api::types::AppState;
+use crate::api::types::{AppState, Username};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -78,11 +78,30 @@ async fn handle_metrics(mut socket: WebSocket, state: AppState) {
 async fn terminal_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
+    Extension(username): Extension<Username>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_terminal(socket, state))
+    ws.on_upgrade(move |socket| handle_terminal(socket, state, username))
 }
 
-async fn handle_terminal(mut socket: WebSocket, state: AppState) {
+/// 终端会话审计：记录谁在何时打开/关闭了 Web 终端（P1：终端属任意命令执行面，须可追溯）。
+fn audit_terminal(state: &AppState, username: &str, action: &str, session_id: u64) {
+    let state = state.clone();
+    let username = username.to_string();
+    let action = action.to_string();
+    tokio::spawn(async move {
+        let _ = state
+            .operation_log_service
+            .log(
+                &username,
+                &action,
+                Some(&format!("terminal/session/{}", session_id)),
+                None,
+            )
+            .await;
+    });
+}
+
+async fn handle_terminal(mut socket: WebSocket, state: AppState, username: Username) {
     let (id, mut rx) = match state.terminal_manager.create_session().await {
         Ok(v) => v,
         // T14：终端会话创建失败（如 shell 缺失）时优雅关闭而非 panic。
@@ -92,6 +111,8 @@ async fn handle_terminal(mut socket: WebSocket, state: AppState) {
             return;
         }
     };
+
+    audit_terminal(&state, &username.0, "OPEN_WS_TERMINAL", id);
 
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
@@ -148,6 +169,7 @@ async fn handle_terminal(mut socket: WebSocket, state: AppState) {
 
     // T5：统一清理路径——无论 send_task 还是 recv_task 先结束，都在此关闭会话，避免终端会话泄漏。
     state.terminal_manager.close(id).await;
+    audit_terminal(&state, &username.0, "CLOSE_WS_TERMINAL", id);
 }
 
 async fn logs_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {

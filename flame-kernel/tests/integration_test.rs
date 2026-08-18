@@ -4617,6 +4617,49 @@ async fn test_file_sandbox_blocks_absolute_root() {
 }
 
 #[tokio::test]
+async fn test_file_sandbox_blocks_symlink_escape() {
+    use flame_kernel::file::FileService;
+    let root = std::env::temp_dir().join(format!("fp-sandbox-symlink-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let svc = FileService::new(root.clone());
+
+    // 白名单内符号链接指向白名单外（/etc/passwd）：读/列表必须被拒绝
+    let link = root.join("evil-link");
+    std::os::unix::fs::symlink("/etc/passwd", &link).unwrap();
+    assert!(svc.read("/evil-link").await.is_err());
+
+    // 符号链接目录指向根外：经其访问列表必须被拒绝
+    let dir_link = root.join("evil-dir");
+    std::os::unix::fs::symlink("/etc", &dir_link).unwrap();
+    assert!(svc.list("/evil-dir").await.is_err());
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn test_file_sandbox_blocks_write_target_escape() {
+    use flame_kernel::file::FileService;
+    let root = std::env::temp_dir().join(format!("fp-sandbox-write-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    let svc = FileService::new(root.clone());
+
+    // 写目标经 `..` 规范化后逃出根目录：拒绝（词法规范化路径必须仍位于根内）
+    assert!(svc.write("sub/../../etc/evil.txt", "x").await.is_err());
+    assert!(svc.create_file("sub/../../../tmp/evil.txt").await.is_err());
+
+    // 目标文件名非法（裸 `..`）：拒绝
+    assert!(svc.create_file("sub/..").await.is_err());
+
+    // 正常写目标不受影响
+    svc.create_file("sub/ok.txt").await.unwrap();
+    svc.write("sub/ok.txt", "ok").await.unwrap();
+    assert_eq!(svc.read("sub/ok.txt").await.unwrap(), "ok");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn test_jwt_access_vs_refresh_type_check() {
     let jwt = JwtUtils::new_pair("test-secret-0123456789abcdef0123456789abcdef");
     let access = jwt.sign_access(7).unwrap();

@@ -1,15 +1,62 @@
 services:
+  # 生产安全默认（无 docker.sock）：容器仅暴露面板端口，Docker 管理走 Agent 白名单（见 Doc/06、Doc/18）
   flamepanel:
     build: .
+    container_name: flamepanel
     ports:
       - "8080:80"
     volumes:
       - flamepanel-data:/app/data
+      - flamepanel-workspace:/app/workspace
+    restart: unless-stopped
+    environment:
+      - OP_PORT=8080
+      # 生产必须设置强 JWT 密钥（openssl rand -hex 32）；留空则首次启动自动生成并持久化到 data 卷
+      # - OP_JWT_SECRET=${OP_JWT_SECRET:?请在 .env 中设置强密钥}
+      - OP_DATABASE_URL=sqlite:/app/data/flamepanel.db?mode=rwc
+      - OP_FILE_ROOT=/app/workspace
+      - OP_TERMINAL_CWD=/app/workspace
+    # 最小权限：容器内仅保留 nginx 绑 80（NET_BIND_SERVICE）与进程所需的 SETUID/SETGID
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - SETUID
+      - SETGID
+    # 只读 rootfs（可选，配合 /app/data 卷与 tmpfs 使用）：
+    # read_only: true
+    # tmpfs:
+    #   - /tmp
+    #   - /var/run
+    #   - /var/cache/nginx
+    #   - /var/log/nginx
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # 开发便利配置（含 docker.sock 直挂）：
+  #   docker compose --profile dev up -d
+  # ⚠️ 危险组合：root 容器 + 可写 docker.sock = 容器内 Docker 操作等价宿主机 root，仅限本地开发。
+  # 生产请用默认 flamepanel（无 sock）+ Agent 管理远端 Docker。
+  flamepanel-dev:
+    image: flamepanel:latest
+    build: .
+    container_name: flamepanel-dev
+    profiles: ["dev"]
+    ports:
+      - "8090:80"
+    volumes:
+      - flamepanel-data:/app/data
+      - flamepanel-workspace:/app/workspace
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
     environment:
       - OP_PORT=8080
-      - OP_JWT_SECRET=your-super-secret-key-change-me-2026
       - OP_DATABASE_URL=sqlite:/app/data/flamepanel.db?mode=rwc
       - OP_FILE_ROOT=/app/workspace
       - OP_TERMINAL_CWD=/app/workspace
@@ -19,19 +66,22 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    # 可选：同机部署节点 Agent（取消注释并配置）
-    # agent:
-    #   build:
-    #     context: ./agent
-    #     dockerfile: Dockerfile
-    #   environment:
-    #     - PANEL_URL=http://flamepanel:80
-    #     - NODE_NAME=panel-host
-    #     - AGENT_PORT=9527
-    #     - AUTH_TOKEN=change-me-agent-token
-    #   ports:
-    #     - "9527:9527"
-    #   restart: unless-stopped
+
+  # 可选：同机部署节点 Agent（取消注释并配置）
+  # agent:
+  #   build:
+  #     context: ./agent
+  #     dockerfile: Dockerfile
+  #   environment:
+  #     - PANEL_URL=http://flamepanel:80
+  #     - NODE_NAME=panel-host
+  #     - AGENT_PORT=9527
+  #     - AUTH_TOKEN=change-me-agent-token
+  #     - BOOTSTRAP_TOKEN=${OP_BOOTSTRAP_TOKEN:?设置与面板一致}
+  #   ports:
+  #     - "9527:9527"
+  #   restart: unless-stopped
 
 volumes:
   flamepanel-data:
+  flamepanel-workspace:

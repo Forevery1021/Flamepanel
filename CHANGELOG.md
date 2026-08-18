@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+### chore: CI/Release 工作流重构与容器/终端安全加固（见《FlamePanel-后续修复指导.md》）
+
+- **CI（ci-cd.yml）**：拆分为并行 job（frontend / rust-format-clippy / rust-test / security-audit / docker），fmt 失败不再阻塞测试；各 job 设置超时与最小权限；`cargo-audit` 改用 `taiki-e/install-action`（预编译缓存，免每次全量编译）；镜像 tag 除 `latest` 外增加 `<sha>` 与 tag 解析的 `vX.Y.Z`，推送权限收紧为 `packages: write`。
+- **Release（release.yml）**：前端只构建一次（build-frontend job + artifact，matrix 各 target 下载复用）；统一汇总一份 `flamepanel-${VERSION}-checksums.txt`；固定 `cargo-zigbuild@0.23.0`（install-action 版本语法）；`workflow_dispatch` 无 tag 时 VERSION 回退输入 → Cargo.toml。
+- **docker-compose.yml**：两套 profile——默认（生产安全，无 docker.sock、`cap_drop: ALL` + 最小 cap_add、可选 read_only）与 `--profile dev`（docker.sock 只读，8090 端口）；移除硬编码 `OP_JWT_SECRET` 弱默认值。
+- **Dockerfile**：镜像源 build-arg 化（`NPM_REGISTRY`/`CRATES_RSYNC`，默认官方源，境外 CI 无需改文件）；`FROM ... AS` 大小写规范；去掉冗余 `VOLUME` 声明中未挂载的 docker.sock。
+- **docker-entrypoint.sh**：后端健康等待（60s 超时）+ SIGTERM/SIGINT 转发与等待子进程 + 后端退出码透传（`restart: unless-stopped` 生效），启动失败非 0 退出。
+- **nginx.conf**：基础安全头（`X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`）；`/metrics` 默认仅内网网段可访问（`allow/deny`）；补 TLS server + HSTS + HTTP→HTTPS 跳转生产示例。
+- **P1 终端审计**：Web 终端会话开/关写入操作审计日志（`OPEN_WS_TERMINAL` / `CLOSE_WS_TERMINAL` + 会话 id），任意命令执行面可追溯（`handler/ws/mod.rs`，经 `Username` 扩展获取身份）。
+- **P1 路径穿越否定用例**：新增 symlink 逃逸（白名单内符号链接指向根外）与写目标穿越（`..` 规范化逃逸/裸 `..` 文件名）集成测试，与既有 `..`/绝对路径用例共同锁定沙箱行为。
+- **文档**：README 与 Doc/06 增加「root 容器 + docker.sock」危险组合警告、生产推荐拓扑（systemd 非 root / 默认 profile / Agent 白名单）、compose 两套 profile 说明、安全清单补 docker.sock 与终端审计项。
+- 测试基线：329 个测试全部通过（152 单元 + 153 集成 + 13 setup + 7 stage5 + 4 agent）。
+
 ### feat: Setup 向导 + 安全加固（Part A/B，见《flamepanel-setup-wizard-guide.md》）
 
 #### 首次部署 Setup 向导（Part B）

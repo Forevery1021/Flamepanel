@@ -1,11 +1,21 @@
-FROM node:20-alpine as frontend-builder
+# 国内镜像源可选（build-arg）：默认官方源，境外 CI 无需改 Dockerfile 即可构建。
+# 国内构建加速示例：
+#   docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+#                --build-arg CRATES_RSYNC=https://rsproxy.cn .
+ARG NPM_REGISTRY=https://registry.npmjs.org
+ARG CRATES_RSYNC=
+
+FROM node:20-alpine AS frontend-builder
+ARG NPM_REGISTRY
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm ci --registry=https://registry.npmmirror.com
+RUN npm config set registry "${NPM_REGISTRY}" \
+    && npm ci
 COPY frontend/ .
 RUN npm run build
 
-FROM rust:1.97-slim as backend-builder
+FROM rust:1.97-slim AS backend-builder
+ARG CRATES_RSYNC
 WORKDIR /app
 # OpenSSL / pkg-config 构建依赖（openssl-sys / sqlx 需要）
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
@@ -13,9 +23,11 @@ COPY Cargo.toml Cargo.lock ./
 COPY flame-kernel ./flame-kernel
 COPY agent ./agent
 WORKDIR /app/flame-kernel
-# 国内 crates 镜像（加速依赖下载；境外环境可删）
-RUN mkdir -p /usr/local/cargo/registry && \
-    printf '[source.crates-io]\nreplace-with = "rsproxy"\n[source.rsproxy]\nregistry = "sparse+https://rsproxy.cn/index/"\n[registries.rsproxy]\nindex = "sparse+https://rsproxy.cn/index/"\n[net]\ngit-fetch-with-cli = true\n' > /usr/local/cargo/config.toml
+# 国内 crates 镜像（可选，默认官方源；境外环境无需任何参数）
+RUN if [ -n "${CRATES_RSYNC}" ]; then \
+      mkdir -p /usr/local/cargo/registry && \
+      printf '[source.crates-io]\nreplace-with = "rsproxy"\n[source.rsproxy]\nregistry = "sparse+%s/index/"\n[registries.rsproxy]\nindex = "sparse+%s/index/"\n[net]\ngit-fetch-with-cli = true\n' "${CRATES_RSYNC}" "${CRATES_RSYNC}" > /usr/local/cargo/config.toml; \
+    fi
 # 指定 target 目录，产物路径确定（workspace 根 /app）
 ENV CARGO_TARGET_DIR=/app/target
 RUN cargo build --release --package flame-kernel
@@ -43,7 +55,7 @@ RUN mkdir -p /app/data /app/logs /app/workspace \
     && chmod 750 /app/data /app/logs /app/workspace
 
 EXPOSE 80 8080
-VOLUME ["/app/data", "/var/run/docker.sock"]
+VOLUME ["/app/data", "/app/workspace"]
 
 WORKDIR /app
 ENV OP_FILE_ROOT=/app/workspace \

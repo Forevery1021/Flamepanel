@@ -4,13 +4,46 @@ on:
   push:
     tags: [ 'v*' ]
   workflow_dispatch:
+    inputs:
+      version:
+        description: '手动触发时的版本号（无 v 前缀，如 1.2.3；默认读取 Cargo.toml）'
+        required: false
+        type: string
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  build-frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: cd frontend && npm ci
+
+      - name: Build frontend
+        run: cd frontend && npm run build
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+
+  release:
+    needs: [build-frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -38,27 +71,23 @@ jobs:
           targets: ${{ matrix.target }}
 
       # cargo-zigbuild：基于 zig 的跨平台编译，统一处理 gnu/musl 目标链接，无需手工配置各架构链接器
+      # 固定工具版本保证可复现（zig 版本由 cargo-zigbuild 内置锁定）
       - name: Install cargo-zigbuild
-        run: |
-          python3 -m pip install ziglang 2>/dev/null || true
-          cargo install cargo-zigbuild --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild@0.23.0
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
       - name: Build backend (release, ${{ matrix.pkg_arch }})
         run: cargo zigbuild --release --package flame-kernel --target ${{ matrix.target }}
 
-      - name: Build frontend
-        run: |
-          cd frontend && npm ci && npm run build
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: frontend-dist
+          path: frontend-dist
 
       - name: Package backend
         run: |
@@ -69,25 +98,19 @@ jobs:
 
       - name: Package frontend
         run: |
-          tar -czf release-assets/flamepanel-frontend.tar.gz -C frontend/dist .
+          tar -czf release-assets/flamepanel-frontend.tar.gz -C frontend-dist .
 
-      - name: Generate checksums
-        run: |
-          cd release-assets
-          VERSION=${GITHUB_REF_NAME#v}
-          sha256sum flamepanel-linux-*.tar.gz flamepanel-frontend.tar.gz > flamepanel-${VERSION}-checksums.txt
-          cat flamepanel-${VERSION}-checksums.txt
-
-      - name: Upload artifacts
+      - name: Upload per-arch artifacts
         uses: actions/upload-artifact@v5
         with:
           name: release-${{ matrix.pkg_arch }}
-          path: release-assets/*
+          path: release-assets/flamepanel-linux-${{ matrix.pkg_arch }}.tar.gz
           if-no-files-found: error
 
   github-release:
     needs: [release]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v5
@@ -95,8 +118,28 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      # 汇总一份总 checksum：matrix 各 arch 二进制 + 前端包
+      - name: Generate combined checksums
+        run: |
+          cd release-assets
+          VERSION="${{ inputs.version }}"
+          if [[ -z "$VERSION" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ -z "$VERSION" ]]; then
+            VERSION=$(grep -m1 '^version' Cargo.toml 2>/dev/null | sed -E 's/.*"([^"]+)".*/\1/' || true)
+          fi
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Cannot determine version (no tag / input / Cargo.toml)" && exit 1
+          fi
+          sha256sum flamepanel-linux-*.tar.gz flamepanel-frontend.tar.gz > flamepanel-${VERSION}-checksums.txt
+          cat flamepanel-${VERSION}-checksums.txt
+          echo "version=${VERSION}" >> "$GITHUB_ENV"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.version }}
+          name: FlamePanel v${{ env.version }}
           files: release-assets/*
           generate_release_notes: true

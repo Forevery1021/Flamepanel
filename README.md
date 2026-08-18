@@ -76,7 +76,9 @@ npm run dev        # 或 pnpm run dev
 
 无人值守部署：配置 `OP_ADMIN_PASSWORD` 环境变量后跳过向导，启动时自动创建管理员（并强制首次登录改密）。更多配置见 [部署文档](./Doc/06-部署运维指南.md)。
 
-生产环境推荐使用 `install.sh` 一键安装。
+生产环境推荐使用 `install.sh` 一键安装（systemd + 非 root 用户）。
+
+> ⚠️ **Docker 部署安全提示**：镜像内为 root 用户。生产请使用 `docker compose up -d`（默认 profile **不挂 docker.sock**、最小能力 `cap_drop: ALL`）；`docker compose --profile dev up -d` 挂载 docker.sock，仅限本地开发——「root 容器 + docker.sock」组合被攻破即等价宿主机 root。
 
 ---
 
@@ -128,7 +130,7 @@ Flamepanel/
 | **Phase 9** | **Setup 向导 + 安全加固**：首次部署 6 步向导（`/api/setup/status|initialize`）、自签证书签发、无人值守初始化；Agent 注册 Bootstrap Token 防护、心跳 Bearer 鉴权、配置解析失败拒绝启动、上传路径 `O_NOFOLLOW` 加固、JWT 轮换密钥强随机 |
 | **后端重构（Stage 0–9）** | 按 [Doc/19](./Doc/19-后端架构分析与完善落地手册.md) 完成：分页下沉、鉴权短缓存 AuthCache、限流升级（去全局锁+分级限额）、任务生命周期、权限路由元数据化+默认拒绝、错误映射细分、JWT 加固、Docker 门面拆分、事件 Outbox 可重试 |
 
-**当前基线**：181 条 HTTP 路由 + 3 条 WebSocket · 73 项 RBAC 权限 · 327 个测试全部通过
+**当前基线**：181 条 HTTP 路由 + 3 条 WebSocket · 73 项 RBAC 权限 · 329 个测试全部通过
 
 ### 🧩 前端现代化（已落地）
 

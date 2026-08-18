@@ -3,20 +3,16 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
 
 jobs:
-  build:
+  frontend:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -25,12 +21,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
-
       - name: Install dependencies
-        run: |
-          cd frontend && npm ci
+        run: cd frontend && npm ci
 
       - name: Build Frontend
         run: cd frontend && npm run build
@@ -46,26 +38,45 @@ jobs:
       - name: Lint Frontend
         run: cd frontend && npm run lint
 
+      # Phase A3：前端依赖安全审计（npm-audit 高危即阻断，中低危仅告警）
+      - name: Security Audit (Frontend)
+        run: |
+          cd frontend && npm audit --audit-level=high
+
+  rust-format-clippy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
       - name: Check Formatting
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
         run: cargo clippy --all-targets -- -D warnings
 
+  rust-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
       - name: Run Tests
         run: cargo test --all
-
-      # Stage3.5：依赖安全审计（cargo-audit 失败即阻断）
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Security Audit (Rust)
-        run: cargo audit
-
-      # Phase A3：前端依赖安全审计（npm-audit 高危即阻断，中低危仅告警）
-      - name: Security Audit (Frontend)
-        run: |
-          cd frontend && npm audit --audit-level=high
 
       # Stage3.1：Feature Flags 组合编译（default + 全 feature + 裁剪组合）
       - name: Build All Features
@@ -77,12 +88,54 @@ jobs:
       - name: Build Release
         run: cargo build --release --package flame-kernel
 
+  security-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Stage3.5：依赖安全审计（cargo-audit 失败即阻断）；install-action 直接下载预编译产物并缓存，
+      # 避免每次全量 cargo install 编译（约 5 分钟）。
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Security Audit (Rust)
+        run: cargo audit
+
+  docker:
+    needs: [frontend, rust-format-clippy, rust-test, security-audit]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
       - name: Lowercase repository name
         id: lower_repo
         run: echo "repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
+      # 可追溯镜像 tag：main → latest + <sha>；tag vX.Y.Z → vX.Y.Z + latest
+      - name: Compute image tags
+        id: tags
+        run: |
+          REPO="ghcr.io/${{ steps.lower_repo.outputs.repo }}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            echo "tags=${REPO}:${VERSION},${REPO}:latest" >> "$GITHUB_OUTPUT"
+          else
+            SHA="${GITHUB_SHA::12}"
+            echo "tags=${REPO}:${SHA},${REPO}:latest" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Login to GitHub Container Registry
-        if: github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -91,20 +144,17 @@ jobs:
 
       # 多架构镜像：QEMU 模拟 + BuildKit，构建 amd64/arm64 双架构并推送 manifest
       - name: Set up QEMU
-        if: github.ref == 'refs/heads/main'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        if: github.ref == 'refs/heads/main'
         uses: docker/setup-buildx-action@v3
 
       - name: Docker Build & Push (multi-arch)
-        if: github.ref == 'refs/heads/main'
         uses: docker/build-push-action@v7
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/${{ steps.lower_repo.outputs.repo }}:latest
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
