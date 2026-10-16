@@ -116,6 +116,11 @@ impl OperationLogService {
     pub async fn delete_log(&self, id: i64) -> Result<(), AppError> {
         self.log_repo.delete(id).await
     }
+
+    /// F-12: 清理早于 N 天的操作日志
+    pub async fn cleanup_older_than(&self, days: i64) -> Result<u64, AppError> {
+        self.log_repo.delete_older_than(days).await
+    }
 }
 
 /// 事件落库（Outbox）服务：负责把领域事件持久化存档，并提供审计查询（Stage6）。
@@ -179,7 +184,41 @@ impl OutboxService {
             .await?;
         Ok(PaginatedResponse::new(data, total, params))
     }
+
+    /// F-12: 清理早于 N 天的已发布 outbox 事件
+    pub async fn cleanup_older_than(&self, days: i64) -> Result<u64, AppError> {
+        self.outbox_repo.delete_older_than(days).await
+    }
+
+    /// S-10：证书续签时间线（签发 / 自动续签成功与失败 / 到期预警）。
+    ///
+    /// 按事件类型各取最近 [`CERT_HISTORY_SCAN_PER_TYPE`] 条再在内存中按证书过滤——
+    /// 证书事件量级很小（每证书每 6 小时至多 1–2 条，且受 outbox 保留策略约束），
+    /// 复用既有 `list_page` 端口即可，不为此给三种数据库后端各加一条 JSON 查询。
+    /// 返回 `(entries, truncated)`。
+    pub async fn certificate_timeline(
+        &self,
+        cert_id: i64,
+        limit: usize,
+    ) -> Result<(Vec<crate::domain::cert_renewal::RenewalEntry>, bool), AppError> {
+        use crate::domain::cert_renewal::{build_timeline, HISTORY_EVENT_TYPES};
+        let mut events = Vec::new();
+        let mut scan_capped = false;
+        for event_type in HISTORY_EVENT_TYPES {
+            let page = self
+                .outbox_repo
+                .list_page(CERT_HISTORY_SCAN_PER_TYPE, 0, Some(event_type))
+                .await?;
+            scan_capped |= page.len() as i64 >= CERT_HISTORY_SCAN_PER_TYPE;
+            events.extend(page);
+        }
+        let (entries, truncated) = build_timeline(&events, cert_id, limit);
+        Ok((entries, truncated || scan_capped))
+    }
 }
+
+/// 续签时间线每种事件类型的最大扫描条数（见 [`OutboxService::certificate_timeline`]）。
+pub const CERT_HISTORY_SCAN_PER_TYPE: i64 = 1000;
 
 pub struct LogService {
     pub log_repo: Arc<dyn LogRepository>,
@@ -231,5 +270,10 @@ impl LogService {
 
     pub async fn delete_log(&self, id: i64) -> Result<(), AppError> {
         self.log_repo.delete(id).await
+    }
+
+    /// F-12: 清理早于 N 天的系统日志
+    pub async fn cleanup_older_than(&self, days: i64) -> Result<u64, AppError> {
+        self.log_repo.delete_older_than(days).await
     }
 }

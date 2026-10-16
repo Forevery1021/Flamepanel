@@ -43,8 +43,11 @@ export function useECharts(el: Ref<HTMLElement | undefined>): UseEChartsInstance
   }
 
   function applyOption(option: EChartsCoreOption) {
-    // F1.3：主题切换等一次性刷新用 notMerge，避免残留旧配置
-    if (chart) chart.setOption(option, { notMerge: true, lazyUpdate: true })
+    // S-16 修正：主题补丁必须**合并**进现有 option。此前 `notMerge: true` 会把整份 option
+    // 替换成只含轴配色的补丁——series 定义随之丢失，主题切换后三张图永久空白并持续报
+    // “Unknown series”。补丁只含轴 / 图例 / 数值配色（见 dashboardCharts 的 *ThemePatch），
+    // 合并模式下不会残留旧配置。
+    if (chart) chart.setOption(option, { notMerge: false, lazyUpdate: true })
   }
 
   function resize() {

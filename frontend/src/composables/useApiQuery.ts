@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import type { QueryKey } from '@tanstack/vue-query'
 import { computed, isRef, ref } from 'vue'
 import { onActivated, onDeactivated, onBeforeUnmount } from 'vue'
-import type { Ref } from 'vue'
+import type { MaybeRefOrGetter, Ref } from 'vue'
 import { getErrorMessage } from '@/utils/error'
 
 /**
@@ -21,8 +21,8 @@ export interface UseApiQueryOptions {
   staleTime?: number
   /** 关闭自动重试（非幂等 GET 等场景） */
   retry?: boolean | number
-  /** 是否自动执行（默认 true） */
-  enabled?: boolean
+  /** 是否自动执行（默认 true；可传 ref / getter 让开关随状态切换） */
+  enabled?: MaybeRefOrGetter<boolean>
   /** 分页场景保留上一页数据 */
   keepPrevious?: boolean
   /** 错误兜底文案（默认取 t('common.failed') 语义） */

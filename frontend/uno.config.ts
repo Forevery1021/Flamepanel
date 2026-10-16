@@ -1,5 +1,15 @@
-import { defineConfig, presetWind4, presetIcons } from 'unocss'
+import { defineConfig, presetWind4 } from 'unocss'
 
+/**
+ * 图标唯一来源：`@openvue/openicons`（字体图标，`oi-*` 类，随包本地分发）。
+ *
+ * T0-3（Doc/23 §3.1 / P0-4）：此处**刻意不启用** `presetIcons`。历史配置带
+ * `cdn: 'https://esm.sh/'`，一旦源码出现 `i-*` 图标类，构建期就会去 esm.sh 抓
+ * `@iconify-json/*`——内网/断外网环境下 `npm run build` 直接失败（实测
+ * `FetchError: [GET] https://esm.sh/@iconify-json/mdi/icons.json`），且引入第三方
+ * CDN 供应链风险。若将来确需图标集，改为安装 `@iconify-json/*` 本地包再启用，
+ * 禁止重新挂任何远程 CDN（`iconSource.spec.ts` 已加回归护栏）。
+ */
 export default defineConfig({
   presets: [
     presetWind4({
@@ -29,10 +39,6 @@ export default defineConfig({
           brand: 'var(--fp-shadow-brand)',
         },
       },
-    }),
-    presetIcons({
-      scale: 1.1,
-      cdn: 'https://esm.sh/',
     }),
   ],
   shortcuts: {

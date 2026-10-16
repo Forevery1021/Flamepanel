@@ -71,8 +71,19 @@
 |----|------|------|------|
 | `title` | `string` | `''` | 卡片标题 |
 
+**插槽**
+
+| 名 | 说明 |
+|----|------|
+| 默认 | 卡片正文。**转发至底层 `content` 命名插槽**——底层 `openvue/card` 无默认插槽出口，若不转发正文会被静默丢弃（历史缺陷，见 `Doc/23` §7.11） |
+| `extra` | 标题右侧操作位（如「刷新」「查看全部」）；缺省不渲染 |
+| `footer` | 底栏；缺省不渲染 |
+
 ```vue
 <FpCard :title="t('settings.theme')">
-  <slot />
+  <!-- 正文：默认插槽，最终落在 p-card-content 内 -->
+  <div class="content">…</div>
+  <template #extra><FpButton label="刷新" /></template>
+  <template #footer>…</template>
 </FpCard>
 ```

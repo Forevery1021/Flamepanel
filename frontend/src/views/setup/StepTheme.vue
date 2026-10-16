@@ -4,12 +4,7 @@
     <p class="step__sub">{{ t('setup.themeSub') }}</p>
 
     <div class="step-themes">
-      <label
-        v-for="p in presets"
-        :key="p"
-        class="theme-card"
-        :class="{ selected: theme === p }"
-      >
+      <label v-for="p in presets" :key="p" class="theme-card" :class="{ selected: theme === p }">
         <input
           type="radio"
           :value="p"
@@ -37,7 +32,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import FpRadioGroup from '@/components/ui/FpRadioGroup.vue'
-import type { ThemePreset } from '@/stores/theme'
+import { BUILTIN_PRESETS, presetSwatch, type ThemePreset } from '@/stores/theme'
 import type { AppLocale } from '@/locales'
 
 defineProps<{
@@ -50,21 +45,16 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const presets: ThemePreset[] = ['flame', 'aurora', 'infinity', 'custom']
+const presets: ThemePreset[] = [...BUILTIN_PRESETS]
 const langOptions = [
   { value: 'zh-CN', label: '简体中文' },
   { value: 'en-US', label: 'English' },
   { value: 'ja-JP', label: '日本語' },
 ]
 
+/** 色块直接取预设种子色（与设置页同源），不再手写与实际主题不符的渐变 */
 function swatchStyle(p: ThemePreset): Record<string, string> {
-  const map: Record<ThemePreset, string> = {
-    flame: 'linear-gradient(135deg, #f97316, #ef4444)',
-    aurora: 'linear-gradient(135deg, #a78bfa, #22d3ee)',
-    infinity: 'linear-gradient(135deg, #facc15, #f59e0b)',
-    custom: 'linear-gradient(135deg, #64748b, #334155)',
-  }
-  return { background: map[p] }
+  return { background: presetSwatch(p === 'custom' ? 'flame' : p) }
 }
 </script>
 
@@ -85,7 +75,7 @@ function swatchStyle(p: ThemePreset): Record<string, string> {
 }
 .step-themes {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   gap: var(--fp-space-3);
 }
 .theme-card {

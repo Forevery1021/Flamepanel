@@ -1,0 +1,8 @@
+{
+  "agent/src/main.rs": "d02939f4e3dd6641d08804e25cd62b4c575101fcd08b4f103e265b4e45e1c275",
+  "agent/src/config.rs": "9bd1825d34802c47047b3b8a525774911b1f78d3cb7ff384ae10078d7025ca42",
+  "agent/src/heartbeat.rs": "4eecc677c18e2a39f0f30e34773ff50a43707118e29e29ee1c537fa9bc27701e",
+  "flame-kernel/src/main.rs": "2cb2dc24da43bbb8b474dc2969d1134a48aff149c51fa7d4d391e5a9b56aeb4e",
+  "flame-kernel/src/lib.rs": "aed0b54e9eea986ee80965a3e6ed1b3c1196adb0bfe07d7b6485c6a0ac84d0af",
+  "frontend/src/App.vue": "b67c8c1b657930a1b16f5b7670578028d22709f071d8d0a211156c7cc0fdd696"
+}

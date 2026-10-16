@@ -1,0 +1,5 @@
+#!/bin/sh
+# P0-2：pre-commit 钩子 — 提交前仅对暂存文件执行 lint + format（lint-staged）
+# 前端工程位于 frontend/ 子目录，故先切换到该目录。
+cd "$(dirname "$0")/../frontend" || exit 1
+npx lint-staged

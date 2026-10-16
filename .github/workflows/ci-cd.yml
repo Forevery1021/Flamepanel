@@ -1,25 +1,55 @@
-name: CI/CD Pipeline
+name: Quality gates
 
 on:
   push:
-    branches: [ main, master ]
-    tags: [ 'v*' ]
+    branches: [main, master]
+    tags: ["v*"]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CI: "true"
+  HUSKY: "0"
 
 jobs:
+  installer-regression:
+    name: Installer regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check installer syntax and offline regression
+        run: |
+          bash scripts/check-install.sh
+          python3 scripts/gen-api-docs.py --check
+          python3 scripts/check-shell-exec.py
+          python3 -m unittest discover -s scripts/tests -p test_release_assets.py
+          python3 -m unittest discover -s scripts/tests -p test_migration_docs.py
+
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version-file: .node-version
+          cache: "npm"
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Pin npm and verify toolchain
+        run: |
+          npm install --global "$(node -p "require('./frontend/package.json').packageManager")"
+          npm --prefix frontend run check:toolchain
 
       - name: Install dependencies
         run: cd frontend && npm ci
@@ -27,21 +57,84 @@ jobs:
       - name: Build Frontend
         run: cd frontend && npm run build
 
-      # F4.3：前端类型检查（严格模式，新增文件不得引入大量 ignore）
+      - name: Frontend Bundle Size Gate
+        run: cd frontend && npm run bundle:check
+
       - name: Frontend Typecheck
         run: cd frontend && npm run typecheck
 
-      # F4.3：前端单元测试（vitest，关键 composable / 工具函数回归）
-      - name: Frontend Unit Tests
-        run: cd frontend && npm run test:unit
+      # Coverage runs the complete unit suite; do not run it twice.
+      - name: Frontend Coverage Gate
+        run: cd frontend && npm run test:coverage
 
       - name: Lint Frontend
         run: cd frontend && npm run lint
 
-      # Phase A3：前端依赖安全审计（npm-audit 高危即阻断，中低危仅告警）
+      - name: Frontend i18n Key Gate
+        run: cd frontend && npm run locale:check
+
+      - name: Commitlint
+        if: github.event_name == 'pull_request'
+        run: cd frontend && npm run commitlint
+
       - name: Security Audit (Frontend)
         run: |
           cd frontend && npm audit --audit-level=high
+
+  # Exercise the production SQLite backend, not the in-memory substitute.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
+
+      - name: Check pinned Rust toolchain
+        run: bash scripts/check-rust-toolchain.sh
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Backend
+        run: cargo build --locked --package flame-kernel
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Pin npm and verify toolchain
+        run: |
+          npm install --global "$(node -p "require('./frontend/package.json').packageManager")"
+          npm --prefix frontend run check:toolchain
+
+      - name: Install dependencies
+        run: cd frontend && npm ci
+
+      - name: Install Playwright browsers
+        run: cd frontend && npx playwright install --with-deps chromium
+
+      - name: Build Frontend
+        run: cd frontend && npm run build
+
+      - name: Run E2E
+        run: cd frontend && npm run e2e
+
+      - name: Upload E2E report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
 
   rust-format-clippy:
     runs-on: ubuntu-latest
@@ -52,7 +145,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.98.1
           components: rustfmt, clippy
+
+      - name: Check pinned Rust toolchain
+        run: bash scripts/check-rust-toolchain.sh
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -61,7 +158,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
   rust-test:
     runs-on: ubuntu-latest
@@ -71,22 +168,31 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
+
+      - name: Check pinned Rust toolchain
+        run: bash scripts/check-rust-toolchain.sh
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
       - name: Run Tests
-        run: cargo test --all
+        run: cargo test --locked --all
 
-      # Stage3.1：Feature Flags 组合编译（default + 全 feature + 裁剪组合）
       - name: Build All Features
-        run: cargo build --package flame-kernel --all-features
+        run: cargo build --locked --package flame-kernel --all-features
 
       - name: Build Minimal (no-default-features + sqlite)
-        run: cargo build --package flame-kernel --no-default-features --features sqlite
+        run: cargo build --locked --package flame-kernel --no-default-features --features sqlite
 
       - name: Build Release
-        run: cargo build --release --package flame-kernel
+        run: cargo build --locked --release --package flame-kernel
+
+      - name: OpenAPI snapshot drift
+        run: |
+          cargo run --locked -q -p flame-kernel --bin export-openapi > /tmp/openapi.json
+          diff -u frontend/openapi.json /tmp/openapi.json || (echo "::error::Stale openapi.json; regenerate with cargo run -p flame-kernel --bin export-openapi > frontend/openapi.json" && exit 1)
 
   security-audit:
     runs-on: ubuntu-latest
@@ -96,9 +202,12 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
 
-      # Stage3.5：依赖安全审计（cargo-audit 失败即阻断）；install-action 直接下载预编译产物并缓存，
-      # 避免每次全量 cargo install 编译（约 5 分钟）。
+      - name: Check pinned Rust toolchain
+        run: bash scripts/check-rust-toolchain.sh
+
       - name: Install cargo-audit
         uses: taiki-e/install-action@v2
         with:
@@ -108,7 +217,14 @@ jobs:
         run: cargo audit
 
   docker:
-    needs: [frontend, rust-format-clippy, rust-test, security-audit]
+    needs:
+      [
+        frontend,
+        rust-format-clippy,
+        rust-test,
+        security-audit,
+        installer-regression,
+      ]
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -122,7 +238,6 @@ jobs:
         id: lower_repo
         run: echo "repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      # 可追溯镜像 tag：main → latest + <sha>；tag vX.Y.Z → vX.Y.Z + latest
       - name: Compute image tags
         id: tags
         run: |
@@ -142,7 +257,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 多架构镜像：QEMU 模拟 + BuildKit，构建 amd64/arm64 双架构并推送 manifest
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 

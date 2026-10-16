@@ -20,6 +20,22 @@
         autocomplete="new-password"
         @update:model-value="emit('update', { password: $event })"
       />
+      <!-- 密码强度：四段条 + 文案，随输入实时变化（纯启发式，见 utils/password.ts） -->
+      <div
+        v-if="password"
+        class="pw-meter"
+        :class="`is-${score}`"
+        role="meter"
+        :aria-valuenow="score"
+        aria-valuemin="0"
+        aria-valuemax="4"
+        :aria-label="t('setup.strength.label')"
+      >
+        <span class="pw-meter__bars" aria-hidden="true">
+          <i v-for="n in 4" :key="n" class="pw-meter__bar" :class="{ 'is-on': n <= score }" />
+        </span>
+        <span class="pw-meter__text">{{ t(`setup.strength.${scoreKey}`) }}</span>
+      </div>
       <FpInput
         v-model="confirm"
         :label="t('setup.adminConfirm')"
@@ -39,6 +55,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import FpInput from '@/components/ui/FpInput.vue'
+import { passwordScore, PASSWORD_SCORE_KEYS } from '@/utils/password'
 
 const props = defineProps<{
   username: string
@@ -65,6 +82,8 @@ const confirm = computed({
   get: () => props.confirm,
   set: (v) => emit('update', { confirm: v }),
 })
+const score = computed(() => passwordScore(props.password))
+const scoreKey = computed(() => PASSWORD_SCORE_KEYS[score.value])
 </script>
 
 <style scoped>
@@ -91,6 +110,51 @@ const confirm = computed({
 }
 .step-hint {
   font-size: 12.5px;
+  color: var(--fp-text-secondary);
+}
+
+/* ── 密码强度 ── */
+.pw-meter {
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-3);
+  margin-top: calc(-1 * var(--fp-space-2));
+}
+.pw-meter__bars {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+.pw-meter__bar {
+  display: block;
+  height: 4px;
+  flex: 1;
+  border-radius: 999px;
+  background: var(--fp-border);
+  transition: background-color var(--fp-transition-fast);
+}
+.pw-meter__text {
+  font-size: 12px;
+  min-width: 3.5em;
+  text-align: right;
+  color: var(--fp-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pw-meter.is-0 .pw-meter__bar.is-on,
+.pw-meter.is-1 .pw-meter__bar.is-on {
+  background: var(--fp-danger);
+}
+.pw-meter.is-2 .pw-meter__bar.is-on {
+  background: var(--fp-warning);
+}
+.pw-meter.is-3 .pw-meter__bar.is-on {
+  background: var(--fp-success);
+}
+.pw-meter.is-4 .pw-meter__bar.is-on {
+  background: var(--fp-brand);
+}
+.pw-meter.is-3 .pw-meter__text,
+.pw-meter.is-4 .pw-meter__text {
   color: var(--fp-text-secondary);
 }
 </style>

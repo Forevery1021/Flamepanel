@@ -215,6 +215,7 @@ impl AppPackageAdapter for BaotaAdapter {
             compose_template,
             native_scripts: vec![],
             wasm_base64: None,
+            hooks: crate::domain::entity::AppHooks::default(),
             min_memory_mb: None,
             architectures: vec![],
         })

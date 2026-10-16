@@ -1,5 +1,10 @@
 <template>
-  <LayoutContent :title="t('scheduledTask.title')" reload @reload="invalidate">
+  <LayoutContent
+    :title="t('scheduledTask.title')"
+    :description="t('pageDesc.scheduledTasks')"
+    reload
+    @reload="invalidate"
+  >
     <template #toolbar>
       <!-- P4：统一 PageToolbar -->
       <PageToolbar v-model="searchText">
@@ -14,7 +19,12 @@
           />
         </template>
         <template #actions>
-          <FpButton v-permission="{ perm: 'scheduled_task:create', mode: 'view' }" variant="primary" icon="oi oi-plus" @click="openCreate">
+          <FpButton
+            v-permission="{ perm: 'scheduled_task:create', mode: 'view' }"
+            variant="primary"
+            icon="oi oi-plus"
+            @click="openCreate"
+          >
             {{ t('scheduledTask.create') }}
           </FpButton>
         </template>
@@ -27,7 +37,17 @@
         :loading="loading"
         :first="first"
         :empty-text="t('common.noData')"
+        :empty-desc="t('pageDesc.emptyHint')"
       >
+        <template #emptyAction>
+          <FpButton
+            v-permission="{ perm: 'scheduled_task:create', mode: 'view' }"
+            variant="primary"
+            icon="oi oi-plus"
+            @click="openCreate"
+            >{{ t('scheduledTask.create') }}</FpButton
+          >
+        </template>
         <FpColumn field="name" :header="t('scheduledTask.name')" style="width: 160px" />
         <FpColumn :header="t('scheduledTask.command')">
           <template #body="{ data }">
@@ -61,11 +81,26 @@
         <FpColumn :header="t('common.colActions')" style="width: 200px" frozen>
           <template #body="{ data }">
             <div class="row-actions">
-              <FpButton v-permission="{ perm: 'scheduled_task:execute', mode: 'view' }" variant="ghost" icon="oi oi-play-circle" @click="onRun(data)">
+              <FpButton
+                v-permission="{ perm: 'scheduled_task:execute', mode: 'view' }"
+                variant="ghost"
+                icon="oi oi-play-circle"
+                @click="onRun(data)"
+              >
                 {{ t('scheduledTask.run') }}
               </FpButton>
-              <FpButton v-permission="{ perm: 'scheduled_task:update', mode: 'view' }" variant="link" @click="openEdit(data)">{{ t('common.edit') }}</FpButton>
-              <FpButton v-permission="{ perm: 'scheduled_task:delete', mode: 'view' }" variant="link" @click="onDelete(data)">{{ t('common.delete') }}</FpButton>
+              <FpButton
+                v-permission="{ perm: 'scheduled_task:update', mode: 'view' }"
+                variant="link"
+                @click="openEdit(data)"
+                >{{ t('common.edit') }}</FpButton
+              >
+              <FpButton
+                v-permission="{ perm: 'scheduled_task:delete', mode: 'view' }"
+                variant="link"
+                @click="onDelete(data)"
+                >{{ t('common.delete') }}</FpButton
+              >
             </div>
           </template>
         </FpColumn>
@@ -83,14 +118,14 @@
     <FpModal
       v-model="dialogVisible"
       :header="editingId ? t('scheduledTask.edit') : t('scheduledTask.create')"
-      style="width: 520px"
+      size="md"
     >
       <div class="modal-form">
         <FpInput v-model="form.name" :label="t('scheduledTask.name')" :error="formErrors.name" />
         <div class="field-col">
-          <label class="field-label">{{ t('scheduledTask.command') }}</label>
           <FpTextarea
             v-model="form.command"
+            :label="t('scheduledTask.command')"
             :rows="3"
             :invalid="!!formErrors.command"
             class="w-full"
@@ -103,10 +138,7 @@
           placeholder="*/5 * * * *"
           :error="formErrors.schedule"
         />
-        <div class="field-row">
-          <span class="field-label">{{ t('scheduledTask.enabled') }}</span>
-          <FpSwitch v-model="form.enabled" />
-        </div>
+        <FpSwitch v-model="form.enabled" :label="t('scheduledTask.enabled')" />
       </div>
       <template #footer>
         <FpButton variant="ghost" @click="dialogVisible = false">{{ t('common.cancel') }}</FpButton>
@@ -116,7 +148,7 @@
       </template>
     </FpModal>
 
-    <FpModal v-model="outputVisible" :header="t('scheduledTask.lastOutput')" style="width: 560px">
+    <FpModal v-model="outputVisible" :header="t('scheduledTask.lastOutput')" size="md">
       <pre class="output-box">{{ selectedOutput || '-' }}</pre>
     </FpModal>
   </LayoutContent>
@@ -125,9 +157,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-
-
-
 
 import {
   listScheduledTasks,
@@ -337,30 +366,6 @@ function onDelete(row: ScheduledTask) {
 .row-actions {
   display: flex;
   gap: var(--fp-space-2);
-}
-.modal-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--fp-space-4);
-}
-.field-col {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.field-row {
-  display: flex;
-  align-items: center;
-  gap: var(--fp-space-3);
-}
-.field-label {
-  font-size: 13px;
-  color: var(--fp-text-secondary);
-}
-.field-error {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--fp-danger);
 }
 .command-cell {
   font-family: var(--fp-font-mono);

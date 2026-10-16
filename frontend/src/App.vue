@@ -1,50 +1,47 @@
 <template>
-  <!-- P7 可靠性：渲染错误兜底，避免白屏 -->
-  <FpStatePanel
-    v-if="fatalError"
-    class="app-error-panel"
-    :title="t('common.failed')"
-    :description="fatalError"
-    :retryable="true"
-    @retry="recover"
-  />
-  <template v-else>
+  <!-- Catch fatal layout/router errors without leaving a blank screen. -->
+  <FpErrorBoundary class="app-root">
     <router-view />
-  </template>
+  </FpErrorBoundary>
   <ConfirmDialog />
   <Toast />
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { onErrorCaptured } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { onBeforeUnmount, onMounted } from 'vue'
 import Toast from 'openvue/toast'
-import FpStatePanel from '@/components/ui/FpStatePanel.vue'
-import { reportError } from '@/utils/monitor'
+import FpErrorBoundary from '@/components/ui/FpErrorBoundary.vue'
+import { useFpToast } from '@/components/ui/FpToast'
+import { useSafeText } from '@/composables/useSafeText'
+import { fallbackText } from '@/utils/fallbackText'
+import { onNotice } from '@/utils/notice'
 
-const { t } = useI18n()
-const fatalError = ref<string | null>(null)
+/**
+ * App catches fatal layout/router errors. Layout's page boundary preserves
+ * navigation when only a page fails (see components/Layout.vue).
+ * Route guards run outside the component tree and deliver notices here.
+ */
+const tt = useSafeText()
+const toast = useFpToast()
+let unsubscribe: (() => void) | null = null
 
-onErrorCaptured((err, _instance, info) => {
-  // 结构化上报（供监控/排障）
-  reportError(err, { source: 'render', context: info })
-  // 渲染错误兜底：展示错误面板而非白屏
-  fatalError.value = err instanceof Error ? err.message : String(err)
-  return false // 阻止错误继续向上传播
+onMounted(() => {
+  unsubscribe = onNotice((message) => {
+    // Fall back to readable text if locale loading races; never display raw keys.
+    const detail = tt(message.key, fallbackText().failed)
+    toast.show({ severity: message.severity, summary: '', detail, life: 3500 })
+  })
 })
 
-function recover() {
-  fatalError.value = null
-}
+onBeforeUnmount(() => {
+  unsubscribe?.()
+  unsubscribe = null
+})
 </script>
 
 <style scoped>
-.app-error-panel {
-  padding: var(--fp-space-8);
+/* Fatal errors have no navigation shell, so fill the viewport. */
+.app-root :deep(.fp-eb) {
   min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 </style>

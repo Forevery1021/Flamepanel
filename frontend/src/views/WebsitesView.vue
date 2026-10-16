@@ -1,466 +1,361 @@
 <template>
-  <div class="view-container">
-    <div class="page-toolbar">
-      <div class="toolbar-left">
-        <FpInput
-          v-model="searchText"
-          :placeholder="t('common.searchPlaceholder')"
-          class="toolbar-search"
-        />
-        <FpSelect
-          v-model="statusFilter"
-          :options="statusOptions"
-          option-label="label"
-          option-value="value"
-          show-clear
-          class="toolbar-filter"
-        />
-      </div>
-      <FpButton v-permission="{ perm: 'website:create', mode: 'view' }" variant="primary" icon="oi oi-plus" @click="openCreate">
-        {{ t('website.create') }}
-      </FpButton>
-    </div>
+  <LayoutContent :title="t('nav.websites')" :description="t('pageDesc.websites')">
+    <FpTabs v-model="activeTab" class="site-tabs" :items="tabItems">
+      <template #websites>
+        <PageToolbar v-model="searchText">
+          <template #left>
+            <FpSelect
+              v-model="statusFilter"
+              :options="statusOptions"
+              option-label="label"
+              option-value="value"
+              show-clear
+              class="w-[160px]"
+            />
+          </template>
+          <template #actions>
+            <FpButton
+              v-permission="{ perm: 'website:create', mode: 'view' }"
+              variant="primary"
+              icon="oi oi-plus"
+              @click="dialogs?.openCreate()"
+            >
+              {{ t('website.create') }}
+            </FpButton>
+          </template>
+        </PageToolbar>
 
-    <div class="panel">
-      <FpStatePanel
-        :loading="loading"
-        :error="websitesError"
-        :empty="!total && !loading && !websitesError"
-        retryable
-        :empty-title="t('common.noData')"
-        @retry="fetch"
-      >
-        <FpTable
+        <WebsiteListPanel
           :rows="filteredWebsites"
           :loading="loading"
-          :empty-text="t('common.noData')"
-          :first="(currentPage - 1) * pageSize"
-          striped-rows
-        >
-          <FpColumn field="id" :header="t('website.id')" style="width: 60px" />
-          <FpColumn field="name" :header="t('website.name')" />
-          <FpColumn field="domain" :header="t('website.domain')" />
-          <FpColumn field="root_path" :header="t('website.rootPath')" />
-          <FpColumn field="node_id" :header="t('website.nodeId')" style="width: 80px" />
-          <FpColumn :header="t('website.status')" style="width: 100px">
-            <template #body="{ data }">
-              <FpTag :severity="data.status === 'active' ? 'success' : 'info'">
-                {{ data.status === 'active' ? t('website.active') : t('website.inactive') }}
-              </FpTag>
-            </template>
-          </FpColumn>
-          <FpColumn field="created_at" :header="t('website.createdAt')" style="width: 180px" />
-          <FpColumn :header="t('common.operation')" style="width: 260px" frozen>
-            <template #body="{ data }">
-              <div class="row-actions">
-                <FpButton v-permission="{ perm: 'website:update', mode: 'view' }" variant="link" @click="handleEdit(data)">{{ t('common.edit') }}</FpButton>
-                <FpButton v-permission="{ perm: 'website:update', mode: 'view' }" variant="link" @click="openSwitchEngine(data)">{{
-                  t('website.switchEngine')
-                }}</FpButton>
-                <FpButton v-permission="{ perm: 'website:delete', mode: 'view' }" variant="link" @click="confirmDelete(data)">{{ t('common.delete') }}</FpButton>
-              </div>
-            </template>
-          </FpColumn>
-        </FpTable>
-        <FpPagination
-          v-if="total > pageSize"
-          :first="(currentPage - 1) * pageSize"
-          :rows="pageSize"
+          :error="websitesError"
           :total="total"
-          :rows-per-page-options="[20, 50, 100]"
-          @update:first="(f) => goPage(f)"
-        />
-      </FpStatePanel>
-    </div>
+          :first="first"
+          :page-size="pageSize"
+          :deploying-id="deployingId"
+          @edit="dialogs?.openEdit($event)"
+          @switch-engine="onOpenSwitchEngine"
+          @deploy="deploy"
+          @bind="onOpenBind"
+          @rewrite="onOpenRewrite"
+          @delete="confirmDelete"
+          @retry="fetch"
+          @update:first="onFirst"
+        >
+          <template #emptyAction>
+            <FpButton
+              v-permission="{ perm: 'website:create', mode: 'view' }"
+              variant="primary"
+              icon="oi oi-plus"
+              @click="dialogs?.openCreate()"
+              >{{ t('website.create') }}</FpButton
+            >
+          </template>
+        </WebsiteListPanel>
 
-    <FpModal v-model="showCreate" :header="t('website.create')" style="width: 500px">
-      <div class="modal-form">
-        <FpInput v-model="form.name" :label="t('website.name')" :error="formErrors.name" />
-        <FpInput v-model="form.domain" :label="t('website.domain')" :error="formErrors.domain" />
-        <FpInput v-model="form.root_path" :label="t('website.rootPath')" />
-        <div class="field-col">
-          <label class="field-label">{{ t('website.nodeId') }}</label>
-          <FpNumber v-model="form.node_id" :min="1" class="w-full" />
-        </div>
-        <FpSelect
-          v-model="form.engine"
-          :label="t('website.engine')"
-          :options="engineOptions"
-          option-label="label"
-          option-value="value"
+        <WebsiteDialogs
+          ref="dialogs"
+          :engines="engines"
+          :php-runtime-options="phpRuntimeOptions"
+          :project-options="projectOptions"
+          :rewrite-preset-options="bindRewritePresetOptions"
+          :submitting="submitting"
+          :binding="bindingSubmitting"
+          :rewriting="rewriteSubmitting"
+          @create="onCreate"
+          @update="onUpdate"
+          @switch-engine="onSwitchEngine"
+          @bind="onBind"
+          @apply-rewrite="onApplyRewrite"
+          @clear-rewrite="onClearRewrite"
         />
-        <div class="field-col field-row">
-          <label class="field-label">{{ t('website.sslEnabled') }}</label>
-          <FpSwitch v-model="form.ssl_enabled" />
-        </div>
-        <div class="field-col field-row">
-          <label class="field-label">{{ t('website.proxyEnabled') }}</label>
-          <FpSwitch v-model="form.proxy_enabled" />
-        </div>
-        <FpInput v-if="form.proxy_enabled" v-model="form.proxy_pass" :label="t('website.proxyPass')" />
-      </div>
-      <template #footer>
-        <FpButton variant="ghost" @click="showCreate = false">{{ t('common.cancel') }}</FpButton>
-        <FpButton variant="primary" :loading="submitting" @click="handleCreate">
-          {{ t('common.confirm') }}
-        </FpButton>
       </template>
-    </FpModal>
 
-    <FpModal v-model="editVisible" :header="t('website.edit')" style="width: 500px">
-      <div class="modal-form">
-        <FpInput v-model="editForm.name" :label="t('website.name')" :error="formErrors.name" />
-        <FpInput v-model="editForm.domain" :label="t('website.domain')" :error="formErrors.domain" />
-        <FpInput v-model="editForm.root_path" :label="t('website.rootPath')" />
-        <div class="field-col">
-          <label class="field-label">{{ t('website.nodeId') }}</label>
-          <FpNumber v-model="editForm.node_id" :min="1" class="w-full" />
-        </div>
-        <FpSelect
-          v-model="editForm.engine"
-          :label="t('website.engine')"
-          :options="engineOptions"
-          option-label="label"
-          option-value="value"
-        />
-        <div class="field-col field-row">
-          <label class="field-label">{{ t('website.sslEnabled') }}</label>
-          <FpSwitch v-model="editForm.ssl_enabled" />
-        </div>
-        <div class="field-col field-row">
-          <label class="field-label">{{ t('website.proxyEnabled') }}</label>
-          <FpSwitch v-model="editForm.proxy_enabled" />
-        </div>
-        <FpInput
-          v-if="editForm.proxy_enabled"
-          v-model="editForm.proxy_pass"
-          :label="t('website.proxyPass')"
-        />
-      </div>
-      <template #footer>
-        <FpButton variant="ghost" @click="editVisible = false">{{ t('common.cancel') }}</FpButton>
-        <FpButton variant="primary" :loading="submitting" @click="handleSave">
-          {{ t('common.confirm') }}
-        </FpButton>
-      </template>
-    </FpModal>
+      <template #certificates>
+        <PageToolbar :searchable="false">
+          <template #left>
+            <FpButton variant="primary" icon="oi oi-lock-locked" @click="certDialogs?.openAcme()">
+              {{ t('certificate.issueAcme') }}
+            </FpButton>
+            <FpButton variant="ghost" @click="certDialogs?.openSelf()">{{
+              t('certificate.issueSelfSigned')
+            }}</FpButton>
+            <FpButton variant="ghost" @click="certDialogs?.openUpload()">{{
+              t('certificate.upload')
+            }}</FpButton>
+          </template>
+        </PageToolbar>
 
-    <FpModal v-model="switchVisible" :header="t('website.switchEngine')" style="width: 440px">
-      <div class="modal-form">
-        <FpSelect
-          v-model="switchEngine"
-          :label="t('website.engine')"
-          :options="engines"
-          option-label="name"
-          option-value="name"
+        <CertificateListPanel
+          :certificates="certs"
+          :loading="certsLoading"
+          :error="certsError"
+          :renewing-id="renewingId"
+          @retry="fetchCerts"
+          @bind="certDialogs?.openBind($event)"
+          @unbind="unbindCert"
+          @renew="renewCert"
+          @delete="confirmDeleteCert"
+          @toggle-auto-renew="toggleAutoRenew"
+          @history="openCertHistory"
+        >
+          <template #emptyAction>
+            <FpButton variant="primary" icon="oi oi-lock-locked" @click="certDialogs?.openAcme()">{{
+              t('certificate.issueAcme')
+            }}</FpButton>
+          </template>
+        </CertificateListPanel>
+
+        <CertificateRenewalDrawer
+          v-model="certHistoryVisible"
+          :certificate="certHistoryCert"
+          :history="certHistory"
+          :loading="certHistoryFetching && !certHistory"
+          :fetching="certHistoryFetching"
+          :error="certHistoryError"
+          @refresh="refreshCertHistory"
         />
-      </div>
-      <template #footer>
-        <FpButton variant="ghost" @click="switchVisible = false">{{ t('common.cancel') }}</FpButton>
-        <FpButton variant="primary" :loading="submitting" @click="handleSwitchEngine">
-          {{ t('common.confirm') }}
-        </FpButton>
+
+        <CertificateDialogs
+          ref="certDialogs"
+          :submitting="certSubmitting"
+          :dns-accounts="dnsAccounts"
+          @required="toast.error(t('common.required'))"
+          @acme="onIssueAcme"
+          @self-signed="onIssueSelf"
+          @upload="onUploadCert"
+          @bind="onBindCert"
+        />
       </template>
-    </FpModal>
-  </div>
+    </FpTabs>
+  </LayoutContent>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-
-
-
-
-import { listWebsites, createWebsite, updateWebsite, deleteWebsite, switchWebsiteEngine } from '@/api/websites'
-import { listEngines } from '@/api/webServers'
-import type { Website, EngineInfo } from '@/types'
-import FpTable from '@/components/ui/FpTable.vue'
-import FpModal from '@/components/ui/FpModal.vue'
-import FpInput from '@/components/ui/FpInput.vue'
+import LayoutContent from '@/components/ui/LayoutContent.vue'
+import PageToolbar from '@/components/ui/PageToolbar.vue'
+import { useFpToast } from '@/components/ui/FpToast'
+import type { FpTabItem } from '@/components/ui/FpTabs.vue'
+import type { Website } from '@/types'
+import {
+  rewritePresetOptions as buildRewritePresetOptions,
+  siteStatusOptions,
+} from '@/utils/websiteFormat'
+import { useWebsiteList, type WebsiteFormPayload } from '@/composables/useWebsiteList'
+import { useWebsiteBinding, type WebsiteBindPayload } from '@/composables/useWebsiteBinding'
+import { useWebsiteRewrite } from '@/composables/useWebsiteRewrite'
+import { useWebsiteCertificates } from '@/composables/useWebsiteCertificates'
+import FpTabs from '@/components/ui/FpTabs.vue'
 import FpSelect from '@/components/ui/FpSelect.vue'
 import FpButton from '@/components/ui/FpButton.vue'
-import FpTag from '@/components/ui/FpTag.vue'
-import { useFpToast } from '@/components/ui/FpToast'
-import { useFpConfirm } from '@/components/ui/FpConfirm'
-import FpColumn from '@/components/ui/FpColumn.vue'
-import FpNumber from '@/components/ui/FpNumber.vue'
-import FpPagination from '@/components/ui/FpPagination.vue'
-import FpStatePanel from '@/components/ui/FpStatePanel.vue'
-import FpSwitch from '@/components/ui/FpSwitch.vue'
-import { useApiQuery } from '@/composables/useApiQuery'
-import { queryKeys } from '@/api/queryKeys'
-import type { Page } from '@/api/generated'
+import WebsiteListPanel from '@/components/website/WebsiteListPanel.vue'
+import WebsiteDialogs from '@/components/website/WebsiteDialogs.vue'
+import CertificateListPanel from '@/components/website/CertificateListPanel.vue'
+import CertificateDialogs from '@/components/website/CertificateDialogs.vue'
+import CertificateRenewalDrawer from '@/components/website/CertificateRenewalDrawer.vue'
 
+/**
+ * 网站管理视图（Doc/23 §3.3 T2-4 巨型视图拆分第二站）。
+ *
+ * 拆分前 1181 行、两个页签（网站 / SSL 证书）各自携带整套表格 + 弹窗 + 请求编排。
+ * 本次按 AppStoreView（第一步）已验证的四层拆法处理：
+ *
+ * | 层 | 文件 | 职责 |
+ * |----|------|------|
+ * | 数据 | `useWebsiteList` / `useWebsiteBinding` / `useWebsiteRewrite` / `useWebsiteCertificates` | 请求编排、分页与筛选、二次确认、引擎清单与续签态 |
+ * | 展示 | `components/website/*`（4 个） | 纯装配，操作全部上抛 |
+ * | 纯函数 | `utils/websiteFormat.ts` | 域名/时间/证书三态/下拉候选四处共用的映射 |
+ * | 装配 | 本文件 | 页签骨架 + composable ↔ 组件接线 |
+ *
+ * 行为契约不变（同一批 API、同一文案 key、同一确认分支）；拆分的收益是数据层进入
+ * T1-3 覆盖率口径——`src/views/**` 被排除，`src/composables/**` 参与统计。
+ *
+ * **弹窗编排在本层**（与第一步的 AppStoreView 同构）：`openXxx` 前若需服务端数据
+ * （引擎清单 / 绑定下拉 / 伪静态状态），由本层先 `await` 再打开；「成功才关」的
+ * 判定也留在这里——弹窗组件只管展示与编辑，数据层只管请求。
+ */
 const { t } = useI18n()
 const toast = useFpToast()
-const { confirmAction } = useFpConfirm()
 
-const currentPage = ref(1)
-const pageSize = ref(20)
-const showCreate = ref(false)
-const editVisible = ref(false)
-const submitting = ref(false)
-const editingId = ref(0)
-const form = reactive({
-  name: '',
-  domain: '',
-  root_path: '',
-  node_id: 1,
-  status: 'active' as string,
-  engine: 'nginx',
-  ssl_enabled: false,
-  proxy_enabled: false,
-  proxy_pass: '',
-})
-const editForm = reactive({
-  name: '',
-  domain: '',
-  root_path: '',
-  node_id: 1,
-  engine: 'nginx',
-  ssl_enabled: false,
-  proxy_enabled: false,
-  proxy_pass: '',
-})
-const formErrors = reactive({ name: '', domain: '' })
+const {
+  filteredWebsites,
+  loading,
+  error: websitesError,
+  total,
+  first,
+  pageSize,
+  onFirst,
+  fetch,
+  search: searchText,
+  statusFilter,
+  submitting,
+  create,
+  update,
+  remove: confirmDelete,
+  engines,
+  loadEngines,
+  switchEngine,
+  deployingId,
+  deploy,
+} = useWebsiteList()
 
-const engineOptions = [
-  { label: 'nginx', value: 'nginx' },
-  { label: 'apache', value: 'apache' },
-  { label: 'openlitespeed', value: 'openlitespeed' },
-  { label: 'openresty', value: 'openresty' },
-  { label: 'caddy', value: 'caddy' },
+const {
+  phpRuntimeOptions,
+  projectOptions,
+  submitting: bindingSubmitting,
+  prepare: prepareBinding,
+  bind,
+} = useWebsiteBinding()
+
+const rewrite = useWebsiteRewrite()
+const {
+  status: rewriteStatus,
+  submitting: rewriteSubmitting,
+  prepare: prepareRewrite,
+  apply: applyRewrite,
+  clear: clearRewrite,
+} = rewrite
+
+const {
+  certificates: certs,
+  loading: certsLoading,
+  error: certsError,
+  submitting: certSubmitting,
+  renewingId,
+  dnsAccounts,
+  fetch: fetchCerts,
+  loadDnsAccounts,
+  issueAcmeCert,
+  issueSelfSignedCert,
+  upload: uploadCert,
+  bind: bindCert,
+  renew: renewCert,
+  toggleAutoRenew,
+  unbind: unbindCert,
+  remove: confirmDeleteCert,
+  historyVisible: certHistoryVisible,
+  historyCert: certHistoryCert,
+  history: certHistory,
+  historyFetching: certHistoryFetching,
+  historyError: certHistoryError,
+  openHistory: openCertHistory,
+  refreshHistory: refreshCertHistory,
+} = useWebsiteCertificates()
+
+const dialogs = ref<InstanceType<typeof WebsiteDialogs> | null>(null)
+const certDialogs = ref<InstanceType<typeof CertificateDialogs> | null>(null)
+
+const tabItems: FpTabItem[] = [
+  { value: 'websites', label: t('website.title') },
+  { value: 'certificates', label: t('certificate.title') },
 ]
+const activeTab = ref('websites')
 
-// Modernization M2：分页走统一数据获取层，切换页保留上一页数据（keepPreviousData）
-const websitesQuery = useApiQuery<Page<Website>>(
-  () => queryKeys.websites.list(currentPage.value, pageSize.value),
-  async () => {
-    const res = await listWebsites(currentPage.value, pageSize.value)
-    return { data: res.data }
-  },
-  { keepPrevious: true },
-)
-const websites = computed<Page<Website>['data']>(() => websitesQuery.data.value?.data ?? [])
-const total = computed(() => websitesQuery.data.value?.total ?? 0)
-const loading = websitesQuery.loading
-const websitesError = websitesQuery.error
+const statusOptions = computed(() => siteStatusOptions(t))
+/** 绑定弹窗的伪静态候选：本地常量（不依赖该站点已有套用状态） */
+const bindRewritePresetOptions = buildRewritePresetOptions()
 
-// M9：搜索 + 状态筛选（当前页客户端过滤）
-const searchText = ref('')
-const statusFilter = ref<string>('')
-const statusOptions = computed(() => [
-  { label: t('website.active'), value: 'active' },
-  { label: t('website.inactive'), value: 'inactive' },
-])
-const filteredWebsites = computed(() => {
-  const kw = searchText.value.trim().toLowerCase()
-  return websites.value.filter((w) => {
-    if (statusFilter.value && w.status !== statusFilter.value) return false
-    if (!kw) return true
-    return (
-      w.name.toLowerCase().includes(kw) ||
-      w.domain.toLowerCase().includes(kw) ||
-      w.root_path.toLowerCase().includes(kw)
-    )
-  })
+/* ── 网站页签：写操作（成功才关弹窗） ── */
+
+async function onCreate(payload: WebsiteFormPayload) {
+  if (await create(payload)) dialogs.value?.closeCreate()
+}
+
+async function onUpdate(id: number, payload: WebsiteFormPayload) {
+  if (await update(id, payload)) dialogs.value?.closeEdit()
+}
+
+/** 切换引擎：清单懒加载完成后再开弹窗（下拉需要有候选） */
+async function onOpenSwitchEngine(row: Website) {
+  await loadEngines()
+  dialogs.value?.openSwitchEngine(row)
+}
+
+async function onSwitchEngine(id: number, engine: string) {
+  if (await switchEngine(id, engine)) dialogs.value?.closeSwitchEngine()
+}
+
+/* ── 绑定：先备齐两个下拉的数据源，再开弹窗 ── */
+
+async function onOpenBind(row: Website) {
+  await prepareBinding()
+  dialogs.value?.openBind(row)
+}
+
+async function onBind(id: number, payload: WebsiteBindPayload) {
+  if (await bind(id, payload)) {
+    dialogs.value?.closeBind()
+    await fetch()
+  }
+}
+
+/* ── 伪静态：先取服务端状态（模板清单以接口 supported 为权威） ── */
+
+async function onOpenRewrite(row: Website) {
+  // 先取服务端状态（含模板清单 supported），再以该状态为初值打开弹窗
+  const status = await prepareRewrite(row.id)
+  // 候选清单：接口 supported 优先（后端为模板库单一事实来源），未返回时弹窗内部回落常量
+  dialogs.value?.openRewrite(row, status, rewrite.presetOptions.value)
+}
+
+async function onApplyRewrite(id: number, preset: string) {
+  if (await applyRewrite(id, preset)) {
+    dialogs.value?.syncRewriteStatus(rewriteStatus.value)
+    dialogs.value?.closeRewrite()
+    await fetch()
+  }
+}
+
+async function onClearRewrite(id: number) {
+  if (await clearRewrite(id)) {
+    dialogs.value?.syncRewriteStatus(rewriteStatus.value)
+    dialogs.value?.closeRewrite()
+    await fetch()
+  }
+}
+
+/* ── 证书页签：签发与绑定（成功才关弹窗） ── */
+
+async function onIssueAcme(payload: {
+  domains: string[]
+  dns01: boolean
+  webroot?: string
+  dns_provider_account_id?: number
+}) {
+  if (await issueAcmeCert(payload)) certDialogs.value?.closeAcme()
+}
+
+async function onIssueSelf(domains: string[]) {
+  if (await issueSelfSignedCert(domains)) certDialogs.value?.closeSelf()
+}
+
+async function onUploadCert(payload: { domains: string[]; cert_pem: string; key_pem: string }) {
+  if (await uploadCert(payload)) certDialogs.value?.closeUpload()
+}
+
+async function onBindCert(id: number, websiteId: number | null) {
+  if (await bindCert(id, websiteId)) certDialogs.value?.closeBind()
+}
+
+/* ── 生命周期 ── */
+
+watch(activeTab, (tab) => {
+  if (tab === 'certificates') {
+    void fetchCerts()
+    // DNS 厂商账号仅签发弹窗需要；随页签一起备好，失败静默（HTTP-01 路径不受影响）
+    void loadDnsAccounts()
+  }
 })
 
-async function fetch() {
-  await websitesQuery.refresh()
-}
-
-function goPage(first: number) {
-  currentPage.value = first / pageSize.value + 1
+onMounted(() => {
   void fetch()
-}
-
-function openCreate() {
-  form.name = ''
-  form.domain = ''
-  form.root_path = ''
-  form.node_id = 1
-  form.engine = 'nginx'
-  form.ssl_enabled = false
-  form.proxy_enabled = false
-  form.proxy_pass = ''
-  formErrors.name = ''
-  formErrors.domain = ''
-  showCreate.value = true
-}
-
-function validateForm(): boolean {
-  formErrors.name = form.name ? '' : t('common.required')
-  formErrors.domain = form.domain ? '' : t('common.required')
-  return !formErrors.name && !formErrors.domain
-}
-
-async function handleCreate() {
-  if (!validateForm()) return
-  submitting.value = true
-  try {
-    await createWebsite({
-      id: 0,
-      name: form.name,
-      domain: form.domain,
-      root_path: form.root_path,
-      node_id: form.node_id,
-      status: 'active',
-      engine: form.engine,
-      ssl_enabled: form.ssl_enabled,
-      proxy_enabled: form.proxy_enabled,
-      proxy_pass: form.proxy_enabled ? form.proxy_pass : null,
-      created_at: '',
-    })
-    toast.success(t('common.success'))
-    showCreate.value = false
-    await fetch()
-  } catch {
-    toast.error(t('common.failed'))
-  } finally {
-    submitting.value = false
-  }
-}
-
-function handleEdit(row: Website) {
-  editingId.value = row.id
-  editForm.name = row.name
-  editForm.domain = row.domain
-  editForm.root_path = row.root_path
-  editForm.node_id = row.node_id
-  editForm.engine = row.engine || 'nginx'
-  editForm.ssl_enabled = row.ssl_enabled
-  editForm.proxy_enabled = row.proxy_enabled
-  editForm.proxy_pass = row.proxy_pass || ''
-  formErrors.name = ''
-  formErrors.domain = ''
-  editVisible.value = true
-}
-
-async function handleSave() {
-  if (!editForm.name || !editForm.domain) {
-    formErrors.name = editForm.name ? '' : t('common.required')
-    formErrors.domain = editForm.domain ? '' : t('common.required')
-    return
-  }
-  submitting.value = true
-  try {
-    await updateWebsite(editingId.value, {
-      id: editingId.value,
-      name: editForm.name,
-      domain: editForm.domain,
-      root_path: editForm.root_path,
-      node_id: editForm.node_id,
-      status: 'active',
-      engine: editForm.engine,
-      ssl_enabled: editForm.ssl_enabled,
-      proxy_enabled: editForm.proxy_enabled,
-      proxy_pass: editForm.proxy_enabled ? editForm.proxy_pass : null,
-      created_at: '',
-    })
-    toast.success(t('common.success'))
-    editVisible.value = false
-    await fetch()
-  } catch {
-    toast.error(t('common.failed'))
-  } finally {
-    submitting.value = false
-  }
-}
-
-function confirmDelete(row: Website) {
-  confirmAction({
-    message: t('website.deleteConfirm', { name: row.name }),
-    header: t('common.confirmAction'),
-    accept: async () => {
-      try {
-        await deleteWebsite(row.id)
-        toast.success(t('common.success'))
-        await fetch()
-      } catch {
-        toast.error(t('common.failed'))
-      }
-    },
-  })
-}
-
-const switchVisible = ref(false)
-const switchEngine = ref('')
-const engines = ref<EngineInfo[]>([])
-let switchTargetId = 0
-
-async function openSwitchEngine(row: Website) {
-  switchTargetId = row.id
-  switchEngine.value = row.engine
-  if (!engines.value.length) {
-    try {
-      const res = await listEngines()
-      engines.value = res.data
-    } catch {
-      toast.error(t('common.failed'))
-    }
-  }
-  switchVisible.value = true
-}
-
-async function handleSwitchEngine() {
-  if (!switchEngine.value) return
-  submitting.value = true
-  try {
-    await switchWebsiteEngine(switchTargetId, switchEngine.value)
-    toast.success(t('common.success'))
-    switchVisible.value = false
-    await fetch()
-  } catch {
-    toast.error(t('common.failed'))
-  } finally {
-    submitting.value = false
-  }
-}
+})
 </script>
 
 <style scoped>
-.page-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--fp-space-3);
-  margin-bottom: var(--fp-space-4);
-}
-.toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: var(--fp-space-2);
-  flex-wrap: wrap;
-}
-.toolbar-search {
-  width: 240px;
-}
-.toolbar-filter {
-  width: 160px;
-}
-.row-actions {
-  display: flex;
-  gap: var(--fp-space-2);
-}
-.modal-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--fp-space-4);
-}
-.field-col {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.field-row {
-  flex-direction: row;
-  align-items: center;
-  gap: var(--fp-space-3);
-}
-.field-label {
-  font-size: 13px;
-  color: var(--fp-text-secondary);
+.site-tabs {
+  width: 100%;
 }
 </style>

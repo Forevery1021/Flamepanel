@@ -30,7 +30,13 @@
       @update:first="emitFirst"
     >
       <template #empty>
-        <FpEmpty :title="emptyText" :description="emptyDesc" />
+        <slot name="empty">
+          <FpEmpty :title="emptyText" :description="emptyDesc">
+            <template v-if="$slots.emptyAction" #action>
+              <slot name="emptyAction" />
+            </template>
+          </FpEmpty>
+        </slot>
       </template>
       <template #loading>
         <div class="fp-table__loading">
@@ -43,14 +49,14 @@
   </div>
 </template>
 
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends Record<string, any>">
 import DataTable from 'openvue/datatable'
 import FpEmpty from './FpEmpty.vue'
 
 withDefaults(
   defineProps<{
     /** 表格数据 */
-    rows: unknown[]
+    rows: T[]
     loading?: boolean
     stripedRows?: boolean
     /** 虚拟滚动（大列表；启用后自动 scrollable，自动禁用分页） */
@@ -116,6 +122,23 @@ function emitFirst(value: number) {
 }
 .fp-table :deep(.p-datatable-wrapper) {
   overflow-x: auto;
+}
+/* 表头不换行：窄屏下旧版把「数据目录」等表头挤成逐字竖排，改为整表横向滚动（W4-a） */
+.fp-table :deep(.p-datatable-thead > tr > th) {
+  white-space: nowrap;
+}
+.fp-table :deep(.p-datatable-tbody > tr > td) {
+  /* break-word 而非 anywhere：anywhere 会把列的最小内容宽度降到单字，窄屏下表格被挤压成
+     「3/7」「adm/in」逐字折行而不是横向滚动；break-word 只在单词本身放不下时才断开 */
+  overflow-wrap: break-word;
+}
+/* 标签 / 按钮 / 时间等短语义单元整体不断行 */
+.fp-table :deep(.p-datatable-tbody > tr > td .p-tag),
+.fp-table :deep(.p-datatable-tbody > tr > td .p-button),
+.fp-table :deep(.p-datatable-tbody > tr > td time),
+.fp-table :deep(.p-datatable-tbody > tr > td .mono) {
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 .fp-table__loading {
   display: flex;

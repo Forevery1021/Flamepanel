@@ -220,6 +220,22 @@ impl AppPackageAdapter for OnePanelAdapter {
             }
         }
 
+        // 生命周期钩子（Doc/20 §4.3）：扫描 scripts/ 下标准命名脚本自动填充。
+        // 1Panel 语义超集：init.sh 同时作为 pre_install + post_install。
+        let hook = |name: &str| -> Option<String> {
+            let p = scripts_dir.join(name);
+            p.is_file().then(|| format!("scripts/{}", name))
+        };
+        let (init_hook, upgrade_hook, uninstall_hook) =
+            (hook("init.sh"), hook("upgrade.sh"), hook("uninstall.sh"));
+        let hooks = crate::domain::entity::AppHooks {
+            pre_install: init_hook.clone(),
+            post_install: init_hook,
+            pre_upgrade: upgrade_hook,
+            post_upgrade: None,
+            pre_uninstall: uninstall_hook,
+        };
+
         Ok(AppVersionInfo {
             version: version.into(),
             mode: InstallMode::Container,
@@ -228,6 +244,7 @@ impl AppPackageAdapter for OnePanelAdapter {
             compose_template,
             native_scripts,
             wasm_base64: None,
+            hooks,
             min_memory_mb: None,
             architectures: vec![],
         })
@@ -344,5 +361,35 @@ additionalProperties:
         let adapter = OnePanelAdapter;
         let err = adapter.parse_version(&dir, "9.9").unwrap_err();
         assert!(err.to_string().contains("不存在"));
+    }
+
+    #[test]
+    fn parses_hooks_from_scripts_dir() {
+        // Doc/20 §4.3：init.sh → pre_install + post_install（1Panel 语义超集）；
+        // upgrade.sh → pre_upgrade；uninstall.sh → pre_uninstall
+        let dir = temp_dir("hooks");
+        std::fs::write(dir.join("data.yml"), "key: wordpress\n").unwrap();
+        let vdir = dir.join("6.7");
+        std::fs::create_dir_all(vdir.join("scripts")).unwrap();
+        std::fs::write(vdir.join("scripts/init.sh"), "#!/bin/sh\necho init").unwrap();
+        std::fs::write(vdir.join("scripts/upgrade.sh"), "#!/bin/sh\necho up").unwrap();
+        std::fs::write(vdir.join("scripts/uninstall.sh"), "#!/bin/sh\necho rm").unwrap();
+
+        let version = OnePanelAdapter.parse_version(&dir, "6.7").unwrap();
+        let h = &version.hooks;
+        assert_eq!(h.pre_install.as_deref(), Some("scripts/init.sh"));
+        assert_eq!(h.post_install.as_deref(), Some("scripts/init.sh"));
+        assert_eq!(h.pre_upgrade.as_deref(), Some("scripts/upgrade.sh"));
+        assert_eq!(h.pre_uninstall.as_deref(), Some("scripts/uninstall.sh"));
+        assert!(h.post_upgrade.is_none());
+    }
+
+    #[test]
+    fn hooks_empty_when_no_scripts() {
+        let dir = temp_dir("nohooks");
+        std::fs::write(dir.join("data.yml"), "key: wordpress\n").unwrap();
+        std::fs::create_dir_all(dir.join("6.7")).unwrap();
+        let version = OnePanelAdapter.parse_version(&dir, "6.7").unwrap();
+        assert!(version.hooks.is_empty());
     }
 }

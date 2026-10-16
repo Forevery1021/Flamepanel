@@ -1,0 +1,21 @@
+export default {
+  user: {
+    title: 'Users',
+    id: 'ID',
+    username: 'Username',
+    role: 'Role',
+    createdAt: 'Created',
+    createUser: 'Create User',
+    editUser: 'Edit User',
+    deleteUser: 'Delete User',
+    deleteConfirm: 'Are you sure to delete user {name}?',
+    password: 'Password',
+    passwordOptional: 'Leave empty to keep current password',
+    usernameRequired: 'Please enter username',
+    passwordRequired: 'Please enter password',
+    roleRequired: 'Please select a role',
+    admin: 'Admin',
+    operator: 'Operator',
+    viewer: 'Viewer',
+  },
+}

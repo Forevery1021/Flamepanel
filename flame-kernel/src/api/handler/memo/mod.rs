@@ -8,26 +8,40 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use utoipa::{IntoParams, ToSchema};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct ListQuery {
+    /// `memo` | `todo`
     pub kind: Option<String>,
     pub done: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateMemoRequest {
     pub content: String,
     #[serde(default)]
     pub kind: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateMemoRequest {
     pub content: Option<String>,
     pub done: Option<bool>,
 }
 
+/// 备忘录列表（仪表盘便签与待办）
+#[utoipa::path(
+    get,
+    path = "/api/memos",
+    tag = "memos",
+    params(ListQuery),
+    responses(
+        (status = 200, description = "备忘 / 待办列表", body = Vec<Memo>),
+        (status = 401, description = "未认证"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<ListQuery>,
@@ -39,6 +53,19 @@ pub async fn list(
     Ok(Json(memos))
 }
 
+/// 新建备忘 / 待办
+#[utoipa::path(
+    post,
+    path = "/api/memos",
+    tag = "memos",
+    request_body = CreateMemoRequest,
+    responses(
+        (status = 200, description = "新建的条目", body = Memo),
+        (status = 400, description = "内容为空"),
+        (status = 401, description = "未认证"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn create(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<CreateMemoRequest>,
@@ -47,6 +74,20 @@ pub async fn create(
     Ok(Json(memo))
 }
 
+/// 更新备忘内容或完成状态
+#[utoipa::path(
+    put,
+    path = "/api/memos/{id}",
+    tag = "memos",
+    params(("id" = i64, Path, description = "ID")),
+    request_body = UpdateMemoRequest,
+    responses(
+        (status = 200, description = "更新后的条目", body = Memo),
+        (status = 401, description = "未认证"),
+        (status = 404, description = "条目不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -59,6 +100,19 @@ pub async fn update(
     Ok(Json(memo))
 }
 
+/// 删除备忘
+#[utoipa::path(
+    delete,
+    path = "/api/memos/{id}",
+    tag = "memos",
+    params(("id" = i64, Path, description = "ID")),
+    responses(
+        (status = 200, description = "删除成功", body = String),
+        (status = 401, description = "未认证"),
+        (status = 404, description = "条目不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<i64>,

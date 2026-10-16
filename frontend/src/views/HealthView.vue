@@ -1,5 +1,5 @@
 <template>
-  <LayoutContent :title="t('health.title')" reload @reload="refreshHealth">
+  <LayoutContent :title="t('health.title')" :description="t('pageDesc.health')" reload @reload="refreshHealth">
     <div class="health-grid">
       <div v-for="h in healthCards" :key="h.key" class="panel health-card">
         <div class="health-item">

@@ -1,0 +1,21 @@
+export default {
+  user: {
+    title: 'ユーザー管理',
+    id: 'ID',
+    username: 'ユーザー名',
+    role: 'ロール',
+    createdAt: '作成日時',
+    createUser: 'ユーザー作成',
+    editUser: 'ユーザー編集',
+    deleteUser: 'ユーザー削除',
+    deleteConfirm: 'ユーザー {name} を削除してもよろしいですか？',
+    password: 'パスワード',
+    passwordOptional: '空欄の場合はパスワードを変更しません',
+    usernameRequired: 'ユーザー名を入力してください',
+    passwordRequired: 'パスワードを入力してください',
+    roleRequired: 'ロールを選択してください',
+    admin: '管理者',
+    operator: '運用者',
+    viewer: '閲覧者',
+  },
+}

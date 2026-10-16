@@ -77,7 +77,7 @@ pub async fn cancel_task(
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<u64>,
 ) -> Result<Json<TaskRecord>, AppError> {
-    let task = state.task_service.cancel_task(id)?;
+    let task = state.task_service.cancel_task(id).await?;
     Ok(Json(task))
 }
 
@@ -94,7 +94,7 @@ pub async fn cancel_task(
 pub async fn prune_tasks(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let count = state.task_service.prune_terminal();
+    let count = state.task_service.prune_terminal().await?;
     Ok(Json(serde_json::json!({ "pruned": count })))
 }
 

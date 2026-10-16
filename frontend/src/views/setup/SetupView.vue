@@ -35,20 +35,37 @@
 
       <!-- 右侧向导 -->
       <div class="setup-panel">
-        <!-- 步骤指示器 -->
-        <ol class="setup-steps" aria-label="setup steps">
+        <!-- 步骤指示器：已完成的步骤可点击回退修改；顶部进度条随步骤推进 -->
+        <div class="setup-progress" aria-hidden="true">
+          <span class="setup-progress__bar" :style="{ width: `${(current / (steps.length - 1)) * 100}%` }" />
+        </div>
+        <ol class="setup-steps" :aria-label="t('setup.stepsLabel')">
           <li
             v-for="(step, i) in steps"
             :key="step"
             class="setup-step"
-            :class="{ active: i === current, done: i < current }"
+            :class="{ active: i === current, done: i < current, clickable: i < current && !submitting }"
+            :aria-current="i === current ? 'step' : undefined"
           >
-            <span class="setup-step__dot">{{ i < current ? '✓' : i + 1 }}</span>
-            <span class="setup-step__label">{{ t(`setup.step.${step}`) }}</span>
+            <button
+              type="button"
+              class="setup-step__btn"
+              :disabled="i >= current || submitting"
+              @click="jumpTo(i)"
+            >
+              <span class="setup-step__dot">{{ i < current ? '✓' : i + 1 }}</span>
+              <span class="setup-step__label">{{ t(`setup.step.${step}`) }}</span>
+            </button>
           </li>
         </ol>
 
-        <div class="setup-body">
+        <p v-if="resumed" class="setup-resumed" role="status">
+          <i class="oi oi-info-circle" aria-hidden="true" />
+          {{ t('setup.resumed') }}
+          <button type="button" class="setup-resumed__reset" @click="startOver">{{ t('setup.startOver') }}</button>
+        </p>
+
+        <div ref="bodyRef" class="setup-body" @keydown.enter="onEnter">
           <StepWelcome
             v-if="current === 0"
             :docker="status?.docker ?? null"
@@ -93,6 +110,7 @@
           <FpButton variant="secondary" :disabled="submitting" @click="current--">
             {{ t('setup.back') }}
           </FpButton>
+          <span class="setup-nav__hint" aria-hidden="true">{{ t('setup.enterHint') }}</span>
           <FpButton variant="primary" :disabled="!canContinue || submitting" @click="goNext">
             {{ t('setup.next') }}
           </FpButton>
@@ -103,10 +121,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import FpButton from '@/components/ui/FpButton.vue'
+import { STORAGE_KEYS } from '@/utils/storage'
 import { useSetupStore } from '@/stores/setup'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore, type ThemePreset } from '@/stores/theme'
@@ -124,11 +143,22 @@ const setup = useSetupStore()
 const auth = useAuthStore()
 const theme = useThemeStore()
 
+/**
+ * 安装向导（UX-4 优化）。
+ *
+ * - **草稿续传**：非敏感字段（用户名 / 数据库类型与连接参数 / 端口 / 主题 / 语言）与当前步骤
+ *   写入 `sessionStorage`（`STORAGE_KEYS.setupDraft`）；刷新或误关标签页后字段全部回填，
+ *   **密码一律不落盘**，因此续传落点固定为「管理员」步（只需重输密码，其余步骤 Enter 直达）；
+ * - **键盘流**：文本输入框内按 Enter = 下一步（可继续时），步骤切换后自动聚焦首个输入；
+ * - **可回退的步骤条**：已完成的步骤可点击回到该步修改；`aria-current="step"` 标注当前步。
+ */
 const steps = ['welcome', 'admin', 'database', 'server', 'theme', 'finish'] as const
 const current = ref(0)
 const submitting = ref(false)
 const finishError = ref('')
 const status = ref(setup.status)
+const resumed = ref(false)
+const bodyRef = ref<HTMLElement | null>(null)
 
 const form = reactive({
   admin: { username: 'admin', password: '', confirm: '' },
@@ -152,9 +182,123 @@ const summary = computed(() => ({
   username: form.admin.username,
   dbType: form.database.db_type,
   dbName: form.database.db_type === 'sqlite' ? 'SQLite' : form.database.name,
+  port: form.server.panel_port,
   theme: form.theme,
   language: form.language,
 }))
+
+/* ── 草稿续传（sessionStorage；密码字段不持久化） ── */
+interface SetupDraft {
+  v: 1
+  step: number
+  admin: { username: string }
+  database: Omit<typeof form.database, 'password' | 'mysql_root_password'>
+  server: typeof form.server
+  theme: ThemePreset
+  language: AppLocale
+}
+
+function saveDraft() {
+  try {
+    const { db_type, host, port, name, user } = form.database
+    const draft: SetupDraft = {
+      v: 1,
+      step: current.value,
+      admin: { username: form.admin.username },
+      database: { db_type, host, port, name, user },
+      server: { ...form.server },
+      theme: form.theme,
+      language: form.language,
+    }
+    sessionStorage.setItem(STORAGE_KEYS.setupDraft, JSON.stringify(draft))
+  } catch {
+    // 隐私模式等：不影响向导本身
+  }
+}
+
+function loadDraft(): SetupDraft | null {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEYS.setupDraft)
+    if (!raw) return null
+    const d = JSON.parse(raw) as Partial<SetupDraft>
+    if (d.v !== 1 || typeof d.step !== 'number') return null
+    return d as SetupDraft
+  } catch {
+    return null
+  }
+}
+
+function clearDraft() {
+  try {
+    sessionStorage.removeItem(STORAGE_KEYS.setupDraft)
+  } catch {
+    // ignore
+  }
+}
+
+function applyDraft(d: SetupDraft) {
+  form.admin.username = d.admin?.username || form.admin.username
+  Object.assign(form.database, d.database ?? {})
+  Object.assign(form.server, d.server ?? {})
+  if (d.theme) form.theme = d.theme
+  if (d.language) form.language = d.language
+  // 密码未持久化：续传统一落在「管理员」步补填密码（其余字段已回填，Enter 可连续下一步）
+  current.value = Math.min(Math.max(d.step, 0), 1)
+  resumed.value = d.step > 0
+}
+
+function startOver() {
+  clearDraft()
+  resumed.value = false
+  form.admin.username = 'admin'
+  form.admin.password = ''
+  form.admin.confirm = ''
+  form.database.db_type = 'sqlite'
+  form.database.host = '127.0.0.1'
+  form.database.port = 3306
+  form.database.name = 'flamepanel'
+  form.database.user = 'flamepanel'
+  form.database.password = ''
+  form.database.mysql_root_password = ''
+  form.server.panel_port = 8080
+  current.value = 0
+}
+
+watch(
+  [current, () => form.admin.username, () => form.database, () => form.server, () => form.theme, () => form.language],
+  () => {
+    if (current.value > 0) saveDraft()
+  },
+  { deep: true },
+)
+
+/* ── 键盘流与焦点 ── */
+function focusFirstField() {
+  const el = bodyRef.value?.querySelector<HTMLElement>(
+    'input:not([type="hidden"]):not([disabled]), [role="combobox"], button.step-cta',
+  )
+  el?.focus({ preventScroll: true })
+}
+
+watch(current, async () => {
+  await nextTick()
+  focusFirstField()
+})
+
+/** 文本输入框内 Enter → 下一步（下拉/按钮自身的 Enter 语义不劫持） */
+function onEnter(e: KeyboardEvent) {
+  const target = e.target as HTMLElement | null
+  if (!target || target.tagName !== 'INPUT') return
+  if (current.value === 0 || current.value >= steps.length - 1) return
+  if (!canContinue.value || submitting.value) return
+  e.preventDefault()
+  goNext()
+}
+
+/** 步骤条点击：只允许回到已完成的步骤 */
+function jumpTo(i: number) {
+  if (i < current.value && !submitting.value) current.value = i
+}
 
 function validateAdmin(): boolean {
   adminErrors.username = form.admin.username.trim() ? '' : t('setup.usernameRequired')
@@ -232,11 +376,13 @@ async function handleSubmit() {
       theme: form.theme,
       language: form.language,
     })
+    clearDraft()
     if (res.token && res.username && res.role) {
       // 直接进入登录态（免二次登录）
+      // Y1：refresh token 由后端经 httpOnly Cookie 下发，前端仅保存 access token 与身份信息
       auth.save({
         token: res.token,
-        refresh_token: res.refresh_token || '',
+        refresh_token: '',
         username: res.username,
         role: res.role,
         must_change_password: false,
@@ -261,9 +407,13 @@ onMounted(async () => {
   if (s) {
     form.theme = (s.theme as ThemePreset) || 'flame'
     form.language = (s.language as AppLocale) || 'zh-CN'
-    theme.setPreset(form.theme)
-    theme.apply()
   }
+  const draft = loadDraft()
+  if (draft) applyDraft(draft)
+  theme.setPreset(form.theme)
+  theme.apply()
+  await nextTick()
+  focusFirstField()
 })
 </script>
 
@@ -372,6 +522,20 @@ onMounted(async () => {
   padding: var(--fp-space-6);
   min-width: 0;
 }
+.setup-progress {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--fp-border);
+  overflow: hidden;
+  margin-bottom: var(--fp-space-4);
+}
+.setup-progress__bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--fp-brand-gradient);
+  transition: width var(--fp-transition-base);
+}
 .setup-steps {
   list-style: none;
   display: flex;
@@ -381,11 +545,64 @@ onMounted(async () => {
 .setup-step {
   display: flex;
   align-items: center;
-  gap: 6px;
   font-size: 12px;
   color: var(--fp-text-secondary);
   flex: 1;
   min-width: 0;
+}
+.setup-step__btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border: none;
+  border-radius: var(--fp-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.setup-step.clickable .setup-step__btn {
+  cursor: pointer;
+}
+.setup-step.clickable .setup-step__btn:hover {
+  background: var(--fp-bg-hover);
+  color: var(--fp-text-primary);
+}
+.setup-step__btn:focus-visible {
+  outline: none;
+  box-shadow: var(--fp-focus-ring);
+}
+.setup-resumed {
+  display: flex;
+  align-items: center;
+  gap: var(--fp-space-2);
+  margin-bottom: var(--fp-space-4);
+  padding: var(--fp-space-2) var(--fp-space-3);
+  border-radius: var(--fp-radius-sm);
+  background: var(--fp-info-soft);
+  color: var(--fp-text-secondary);
+  font-size: 12.5px;
+}
+.setup-resumed__reset {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--fp-brand);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.setup-nav__hint {
+  font-size: 12px;
+  color: var(--fp-text-muted);
+  align-self: center;
 }
 .setup-step__dot {
   display: inline-flex;
@@ -405,12 +622,13 @@ onMounted(async () => {
 .setup-step.active .setup-step__dot {
   background: var(--fp-brand);
   border-color: var(--fp-brand);
-  color: #fff;
+  color: var(--fp-brand-fg);
+  box-shadow: 0 0 0 3px var(--fp-brand-ring);
 }
 .setup-step.done .setup-step__dot {
   background: var(--fp-success);
   border-color: var(--fp-success);
-  color: #fff;
+  color: oklch(0.99 0 0);
 }
 .setup-step__label {
   white-space: nowrap;

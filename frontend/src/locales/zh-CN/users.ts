@@ -1,0 +1,21 @@
+export default {
+  user: {
+    title: '用户管理',
+    id: 'ID',
+    username: '用户名',
+    role: '角色',
+    createdAt: '创建时间',
+    createUser: '创建用户',
+    editUser: '编辑用户',
+    deleteUser: '删除用户',
+    deleteConfirm: '确定要删除用户 {name} 吗？',
+    password: '密码',
+    passwordOptional: '留空则不修改密码',
+    usernameRequired: '请输入用户名',
+    passwordRequired: '请输入密码',
+    roleRequired: '请选择角色',
+    admin: '管理员',
+    operator: '运维',
+    viewer: '只读',
+  },
+}

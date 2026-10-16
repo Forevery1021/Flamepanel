@@ -1,8 +1,15 @@
 [package]
 name = "flame-kernel"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
+rust-version.workspace = true
 description = "FlamePanel Rust Kernel - Minimal compilable version"
+
+# 面板命令行（Doc/32 §3）；离线命令依赖 SQLite
+[[bin]]
+name = "fpctl"
+path = "src/bin/fpctl.rs"
+required-features = ["sqlite"]
 
 # ── Feature Flags（阶段 3.1 + 3.3）────────────────────────────────────
 # default 保持全功能（与既有发布行为一致）；裁剪组合（如 --no-default-features
@@ -14,13 +21,13 @@ sqlite = ["dep:sqlx"]
 # Docker 引擎集成（bollard：容器/网络/卷/镜像/Compose）
 docker = ["dep:bollard"]
 # WASM 插件沙箱（wasmtime：内存/fuel/栈限制 + 哈希完整性）
-wasm = ["dep:wasmtime"]
+wasm = ["dep:wasmtime", "dep:wat"]
 # SMTP 邮件通知（lettre）——vendored openssl 保证 musl/arm 交叉编译无需系统 libssl
 email = ["dep:lettre", "dep:openssl"]
 
 [dependencies]
 tokio = { version = "1.34", features = ["full"] }
-tokio-util = { version = "0.7", features = ["rt"] }
+tokio-util = { version = "0.7", features = ["rt", "io"] }
 axum = { version = "0.8", features = ["ws"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -36,7 +43,7 @@ jsonwebtoken = "9"
 regex = "1"
 moka = { version = "0.12", features = ["future", "sync"] }
 sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "chrono"], optional = true }
-async-trait = "0.1"
+async-trait = "0.1.92"  # ≥0.1.92：不再给 boxed future 叠加 #[must_use]（clippy 1.99 double_must_use）
 uuid = { version = "1", features = ["v4"] }
 bollard = { version = "0.18", optional = true }
 futures-util = "0.3"
@@ -45,16 +52,44 @@ lettre = { version = "0.11", features = ["builder", "smtp-transport", "tokio1-na
 # vendored openssl：供 lettre 的 native-tls 在交叉编译（musl/arm）时从源码构建，无需目标系统 libssl
 openssl = { version = "0.10", features = ["vendored"], optional = true }
 wasmtime = { version = "46", optional = true }
+# 内置市场插件以 WAT 源码内嵌，安装时编译为 wasm（已在锁文件中：wasmtime 依赖 + dev-dep）
+wat = { version = "1", optional = true }
 base64 = "0.22"
 sha2 = "0.10"
+# DNS Provider 签名（阿里云 RPC HMAC-SHA1；版本对齐依赖树既有 hkdf/sqlx 传递版本，零新增依赖树节点）
+hmac = "0.12"
+sha1 = "0.10"
 mime_guess = "2"
 rcgen = "0.13"
 time = "0.3"
 serde_yaml = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+libc = "0.2"
+# F-27: PTY 终端支持——交互式程序（vim/su/top）依赖 PTY 才可正常使用
+portable-pty = "0.8"
 # OpenAPI 文档生成（Stage3.3）：编译期生成 openapi.json（GET /api/openapi.json）
 utoipa = { version = "5", features = ["axum_extras", "chrono"] }
+# F-05: compose 部署临时目录（随机名 + 自动清理）
+tempfile = "3"
+# M-A Issue 1.2：远程源 HTTP 包体下载解包（tar.gz）
+flate2 = "1"
+tar = "0.4"
+# M-A Issue 1.3：应用包 Ed25519 签名验签（Doc/20 §4.2）
+ed25519-dalek = "2"
+# M-C Stage B-2：Node 官方发行包 tar.xz 进程内解压（纯 Rust 实现，零 C 依赖）
+lzma-rs = "0.3"
+object_store = { version = "0.14.1", features = ["aws"] }
+ssh2 = { version = "0.9.6", features = ["vendored-openssl"] }
+aes-gcm = "0.11.1"
+hkdf = "0.12"
+# Stage 2 签发链路：ACME v2 JWS ES256 签名（rcgen 传递依赖，声明后直接使用）
+ring = "0.17"
 
 [dev-dependencies]
 tower = { version = "0.4", features = ["util"] }
 wat = "1"
+tempfile = "3"
+sysinfo = "0.39"
+# Agent Edge 端到端测试：伪 Agent / 浏览器以真实 WebSocket 连接测试面板（与 agent 同版本，不引入新 crate）
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake"] }
+

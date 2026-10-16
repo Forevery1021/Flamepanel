@@ -1,21 +1,61 @@
 use crate::api::types::AppState;
+use crate::application::metrics_history_service::{HistoryRange, MetricsHistoryResponse};
 use crate::core::error::AppError;
 use axum::Json;
 use axum::Router;
-use axum::{extract::State, http::header, response::IntoResponse};
-use serde::Serialize;
-use utoipa::ToSchema;
+use axum::{
+    extract::{Query, State},
+    http::header,
+    response::IntoResponse,
+};
+use serde::Deserialize;
+use std::fmt::Write as _;
+use utoipa::IntoParams;
 
-/// 进程 TOP 条目（sysinfo 采集）
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ProcessEntry {
-    pub pid: u32,
-    pub name: String,
-    pub cpu: f32,
-    pub memory_mb: u64,
-    pub status: String,
+pub use crate::infrastructure::metrics::ProcessEntry;
+
+/// 监控历史查询参数（S-07）
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct MetricsHistoryQuery {
+    /// 时间范围：`1h` / `6h` / `24h`（1 min 点）或 `7d` / `30d`（1 h 点）；缺省 `24h`
+    pub range: Option<String>,
 }
 
+/// `GET /api/metrics/history` — 监控历史降采样曲线（需 `node:read`）
+///
+/// 1 min 点由 3 s 采样在内存聚合后落库（保留 7 d），1 h 点由整点 rollup 得到（保留 90 d）；
+/// 响应带 `step_secs`，前端按桶宽绘制。刚启动或历史不足时点数少于窗口理论值。
+#[utoipa::path(
+    get,
+    path = "/api/metrics/history",
+    tag = "metrics",
+    params(MetricsHistoryQuery),
+    responses(
+        (status = 200, description = "监控历史点列", body = MetricsHistoryResponse),
+        (status = 400, description = "range 非法"),
+        (status = 401, description = "未认证"),
+    ),
+    security(("BearerAuth" = []))
+)]
+pub async fn history(
+    State(state): State<AppState>,
+    Query(q): Query<MetricsHistoryQuery>,
+) -> Result<Json<MetricsHistoryResponse>, AppError> {
+    let raw = q.range.as_deref().unwrap_or("24h");
+    let range = HistoryRange::parse(raw).ok_or_else(|| {
+        AppError::BadRequest(format!(
+            "invalid range '{}', expected one of {}",
+            raw,
+            HistoryRange::ALL.join("/")
+        ))
+    })?;
+    let now = chrono::Utc::now().timestamp();
+    Ok(Json(state.metrics_history_service.query(range, now).await?))
+}
+
+// P-01：经 `MetricsHub::top_processes` 读取——只刷新进程 CPU/内存字段 + 2 s TTL 缓存，
+// 多个仪表盘并发轮询只触发一次 /proc 扫描，且不再干扰采集循环的 CPU 差分窗口。
+// 注意：下面两行 doc 会进入 OpenAPI summary（frontend/openapi.json 漂移门禁），改动需同步重导快照。
 /// `GET /api/metrics/processes` — 按 CPU 占用排序的进程 TOP 5（免认证）
 #[utoipa::path(
     get,
@@ -25,29 +65,13 @@ pub struct ProcessEntry {
         (status = 200, description = "进程 TOP 列表", body = Vec<ProcessEntry>),
     )
 )]
-pub async fn processes() -> Result<Json<Vec<ProcessEntry>>, AppError> {
-    let mut sys = sysinfo::System::new_all();
-    sys.refresh_all();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-
-    let mut entries: Vec<ProcessEntry> = sys
-        .processes()
-        .iter()
-        .map(|(pid, proc)| ProcessEntry {
-            pid: pid.as_u32(),
-            name: proc.name().to_string_lossy().into_owned(),
-            cpu: proc.cpu_usage(),
-            memory_mb: proc.memory() / 1024 / 1024,
-            status: format!("{:?}", proc.status()),
-        })
-        .collect();
-    entries.sort_by(|a, b| {
-        b.cpu
-            .partial_cmp(&a.cpu)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    entries.truncate(5);
-    Ok(Json(entries))
+/// F-17: processes 接口复用共享的 sysinfo::System 实例，避免每请求全量重建。
+pub async fn processes(State(state): State<AppState>) -> Result<Json<Vec<ProcessEntry>>, AppError> {
+    let top = state
+        .metrics
+        .top_processes(crate::infrastructure::metrics::DEFAULT_TOP_N)
+        .await;
+    Ok(Json(top.as_ref().clone()))
 }
 
 /// `GET /metrics` — Prometheus 文本格式指标（面板自身系统指标）
@@ -66,89 +90,111 @@ pub async fn processes() -> Result<Json<Vec<ProcessEntry>>, AppError> {
 pub async fn prometheus_metrics(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
-    let history = state.metrics_history.lock().await;
-    let snapshots = history.get_all();
-    drop(history);
-
-    let latest = snapshots.last();
-    let mut out = String::new();
-    out.push_str("# HELP flamepanel_up Whether the panel is up (1).\n");
-    out.push_str("# TYPE flamepanel_up gauge\n");
-    out.push_str("flamepanel_up 1\n");
-    out.push_str("# HELP flamepanel_uptime_seconds Panel uptime in seconds.\n");
-    out.push_str("# TYPE flamepanel_uptime_seconds gauge\n");
-    out.push_str(&format!("flamepanel_uptime_seconds {}\n", uptime_secs()));
-    out.push_str("# HELP flamepanel_info Static build info.\n");
-    out.push_str("# TYPE flamepanel_info gauge\n");
-    out.push_str(&format!(
-        "flamepanel_info{{version=\"{}\"}} 1\n",
-        crate::VERSION
-    ));
+    let latest = state.metrics.latest();
+    let mut out = String::with_capacity(2048);
+    gauge(
+        &mut out,
+        "flamepanel_up",
+        "Whether the panel is up (1).",
+        1u64,
+    );
+    gauge(
+        &mut out,
+        "flamepanel_uptime_seconds",
+        "Panel uptime in seconds.",
+        state.metrics.uptime().as_secs(),
+    );
+    out.push_str("# HELP flamepanel_info Static build info.\n# TYPE flamepanel_info gauge\n");
+    let _ = writeln!(out, "flamepanel_info{{version=\"{}\"}} 1", crate::VERSION);
+    let _ = writeln!(
+        out,
+        "# HELP flamepanel_metrics_subscribers Active /ws/metrics subscribers.\n# TYPE flamepanel_metrics_subscribers gauge\nflamepanel_metrics_subscribers {}",
+        state.metrics.subscriber_count()
+    );
+    // S-08：推送流背压计数（滞后事件 / 丢帧 / 慢消费者断开），按 stream 标签区分
+    crate::api::ws_backpressure::ws_stats().write_prometheus(&mut out);
 
     if let Some(s) = latest {
-        out.push_str("# HELP flamepanel_cpu_usage_percent CPU usage percent (global).\n");
-        out.push_str("# TYPE flamepanel_cpu_usage_percent gauge\n");
-        out.push_str(&format!("flamepanel_cpu_usage_percent {}\n", s.cpu_usage));
-        out.push_str("# HELP flamepanel_cpu_cores Number of CPU cores.\n");
-        out.push_str("# TYPE flamepanel_cpu_cores gauge\n");
-        out.push_str(&format!("flamepanel_cpu_cores {}\n", s.cpu_cores));
-        out.push_str("# HELP flamepanel_memory_usage_percent Memory usage percent.\n");
-        out.push_str("# TYPE flamepanel_memory_usage_percent gauge\n");
-        out.push_str(&format!(
-            "flamepanel_memory_usage_percent {}\n",
-            s.memory_usage_percent
-        ));
-        out.push_str("# HELP flamepanel_memory_total_bytes Total memory in bytes.\n");
-        out.push_str("# TYPE flamepanel_memory_total_bytes gauge\n");
-        out.push_str(&format!(
-            "flamepanel_memory_total_bytes {}\n",
-            s.memory_total_mb * 1024 * 1024
-        ));
-        out.push_str("# HELP flamepanel_memory_used_bytes Used memory in bytes.\n");
-        out.push_str("# TYPE flamepanel_memory_used_bytes gauge\n");
-        out.push_str(&format!(
-            "flamepanel_memory_used_bytes {}\n",
-            s.memory_used_mb * 1024 * 1024
-        ));
-        out.push_str("# HELP flamepanel_disk_usage_percent Disk usage percent.\n");
-        out.push_str("# TYPE flamepanel_disk_usage_percent gauge\n");
-        out.push_str(&format!(
-            "flamepanel_disk_usage_percent {}\n",
-            s.disk_usage_percent
-        ));
-        out.push_str("# HELP flamepanel_disk_total_bytes Total disk in bytes.\n");
-        out.push_str("# TYPE flamepanel_disk_total_bytes gauge\n");
-        out.push_str(&format!(
-            "flamepanel_disk_total_bytes {}\n",
-            (s.disk_total_gb * 1024.0 * 1024.0 * 1024.0) as u64
-        ));
-        out.push_str("# HELP flamepanel_disk_used_bytes Used disk in bytes.\n");
-        out.push_str("# TYPE flamepanel_disk_used_bytes gauge\n");
-        out.push_str(&format!(
-            "flamepanel_disk_used_bytes {}\n",
-            (s.disk_used_gb * 1024.0 * 1024.0 * 1024.0) as u64
-        ));
-        out.push_str("# HELP flamepanel_load1 System load average (1 min).\n");
-        out.push_str("# TYPE flamepanel_load1 gauge\n");
-        out.push_str(&format!("flamepanel_load1 {}\n", s.load_one));
-        out.push_str("# HELP flamepanel_load5 System load average (5 min).\n");
-        out.push_str("# TYPE flamepanel_load5 gauge\n");
-        out.push_str(&format!("flamepanel_load5 {}\n", s.load_five));
-        out.push_str("# HELP flamepanel_load15 System load average (15 min).\n");
-        out.push_str("# TYPE flamepanel_load15 gauge\n");
-        out.push_str(&format!("flamepanel_load15 {}\n", s.load_fifteen));
-        out.push_str("# HELP flamepanel_network_rx_bytes_per_sec Network receive bytes/sec.\n");
-        out.push_str("# TYPE flamepanel_network_rx_bytes_per_sec gauge\n");
-        out.push_str(&format!(
-            "flamepanel_network_rx_bytes_per_sec {}\n",
-            (s.network_rx_mbps * 1024.0 * 1024.0) as u64
-        ));
-        out.push_str("# HELP flamepanel_network_tx_bytes_per_sec Network transmit bytes/sec.\n");
-        out.push_str("# TYPE flamepanel_network_tx_bytes_per_sec gauge\n");
-        out.push_str(&format!(
-            "flamepanel_network_tx_bytes_per_sec {}\n",
-            (s.network_tx_mbps * 1024.0 * 1024.0) as u64
-        ));
+        const MIB: f64 = 1024.0 * 1024.0;
+        const GIB: f64 = MIB * 1024.0;
+        gauge(
+            &mut out,
+            "flamepanel_cpu_usage_percent",
+            "CPU usage percent (global).",
+            s.cpu_usage,
+        );
+        gauge(
+            &mut out,
+            "flamepanel_cpu_cores",
+            "Number of CPU cores.",
+            s.cpu_cores,
+        );
+        gauge(
+            &mut out,
+            "flamepanel_memory_usage_percent",
+            "Memory usage percent.",
+            s.memory_usage_percent,
+        );
+        gauge(
+            &mut out,
+            "flamepanel_memory_total_bytes",
+            "Total memory in bytes.",
+            s.memory_total_mb * 1024 * 1024,
+        );
+        gauge(
+            &mut out,
+            "flamepanel_memory_used_bytes",
+            "Used memory in bytes.",
+            s.memory_used_mb * 1024 * 1024,
+        );
+        gauge(
+            &mut out,
+            "flamepanel_disk_usage_percent",
+            "Disk usage percent.",
+            s.disk_usage_percent,
+        );
+        gauge(
+            &mut out,
+            "flamepanel_disk_total_bytes",
+            "Total disk in bytes.",
+            (s.disk_total_gb * GIB) as u64,
+        );
+        gauge(
+            &mut out,
+            "flamepanel_disk_used_bytes",
+            "Used disk in bytes.",
+            (s.disk_used_gb * GIB) as u64,
+        );
+        gauge(
+            &mut out,
+            "flamepanel_load1",
+            "System load average (1 min).",
+            s.load_one,
+        );
+        gauge(
+            &mut out,
+            "flamepanel_load5",
+            "System load average (5 min).",
+            s.load_five,
+        );
+        gauge(
+            &mut out,
+            "flamepanel_load15",
+            "System load average (15 min).",
+            s.load_fifteen,
+        );
+        gauge(
+            &mut out,
+            "flamepanel_network_rx_bytes_per_sec",
+            "Network receive bytes/sec.",
+            (s.network_rx_mbps * MIB) as u64,
+        );
+        gauge(
+            &mut out,
+            "flamepanel_network_tx_bytes_per_sec",
+            "Network transmit bytes/sec.",
+            (s.network_tx_mbps * MIB) as u64,
+        );
     }
 
     Ok((
@@ -160,25 +206,18 @@ pub async fn prometheus_metrics(
     ))
 }
 
-/// 进程运行时长（秒）——用二进制 mtime 近似启动时刻
-fn uptime_secs() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let exe = std::env::current_exe().ok();
-    let mtime = exe
-        .and_then(|p| std::fs::metadata(p).ok())
-        .and_then(|m| m.modified().ok())
-        .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
-        .unwrap_or(now);
-    now.saturating_sub(mtime)
+/// 写一条 Prometheus gauge（HELP/TYPE/样本三行）
+fn gauge<V: std::fmt::Display>(out: &mut String, name: &str, help: &str, value: V) {
+    let _ = writeln!(
+        out,
+        "# HELP {name} {help}\n# TYPE {name} gauge\n{name} {value}"
+    );
 }
 
 /// 路由表
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/metrics/processes", axum::routing::get(processes))
+        .route("/api/metrics/history", axum::routing::get(history))
         .route("/metrics", axum::routing::get(prometheus_metrics))
 }

@@ -8,8 +8,10 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Serialize)]
+/// 数据库实例（面板登记；root 口令不回显）
+#[derive(Serialize, ToSchema)]
 pub struct DatabaseInstanceResponse {
     pub id: i64,
     pub db_type: String,
@@ -26,7 +28,7 @@ pub struct DatabaseInstanceResponse {
     pub resource_version: i64,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct InstallMysqlRequest {
     pub name: String,
     pub version: Option<String>,
@@ -34,7 +36,7 @@ pub struct InstallMysqlRequest {
     pub root_password: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct InstallRedisRequest {
     pub name: String,
     pub version: Option<String>,
@@ -42,13 +44,33 @@ pub struct InstallRedisRequest {
     pub password: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
+pub struct InstallPostgresRequest {
+    pub name: String,
+    pub version: Option<String>,
+    pub port: Option<i32>,
+    pub password: Option<String>,
+}
+
+/// MongoDB 安装请求：`version` 取 `8.0`（缺省）/ `9.0`；填写 `password` 时创建 `admin`
+/// 超级用户并开启鉴权（≥ 8 位），留空则仅本机（127.0.0.1）免鉴权访问。
+#[derive(Deserialize, ToSchema)]
+pub struct InstallMongodbRequest {
+    pub name: String,
+    pub version: Option<String>,
+    pub port: Option<i32>,
+    pub password: Option<String>,
+}
+
+#[derive(Deserialize, ToSchema)]
 pub struct CreateDatabaseRequest {
     pub name: String,
     pub charset: Option<String>,
 }
 
-#[derive(Deserialize)]
+/// 创建数据库用户（schema 名加前缀，避免与面板用户 `CreateUserRequest` 冲突）
+#[derive(Deserialize, ToSchema)]
+#[schema(as = DatabaseCreateUserRequest)]
 pub struct CreateUserRequest {
     pub username: String,
     pub password: String,
@@ -56,9 +78,10 @@ pub struct CreateUserRequest {
 }
 
 /// Phase A2 扩展：数据库实例批量状态更新请求体（批量原子写事务）。
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct BatchStatusRequest {
-    /// 每项为 (instance_id, 目标状态)
+    /// 每项为 `[instance_id, 状态]`，状态限 `running` / `stopped` / `error`，单次 ≤ 200 项
+    #[schema(value_type = Vec<Vec<serde_json::Value>>)]
     pub updates: Vec<(i64, String)>,
 }
 
@@ -80,6 +103,19 @@ fn to_response(inst: DatabaseInstance) -> DatabaseInstanceResponse {
     }
 }
 
+/// 数据库实例列表（分页）
+#[utoipa::path(
+    get,
+    path = "/api/databases",
+    tag = "databases",
+    params(PaginationParams),
+    responses(
+        (status = 200, description = "实例分页", body = PaginatedResponse<DatabaseInstanceResponse>),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
@@ -92,6 +128,20 @@ pub async fn list(
     Ok(Json(PaginatedResponse::new(data, result.total, &params)))
 }
 
+/// 单个数据库实例
+#[utoipa::path(
+    get,
+    path = "/api/databases/{id}",
+    tag = "databases",
+    params(("id" = i64, Path, description = "实例 ID")),
+    responses(
+        (status = 200, description = "实例", body = DatabaseInstanceResponse),
+        (status = 404, description = "实例不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn get(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -100,6 +150,20 @@ pub async fn get(
     Ok(Json(to_response(instance)))
 }
 
+/// 删除实例登记（不卸载软件；卸载见 uninstall）
+#[utoipa::path(
+    delete,
+    path = "/api/databases/{id}",
+    tag = "databases",
+    params(("id" = i64, Path, description = "实例 ID")),
+    responses(
+        (status = 200, description = "`\"deleted\"`", body = String),
+        (status = 404, description = "实例不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:delete 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -109,6 +173,21 @@ pub async fn delete(
     Ok(Json("deleted"))
 }
 
+/// 经系统包管理器安装 mysql 并登记实例（端口缺省 3306；口令经 stdin / 环境变量传递，不进 argv）
+#[utoipa::path(
+    post,
+    path = "/api/databases/mysql/install",
+    tag = "databases",
+    request_body = InstallMysqlRequest,
+    responses(
+        (status = 200, description = "已安装并登记", body = DatabaseInstanceResponse),
+        (status = 400, description = "口令含控制字符等校验失败"),
+        (status = 500, description = "安装失败（非 root 且无 sudo 时不可用，见 Doc/10）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:create 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn install_mysql(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<InstallMysqlRequest>,
@@ -122,6 +201,21 @@ pub async fn install_mysql(
     Ok(Json(to_response(instance)))
 }
 
+/// 经系统包管理器安装 redis 并登记实例（端口缺省 6379；口令经 stdin / 环境变量传递，不进 argv）
+#[utoipa::path(
+    post,
+    path = "/api/databases/redis/install",
+    tag = "databases",
+    request_body = InstallRedisRequest,
+    responses(
+        (status = 200, description = "已安装并登记", body = DatabaseInstanceResponse),
+        (status = 400, description = "口令含控制字符等校验失败"),
+        (status = 500, description = "安装失败（非 root 且无 sudo 时不可用，见 Doc/10）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:create 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn install_redis(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<InstallRedisRequest>,
@@ -139,6 +233,87 @@ pub async fn install_redis(
     Ok(Json(to_response(instance)))
 }
 
+/// 经系统包管理器安装 postgres 并登记实例（端口缺省 5432；口令经 stdin / 环境变量传递，不进 argv）
+#[utoipa::path(
+    post,
+    path = "/api/databases/postgres/install",
+    tag = "databases",
+    request_body = InstallPostgresRequest,
+    responses(
+        (status = 200, description = "已安装并登记", body = DatabaseInstanceResponse),
+        (status = 400, description = "口令含控制字符等校验失败"),
+        (status = 500, description = "安装失败（非 root 且无 sudo 时不可用，见 Doc/10）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:create 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
+pub async fn install_postgres(
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<InstallPostgresRequest>,
+) -> Result<Json<DatabaseInstanceResponse>, AppError> {
+    let port = req.port.unwrap_or(5432);
+    let instance = state
+        .database_service
+        .install_postgres(
+            req.version.as_deref(),
+            port,
+            req.password.as_deref(),
+            &req.name,
+        )
+        .await?;
+    Ok(Json(to_response(instance)))
+}
+
+/// 经 MongoDB 官方仓库（HTTPS + 签名校验）安装 mongod 并登记实例（端口缺省 27017；
+/// 管理员密码经 mongosh stdin 传递，不进 argv）
+#[utoipa::path(
+    post,
+    path = "/api/databases/mongodb/install",
+    tag = "databases",
+    request_body = InstallMongodbRequest,
+    responses(
+        (status = 200, description = "已安装并登记", body = DatabaseInstanceResponse),
+        (status = 400, description = "不支持的版本 / 发行版、密码过短或含控制字符、已安装"),
+        (status = 500, description = "安装失败（非 root 且无 sudo 时不可用，见 Doc/10）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:create 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
+pub async fn install_mongodb(
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<InstallMongodbRequest>,
+) -> Result<Json<DatabaseInstanceResponse>, AppError> {
+    let port = req
+        .port
+        .unwrap_or(crate::database::mongodb::MONGODB_DEFAULT_PORT);
+    let instance = state
+        .database_service
+        .install_mongodb(
+            req.version.as_deref(),
+            port,
+            req.password.as_deref(),
+            &req.name,
+        )
+        .await?;
+    Ok(Json(to_response(instance)))
+}
+
+/// 启动数据库服务
+#[utoipa::path(
+    post,
+    path = "/api/databases/{id}/start",
+    tag = "databases",
+    params(("id" = i64, Path, description = "实例 ID")),
+    responses(
+        (status = 200, description = "`\"started\"`", body = String),
+        (status = 404, description = "实例不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:start 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn start(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -147,6 +322,20 @@ pub async fn start(
     Ok(Json("started"))
 }
 
+/// 停止数据库服务
+#[utoipa::path(
+    post,
+    path = "/api/databases/{id}/stop",
+    tag = "databases",
+    params(("id" = i64, Path, description = "实例 ID")),
+    responses(
+        (status = 200, description = "`\"stopped\"`", body = String),
+        (status = 404, description = "实例不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:stop 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn stop(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -155,6 +344,20 @@ pub async fn stop(
     Ok(Json("stopped"))
 }
 
+/// 重启数据库服务
+#[utoipa::path(
+    post,
+    path = "/api/databases/{id}/restart",
+    tag = "databases",
+    params(("id" = i64, Path, description = "实例 ID")),
+    responses(
+        (status = 200, description = "`\"restarted\"`", body = String),
+        (status = 404, description = "实例不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:start 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn restart(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -163,6 +366,20 @@ pub async fn restart(
     Ok(Json("restarted"))
 }
 
+/// 服务运行状态（`running` / `stopped`）
+#[utoipa::path(
+    get,
+    path = "/api/databases/{id}/status",
+    tag = "databases",
+    params(("id" = i64, Path, description = "实例 ID")),
+    responses(
+        (status = 200, description = "状态", body = String),
+        (status = 404, description = "实例不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn check_status(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -171,6 +388,22 @@ pub async fn check_status(
     Ok(Json(s))
 }
 
+/// 创建库（MySQL / MariaDB 可指定字符集，缺省 utf8mb4；PostgreSQL 忽略字符集）
+#[utoipa::path(
+    post,
+    path = "/api/databases/{id}/databases",
+    tag = "databases",
+    params(("id" = i64, Path, description = "实例 ID")),
+    request_body = CreateDatabaseRequest,
+    responses(
+        (status = 200, description = "`\"created\"`", body = String),
+        (status = 400, description = "库名需为 1–64 位字母数字 / `_` / `$`；字符集不在白名单；Redis 不支持"),
+        (status = 404, description = "实例不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:create 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn create_database(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -183,6 +416,22 @@ pub async fn create_database(
     Ok(Json("created"))
 }
 
+/// 删除库（系统库受保护）
+#[utoipa::path(
+    delete,
+    path = "/api/databases/{id}/databases/{db_name}",
+    tag = "databases",
+    params(("id" = i64, Path, description = "实例 ID"),
+        ("db_name" = String, Path, description = "库名")),
+    responses(
+        (status = 200, description = "`\"dropped\"`", body = String),
+        (status = 400, description = "库名非法 / 系统库（mysql、information_schema、performance_schema、sys、postgres、template0/1）不可删除"),
+        (status = 404, description = "实例不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:delete 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn drop_database(
     State(state): State<AppState>,
     Path((id, db_name)): Path<(i64, String)>,
@@ -191,6 +440,21 @@ pub async fn drop_database(
     Ok(Json("dropped"))
 }
 
+/// 列出用户库（系统库已排除）
+#[utoipa::path(
+    get,
+    path = "/api/databases/{id}/databases",
+    tag = "databases",
+    params(("id" = i64, Path, description = "实例 ID")),
+    responses(
+        (status = 200, description = "库名列表", body = [String]),
+        (status = 400, description = "Redis 不支持"),
+        (status = 404, description = "实例不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list_databases(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -199,6 +463,22 @@ pub async fn list_databases(
     Ok(Json(dbs))
 }
 
+/// 创建数据库用户（口令不进 argv）
+#[utoipa::path(
+    post,
+    path = "/api/databases/{id}/users",
+    tag = "databases",
+    params(("id" = i64, Path, description = "实例 ID")),
+    request_body = CreateUserRequest,
+    responses(
+        (status = 200, description = "`\"created\"`", body = String),
+        (status = 400, description = "用户名 / host / 口令校验失败"),
+        (status = 404, description = "实例不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:update 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn create_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -216,6 +496,22 @@ pub async fn create_user(
     Ok(Json("created"))
 }
 
+/// 删除数据库用户（host 固定 localhost；内置超级用户受保护）
+#[utoipa::path(
+    delete,
+    path = "/api/databases/{id}/users/{username}",
+    tag = "databases",
+    params(("id" = i64, Path, description = "实例 ID"),
+        ("username" = String, Path, description = "用户名")),
+    responses(
+        (status = 200, description = "`\"dropped\"`", body = String),
+        (status = 400, description = "用户名非法 / root、postgres 等内置超级用户不可删除"),
+        (status = 404, description = "实例不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:update 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn drop_user(
     State(state): State<AppState>,
     Path((id, username)): Path<(i64, String)>,
@@ -227,6 +523,20 @@ pub async fn drop_user(
     Ok(Json("dropped"))
 }
 
+/// 卸载数据库软件并删除实例登记
+#[utoipa::path(
+    post,
+    path = "/api/databases/{id}/uninstall",
+    tag = "databases",
+    params(("id" = i64, Path, description = "实例 ID")),
+    responses(
+        (status = 200, description = "`\"uninstalled\"`", body = String),
+        (status = 404, description = "实例不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:delete 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn uninstall(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -236,12 +546,38 @@ pub async fn uninstall(
 }
 
 /// Phase A2 扩展：数据库实例批量状态原子更新（批量写事务，PATCH /api/databases/batch-status）。
+/// 批量更新实例状态（单事务）
+#[utoipa::path(
+    patch,
+    path = "/api/databases/batch-status",
+    tag = "databases",
+    request_body = BatchStatusRequest,
+    responses(
+        (status = 200, description = "`\"updated\"`", body = String),
+        (status = 400, description = "为空 / 超过 200 项 / 状态不在 running、stopped、error 之内"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 database:update 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn update_batch_status(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<BatchStatusRequest>,
 ) -> Result<Json<&'static str>, AppError> {
     if req.updates.is_empty() {
         return Err(AppError::BadRequest("updates 不能为空".into()));
+    }
+    if req.updates.len() > 200 {
+        return Err(AppError::BadRequest("updates 单次最多 200 项".into()));
+    }
+    if let Some((id, s)) = req
+        .updates
+        .iter()
+        .find(|(_, s)| !matches!(s.as_str(), "running" | "stopped" | "error"))
+    {
+        return Err(AppError::ValidationError(format!(
+            "updates: instance {id} has unknown status {s:?} (running / stopped / error)"
+        )));
     }
     state
         .database_service
@@ -263,6 +599,14 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/databases/redis/install",
             axum::routing::post(install_redis),
+        )
+        .route(
+            "/api/databases/postgres/install",
+            axum::routing::post(install_postgres),
+        )
+        .route(
+            "/api/databases/mongodb/install",
+            axum::routing::post(install_mongodb),
         )
         .route("/api/databases/{id}/start", axum::routing::post(start))
         .route("/api/databases/{id}/stop", axum::routing::post(stop))

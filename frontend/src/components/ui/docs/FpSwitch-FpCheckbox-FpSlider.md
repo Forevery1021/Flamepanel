@@ -32,10 +32,15 @@
 
 ### v-model / Events
 
-`v-model` 绑定 `boolean`；`@change(value: boolean)`。
+`v-model` 绑定 `boolean`；`@change(value: boolean)`——**载荷是本次交互后的新值**：勾选为 `true`，
+取消勾选为 `false`（C-3 修复；历史实现误把底层 DOM Event 布尔化，导致取消勾选恒传 `true`）。
+
+> 需要「勾选即触发」的双向操作（如待办的标记完成 / 取消完成）用 `@change`，
+> 载荷直接使用即可，无需再 `Boolean(v)` 转换。
 
 ```vue
 <FpCheckbox v-model="remember" binary />
+<FpCheckbox :model-value="item.done" @change="(v) => toggle(item, v)" />
 ```
 
 ## FpSlider

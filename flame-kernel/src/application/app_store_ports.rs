@@ -84,6 +84,23 @@ pub trait ComposeSecurityScanner: Send + Sync {
 
     /// 自动为没有 restart 策略的 compose 补充 `restart: unless-stopped`
     fn ensure_restart_policy(&self, compose_yaml: &str) -> String;
+
+    /// M-A Issue 1.3：带可配置镜像仓库白名单的扫描（额外白名单来自 settings）。
+    fn scan_compose_with_registries(
+        &self,
+        compose_yaml: &str,
+        confirmed_risky: bool,
+        extra_registries: &[String],
+    ) -> ScanResult {
+        let _ = extra_registries;
+        self.scan_compose(compose_yaml, confirmed_risky)
+    }
+
+    /// 生命周期钩子脚本静态扫描（Doc/20 §4.3，默认放行；由 infrastructure 实现覆盖）
+    fn scan_script(&self, script: &str) -> ScanResult {
+        let _ = script;
+        ScanResult::default()
+    }
 }
 
 // ─── 变量映射端口 ───────────────────────────────────────────────────────────

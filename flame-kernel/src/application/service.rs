@@ -122,6 +122,10 @@ mod pagination_tests {
                 ssl_enabled: false,
                 proxy_enabled: false,
                 proxy_pass: None,
+                site_type: "static".into(),
+                runtime_id: None,
+                project_id: None,
+                rewrite_preset: None,
                 created_at: chrono::Utc::now(),
                 resource_version: 0,
             };
@@ -197,6 +201,12 @@ mod auth_cache_tests {
         }
         async fn count(&self) -> Result<i64, AppError> {
             self.inner.count().await
+        }
+        async fn get_password_changed_at(&self, id: i64) -> Result<Option<i64>, AppError> {
+            self.inner.get_password_changed_at(id).await
+        }
+        async fn update_password_changed_at(&self, id: i64, ts: i64) -> Result<(), AppError> {
+            self.inner.update_password_changed_at(id, ts).await
         }
     }
 
@@ -378,6 +388,9 @@ mod outbox_tests {
         async fn count(&self, event_type: Option<&str>) -> Result<i64, AppError> {
             self.inner.count(event_type).await
         }
+        async fn delete_older_than(&self, days: i64) -> Result<u64, AppError> {
+            self.inner.delete_older_than(days).await
+        }
     }
 
     /// 失败一次后重试成功，事件不丢失（审计不丢）。
@@ -429,5 +442,75 @@ mod outbox_tests {
         assert!(err.to_string().contains("transient"));
         // 最多重试 3 次（首次 + 2 次重试）
         assert_eq!(repo.attempts(), 3);
+    }
+
+    /// S-10：续签时间线直接消费真实事件的落库载荷（外部标签 JSON），
+    /// 自动续签内部的签发事件被合并，其他证书与无关事件被过滤。
+    #[tokio::test]
+    async fn certificate_timeline_reads_recorded_events() {
+        let svc = OutboxService::new(Arc::new(InMemoryOutboxRepository::new()));
+        let events = [
+            DomainEvent::CertificateIssued {
+                cert_id: 7,
+                domains: "a.test".into(),
+                source: "letsencrypt".into(),
+            },
+            DomainEvent::CertificateIssued {
+                cert_id: 8,
+                domains: "b.test".into(),
+                source: "letsencrypt".into(),
+            },
+            DomainEvent::BackupCreated {
+                filename: "x.tar.gz".into(),
+            },
+            DomainEvent::CertificateExpiring {
+                cert_id: 7,
+                domains: "a.test".into(),
+                expires_at: "2026-10-20T00:00:00+00:00".into(),
+            },
+            DomainEvent::CertificateRenewalFailed {
+                id: 7,
+                domain: "a.test".into(),
+                error: "ACME 验证失败".into(),
+            },
+            // 自动续签成功：签发链路先发 Issued，扫描再发 Renewed
+            DomainEvent::CertificateIssued {
+                cert_id: 7,
+                domains: "a.test".into(),
+                source: "letsencrypt".into(),
+            },
+            DomainEvent::CertificateRenewed {
+                id: 7,
+                domain: "a.test".into(),
+            },
+        ];
+        for e in &events {
+            svc.record_event(e).await.unwrap();
+        }
+        let (entries, truncated) = svc.certificate_timeline(7, 50).await.unwrap();
+        assert!(!truncated);
+        use crate::domain::cert_renewal::RenewalEventKind as K;
+        assert_eq!(
+            entries.iter().map(|e| e.kind).collect::<Vec<_>>(),
+            vec![
+                K::AutoRenewed,
+                K::AutoRenewFailed,
+                K::ExpiryWarning,
+                K::Issued
+            ]
+        );
+        assert_eq!(entries[1].error.as_deref(), Some("ACME 验证失败"));
+        assert_eq!(
+            entries[2].expires_at.as_deref(),
+            Some("2026-10-20T00:00:00+00:00")
+        );
+        assert!(entries.iter().all(|e| e.domain == "a.test"));
+        // 其他证书只看到自己的一条签发
+        let (other, _) = svc.certificate_timeline(8, 50).await.unwrap();
+        assert_eq!(other.len(), 1);
+        // limit 截断标记
+        let (two, truncated) = svc.certificate_timeline(7, 2).await.unwrap();
+        assert_eq!(two.len(), 2);
+        assert!(truncated);
     }
 }

@@ -1,0 +1,81 @@
+export default {
+  processes: {
+    title: 'プロセス管理',
+    autoRefresh: '自動更新',
+    searchPlaceholder: 'PID / プロセス名 / ユーザー / コマンドで検索',
+    allUsers: 'すべてのユーザー',
+    includeKernel: 'カーネルスレッドを表示',
+    limit: '最大 {n} 件',
+    loadFailed: 'プロセス一覧の読み込みに失敗しました',
+    empty: '該当するプロセスはありません',
+    truncated:
+      '{matched} 件中 先頭 {shown} 件を表示しています。検索条件を絞るか上限を上げてください',
+    panelTag: 'パネル',
+    kernelTag: 'カーネル',
+    summary: {
+      total: 'プロセス数',
+      matched: '該当',
+      memory: '常駐メモリ合計',
+    },
+    col: {
+      name: 'プロセス名',
+      user: 'ユーザー',
+      cpu: 'CPU',
+      memory: 'メモリ',
+      status: '状態',
+      runTime: '稼働時間',
+      command: 'コマンド',
+    },
+    sort: {
+      cpu: 'CPU 順',
+      memory: 'メモリ順',
+      pid: 'PID 順',
+      name: '名前順',
+      started: '起動時刻順',
+    },
+    order: {
+      desc: '降順',
+      asc: '昇順',
+    },
+    state: {
+      run: '実行中',
+      sleep: 'スリープ',
+      idle: 'アイドル',
+      disk_sleep: '割り込み不可',
+      stop: '停止中',
+      tracing: 'トレース中',
+      zombie: 'ゾンビ',
+      dead: '終了済み',
+      other: 'その他',
+    },
+    protected: {
+      init: 'システムの init プロセスは終了できません',
+      kernel_thread: 'カーネルスレッドは終了できません',
+      panel: 'パネル自身のプロセスは終了できません',
+      panel_ancestor: 'パネルの親プロセスです。終了するとパネルも停止します',
+    },
+    signal: {
+      TERM: 'プロセスに正常終了を要求します（推奨）',
+      KILL: '即座に強制終了します。後処理は行われません',
+      HUP: 'ハングアップ。多くのデーモンは設定を再読み込みします',
+      INT: '割り込み。端末で Ctrl+C を押すのと同じです',
+    },
+    kill: {
+      action: '終了',
+      title: 'プロセスを終了',
+      signal: '送信するシグナル',
+      confirm: '{signal} を送信',
+      hint: 'シグナルを受けたプロセスが自ら終了します。終了しない場合は SIGKILL を選択してください。',
+      killWarning:
+        'SIGKILL はプロセスを即座に停止し、未保存のデータが失われる可能性があります。強制終了して問題ないか確認してください。',
+      success: '{name}（PID {pid}）に {signal} を送信しました',
+      failed: 'プロセスの終了に失敗しました',
+      gone: 'プロセス {pid} は既に存在しません。一覧を更新しました',
+      reused:
+        'プロセス {pid} は再起動されたか PID が再利用されました。誤終了を防ぐため中止しました',
+      protected: 'プロセス {pid} は保護されているため終了できません',
+      privilege:
+        '権限が不足しています：このプロセスは別ユーザーの所有です。パネルを root で実行するか、パスワード不要の sudo を設定してください',
+    },
+  },
+}

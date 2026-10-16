@@ -1,5 +1,8 @@
 //! Docker 领域服务（T8 拆分自原 `application/service.rs` 上帝文件）。
 use crate::core::error::AppError;
+use crate::domain::docker_ref::{
+    validate_docker_ref, validate_driver, validate_image_ref, validate_image_tag, validate_subnet,
+};
 use crate::domain::entity::*;
 use crate::domain::repository::*;
 use async_trait::async_trait;
@@ -121,6 +124,9 @@ impl ImageRepository for DockerRepositoryFacade {
     async fn list_images(&self) -> Result<Vec<serde_json::Value>, AppError> {
         self.image.list_images().await
     }
+    async fn inspect_image(&self, image: &str) -> Result<serde_json::Value, AppError> {
+        self.image.inspect_image(image).await
+    }
     async fn remove_image(&self, id: &str) -> Result<(), AppError> {
         self.image.remove_image(id).await
     }
@@ -150,6 +156,16 @@ impl ComposeRepository for DockerRepositoryFacade {
     ) -> Result<serde_json::Value, AppError> {
         self.compose
             .compose_deploy(project_name, compose_yaml)
+            .await
+    }
+    async fn compose_deploy_at(
+        &self,
+        project_name: &str,
+        compose_yaml: &str,
+        project_dir: &std::path::Path,
+    ) -> Result<serde_json::Value, AppError> {
+        self.compose
+            .compose_deploy_at(project_name, compose_yaml, project_dir)
             .await
     }
     async fn compose_up(&self, project_name: &str) -> Result<(), AppError> {
@@ -200,26 +216,32 @@ impl DockerService {
     }
 
     pub async fn start_container(&self, id: &str) -> Result<(), AppError> {
+        validate_docker_ref("id", id)?;
         self.docker_repo.start_container(id).await
     }
 
     pub async fn stop_container(&self, id: &str, timeout: u64) -> Result<(), AppError> {
+        validate_docker_ref("id", id)?;
         self.docker_repo.stop_container(id, timeout).await
     }
 
     pub async fn restart_container(&self, id: &str, timeout: u64) -> Result<(), AppError> {
+        validate_docker_ref("id", id)?;
         self.docker_repo.restart_container(id, timeout).await
     }
 
     pub async fn remove_container(&self, id: &str, force: bool) -> Result<(), AppError> {
+        validate_docker_ref("id", id)?;
         self.docker_repo.remove_container(id, force).await
     }
 
     pub async fn get_container_logs(&self, id: &str, tail: usize) -> Result<String, AppError> {
+        validate_docker_ref("id", id)?;
         self.docker_repo.get_container_logs(id, tail).await
     }
 
     pub async fn get_container_stats(&self, id: &str) -> Result<serde_json::Value, AppError> {
+        validate_docker_ref("id", id)?;
         self.docker_repo.get_container_stats(id).await
     }
 
@@ -228,6 +250,7 @@ impl DockerService {
     }
 
     pub async fn remove_image(&self, id: &str) -> Result<(), AppError> {
+        validate_image_ref("id", id)?;
         self.docker_repo.remove_image(id).await
     }
 
@@ -236,36 +259,92 @@ impl DockerService {
         project_name: &str,
         compose_yaml: &str,
     ) -> Result<serde_json::Value, AppError> {
+        crate::domain::docker_ref::validate_project_name(project_name)?;
         self.docker_repo
             .compose_deploy(project_name, compose_yaml)
             .await
     }
 
+    /// 在给定目录部署（应用商店：安装目录；相对挂载以此为基准）。
+    pub async fn compose_deploy_at(
+        &self,
+        project_name: &str,
+        compose_yaml: &str,
+        project_dir: &std::path::Path,
+    ) -> Result<serde_json::Value, AppError> {
+        crate::domain::docker_ref::validate_project_name(project_name)?;
+        self.docker_repo
+            .compose_deploy_at(project_name, compose_yaml, project_dir)
+            .await
+    }
+
     pub async fn compose_up(&self, project_name: &str) -> Result<(), AppError> {
+        crate::domain::docker_ref::validate_project_name(project_name)?;
         self.docker_repo.compose_up(project_name).await
     }
 
     pub async fn compose_down(&self, project_name: &str) -> Result<(), AppError> {
+        crate::domain::docker_ref::validate_project_name(project_name)?;
         self.docker_repo.compose_down(project_name).await
     }
 
     pub async fn inspect_container(&self, id: &str) -> Result<serde_json::Value, AppError> {
+        validate_docker_ref("id", id)?;
         self.docker_repo.inspect_container(id).await
     }
 
+    /// `docker run` 命令 → Compose YAML（纯转换，不接触 Docker；部署仍走 compose_deploy）。
+    pub fn convert_run_command(
+        &self,
+        command: &str,
+    ) -> Result<crate::domain::compose_convert::ComposeConversion, AppError> {
+        crate::domain::compose_convert::convert_docker_run(command)
+    }
+
+    /// 既有容器 → Compose YAML（收编）：结合镜像默认配置剔除非用户设置项。
+    pub async fn container_to_compose(
+        &self,
+        id: &str,
+    ) -> Result<crate::domain::compose_convert::ComposeConversion, AppError> {
+        validate_docker_ref("id", id)?;
+        let container = self.docker_repo.inspect_container(id).await?;
+        // 优先按镜像 ID（sha256:…）查，避免标签已被重新指向其他镜像
+        let image_key = container
+            .get("Image")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .or_else(|| container.pointer("/Config/Image").and_then(|v| v.as_str()))
+            .unwrap_or_default()
+            .to_string();
+        let image = if validate_image_ref("image", &image_key).is_ok() {
+            match self.docker_repo.inspect_image(&image_key).await {
+                Ok(v) if v.is_object() => Some(v),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        crate::domain::compose_convert::convert_container(&container, image.as_ref())
+    }
+
     pub async fn rename_container(&self, id: &str, new_name: &str) -> Result<(), AppError> {
+        validate_docker_ref("id", id)?;
+        validate_docker_ref("new_name", new_name)?;
         self.docker_repo.rename_container(id, new_name).await
     }
 
     pub async fn pause_container(&self, id: &str) -> Result<(), AppError> {
+        validate_docker_ref("id", id)?;
         self.docker_repo.pause_container(id).await
     }
 
     pub async fn unpause_container(&self, id: &str) -> Result<(), AppError> {
+        validate_docker_ref("id", id)?;
         self.docker_repo.unpause_container(id).await
     }
 
     pub async fn kill_container(&self, id: &str) -> Result<(), AppError> {
+        validate_docker_ref("id", id)?;
         self.docker_repo.kill_container(id).await
     }
 
@@ -283,10 +362,18 @@ impl DockerService {
         driver: &str,
         subnet: Option<&str>,
     ) -> Result<serde_json::Value, AppError> {
-        self.docker_repo.create_network(name, driver, subnet).await
+        validate_docker_ref("name", name)?;
+        validate_driver(driver)?;
+        if let Some(subnet) = subnet.filter(|s| !s.is_empty()) {
+            validate_subnet(subnet)?;
+        }
+        self.docker_repo
+            .create_network(name, driver, subnet.filter(|s| !s.is_empty()))
+            .await
     }
 
     pub async fn remove_network(&self, id: &str) -> Result<(), AppError> {
+        validate_docker_ref("id", id)?;
         self.docker_repo.remove_network(id).await
     }
 
@@ -295,6 +382,8 @@ impl DockerService {
         network_id: &str,
         container_id: &str,
     ) -> Result<(), AppError> {
+        validate_docker_ref("id", network_id)?;
+        validate_docker_ref("container_id", container_id)?;
         self.docker_repo
             .connect_network(network_id, container_id)
             .await
@@ -306,6 +395,8 @@ impl DockerService {
         container_id: &str,
         force: bool,
     ) -> Result<(), AppError> {
+        validate_docker_ref("id", network_id)?;
+        validate_docker_ref("container_id", container_id)?;
         self.docker_repo
             .disconnect_network(network_id, container_id, force)
             .await
@@ -324,10 +415,13 @@ impl DockerService {
         name: &str,
         driver: &str,
     ) -> Result<serde_json::Value, AppError> {
+        validate_docker_ref("name", name)?;
+        validate_driver(driver)?;
         self.docker_repo.create_volume(name, driver).await
     }
 
     pub async fn remove_volume(&self, name: &str, force: bool) -> Result<(), AppError> {
+        validate_docker_ref("name", name)?;
         self.docker_repo.remove_volume(name, force).await
     }
 
@@ -336,10 +430,24 @@ impl DockerService {
     }
 
     pub async fn pull_image(&self, image: &str) -> Result<String, AppError> {
+        validate_image_ref("image", image)?;
         self.docker_repo.pull_image(image).await
     }
 
     pub async fn tag_image(&self, image_id: &str, repo: &str, tag: &str) -> Result<(), AppError> {
+        validate_image_ref("id", image_id)?;
+        validate_image_ref("repo", repo)?;
+        if repo.contains('@')
+            || repo
+                .rsplit('/')
+                .next()
+                .is_some_and(|last| last.contains(':'))
+        {
+            return Err(AppError::ValidationError(
+                "repo: must not contain a tag or digest (use the tag field)".into(),
+            ));
+        }
+        validate_image_tag(tag)?;
         self.docker_repo.tag_image(image_id, repo, tag).await
     }
 

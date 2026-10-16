@@ -18,7 +18,7 @@
 |------|------|
 | baseURL | `/api`，`timeout 15000ms` |
 | 鉴权 | 请求拦截器自动附加 `Authorization: Bearer <token>` |
-| 401 刷新 | 单飞去重刷新 `refresh_token` 后重放原请求；刷新失败清空登录态跳 `/login` |
+| 401 刷新 | 单飞去重刷新（Y1：refresh token 存于 httpOnly Cookie，浏览器自动携带）后重放原请求；刷新失败清空登录态跳 `/login` |
 | 强改密 | 后端返回 `PASSWORD_CHANGE_REQUIRED` 时强制跳转改密页 |
 | `ApiError` | 后端统一错误响应 `{ code, message, status }`（见 `flame-kernel/src/core/error.rs`） |
 | `isNetworkError` | 断网 / 超时 / CORS 等非 HTTP 错误的判定工具 |
@@ -32,8 +32,9 @@
 ### `auth.ts`
 | 函数 | 方法 | 路径 | 说明 |
 |------|------|------|------|
-| `login` | POST | `/auth/login` | 登录，返回 access+refresh |
-| `refreshToken` | POST | `/auth/refresh` | 刷新令牌 |
+| `login` | POST | `/auth/login` | 登录，返回 access（refresh 经 httpOnly Cookie 下发） |
+| `refreshToken` | POST | `/auth/refresh` | 刷新令牌（凭 httpOnly Cookie） |
+| `logout` | POST | `/auth/logout` | 登出（吊销 refresh 并清除 Cookie） |
 | `fetchMe` | GET | `/auth/me` | 当前用户信息 |
 | `changePassword` | PUT | `/auth/password` | 修改密码 |
 
@@ -93,7 +94,7 @@
 | 模块 | 函数 | 说明 |
 |------|------|------|
 | websites | `listWebsites` `createWebsite` `updateWebsite` `deleteWebsite` `switchWebsiteEngine` | 网站 CRUD + 引擎切换 |
-| webServers | `listEngines` `listWebServers` `getWebServer` `createWebServer` `updateWebServer` `deleteWebServer` `startWebServer` `stopWebServer` `restartWebServer` `reloadWebServer` `configtestWebServer` `getWebServerConfig` `updateWebServerConfig` `switchWebServerEngine` `applyWebServerPreset` `listPresets` `detectNativeWebServers` `nativeInstallWebServer` `nativeUninstallWebServer` `nativeAutostartWebServer` `setWebServerAutostart` `nativeStatusWebServer` | Web 服务器与引擎管理 |
+| webServers | `listEngines` `listWebServers` `getWebServer` `createWebServer` `updateWebServer` `deleteWebServer` `startWebServer` `stopWebServer` `restartWebServer` `reloadWebServer` `configtestWebServer` `getWebServerConfig` `switchWebServerEngine` `applyWebServerPreset` `listPresets` `detectNativeWebServers` `nativeInstallWebServer` `nativeUninstallWebServer` `nativeAutostartWebServer` `setWebServerAutostart` `nativeStatusWebServer` | Web 服务器与引擎管理 |
 
 ### `databases.ts`
 | 函数 | 说明 |

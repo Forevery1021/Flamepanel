@@ -29,19 +29,19 @@ withDefaults(
   align-items: center;
   justify-content: center;
   gap: var(--fp-space-2);
-  padding: var(--fp-space-8) var(--fp-space-4);
+  padding: var(--fp-space-10) var(--fp-space-4);
   text-align: center;
 }
 .fp-empty__icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 999px;
-  background: var(--fp-bg-hover);
-  color: var(--fp-text-muted);
-  font-size: 24px;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--fp-radius-md);
+  background: var(--fp-brand-soft);
+  color: var(--fp-brand);
+  font-size: 22px;
   margin-bottom: var(--fp-space-2);
 }
 .fp-empty__title {

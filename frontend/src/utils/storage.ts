@@ -21,12 +21,20 @@ export const STORAGE_KEYS = {
   custom: 'flamepanel.custom',
   /** 玻璃总开关 */
   glass: 'flamepanel.glass',
+  /** 表面材质（solid / glass / acrylic）；缺省时由 glass 开关迁移 */
+  material: 'flamepanel.material',
   /** 界面外观偏好 */
   appearance: 'flamepanel.appearance',
   /** 侧边栏展开分组 */
   openGroups: 'flamepanel.sidebar.openGroups',
-  /** 多页签列表 */
-  tabs: 'flamepanel.tabs',
+  /** 新手引导完成标记（按用户名后缀） */
+  onboarding: 'flamepanel.onboarding',
+  /** Setup 向导草稿（sessionStorage，刷新不丢） */
+  setupDraft: 'flamepanel.setup.draft',
+  /** S-17 仪表盘安全体检横幅「本次忽略」（sessionStorage，按报告生成时间记忆） */
+  inspectionBannerDismissed: 'flamepanel.inspection.bannerDismissed',
+  /** S-15 ⌘K 最近访问的菜单路由名（按用户名后缀） */
+  paletteRecent: 'flamepanel.palette.recent',
   /** 侧边栏折叠状态 */
   collapse: 'flamepanel.sidebar.collapsed',
   /** 语言 */
@@ -54,4 +62,31 @@ export function rawStringSerializer<T extends string>(): Serializer<T> {
 export const rawBooleanSerializer: Serializer<boolean> = {
   read: (raw) => raw === '1',
   write: (value) => (value ? '1' : '0'),
+}
+
+/**
+ * 直写 localStorage 并广播变更（同文档同步）。
+ *
+ * `@vueuse/core` 的 `useStorage` 只监听浏览器原生 `storage` 事件，而该事件**仅在其它
+ * 文档**触发——同一文档内的直写不会通知任何订阅者，于是出现「localStorage 已是新值、
+ * 订阅它的 store 仍是旧值」的分叉。
+ *
+ * 常规读写请优先使用 `useStorage`（store 侧，见 `stores/auth.ts`）；本函数只服务于
+ * **无法访问 store 的底层模块**——典型是 `api/client.ts` 的 401 刷新回写：它被 store
+ * 反向依赖（store → api/auth → client），不能 import store，否则成环。
+ *
+ * `value` 传 `null` 表示移除该键。
+ */
+export function writeStorage(key: string, value: string | null): void {
+  const oldValue = localStorage.getItem(key)
+  if (value === null) {
+    localStorage.removeItem(key)
+  } else {
+    localStorage.setItem(key, value)
+  }
+  // 同文档广播：让 useStorage 订阅者（auth store）与存储保持一致（值未变则不广播）
+  if (oldValue === value) return
+  window.dispatchEvent(
+    new StorageEvent('storage', { key, oldValue, newValue: value, storageArea: localStorage }),
+  )
 }

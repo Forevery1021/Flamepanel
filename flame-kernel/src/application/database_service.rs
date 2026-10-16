@@ -1,7 +1,10 @@
 //! 数据库领域服务（T8 拆分自原 `application/service.rs` 上帝文件）。
 use crate::api::types::{PaginatedResponse, PaginationParams};
 use crate::core::error::AppError;
-use crate::database::{mysql::MySqlManager, redis::RedisManager, NativeDbManager};
+use crate::database::{
+    mongodb::MongoManager, mysql::MySqlManager, postgres::PostgresManager, redis::RedisManager,
+    NativeDbManager,
+};
 use crate::domain::entity::*;
 use crate::domain::repository::*;
 use std::sync::Arc;
@@ -10,6 +13,8 @@ pub struct DatabaseService {
     pub repo: Arc<dyn DatabaseRepository>,
     pub mysql_manager: MySqlManager,
     pub redis_manager: RedisManager,
+    pub postgres_manager: PostgresManager,
+    pub mongo_manager: MongoManager,
 }
 
 impl DatabaseService {
@@ -20,7 +25,9 @@ impl DatabaseService {
         Self {
             repo,
             mysql_manager: MySqlManager::new(runner.clone()),
-            redis_manager: RedisManager::new(runner),
+            redis_manager: RedisManager::new(runner.clone()),
+            postgres_manager: PostgresManager::new(runner.clone()),
+            mongo_manager: MongoManager::new(runner),
         }
     }
 
@@ -34,7 +41,9 @@ impl DatabaseService {
         Self {
             repo,
             mysql_manager: MySqlManager::new(runner.clone()).with_config_file(mysql_config),
-            redis_manager: RedisManager::new(runner).with_config_file(redis_config),
+            redis_manager: RedisManager::new(runner.clone()).with_config_file(redis_config),
+            postgres_manager: PostgresManager::new(runner.clone()),
+            mongo_manager: MongoManager::new(runner),
         }
     }
 
@@ -139,11 +148,88 @@ impl DatabaseService {
             .ok_or_else(|| AppError::internal("Failed to create database instance"))
     }
 
+    /// Doc/20 §6.4：PostgreSQL 原生安装（发行版包）。
+    pub async fn install_postgres(
+        &self,
+        version: Option<&str>,
+        port: i32,
+        password: Option<&str>,
+        name: &str,
+    ) -> Result<DatabaseInstance, AppError> {
+        self.postgres_manager
+            .install(version, port, password.unwrap_or(""))
+            .await?;
+        let ver = self
+            .postgres_manager
+            .get_version()
+            .await
+            .unwrap_or_else(|_| "latest".into());
+        let instance = DatabaseInstance {
+            id: 0,
+            db_type: "postgres".into(),
+            name: name.into(),
+            version: ver,
+            port,
+            status: "running".into(),
+            install_path: "/var/lib/postgresql".into(),
+            data_dir: "/var/lib/postgresql/data".into(),
+            config_file: "/etc/postgresql".into(),
+            root_user: "postgres".into(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            resource_version: 0,
+        };
+        let id = self.repo.create(&instance).await?;
+        self.repo
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| AppError::internal("Failed to create database instance"))
+    }
+
+    /// Doc/30 M-C：MongoDB 原生安装（官方仓库 8.0 / 9.0）。填写密码时创建 `admin` 并开启鉴权。
+    pub async fn install_mongodb(
+        &self,
+        version: Option<&str>,
+        port: i32,
+        password: Option<&str>,
+        name: &str,
+    ) -> Result<DatabaseInstance, AppError> {
+        let password = password.unwrap_or("");
+        self.mongo_manager.install(version, port, password).await?;
+        let ver = self
+            .mongo_manager
+            .get_version()
+            .await
+            .unwrap_or_else(|_| "unknown".into());
+        let instance = DatabaseInstance {
+            id: 0,
+            db_type: "mongodb".into(),
+            name: name.into(),
+            version: ver,
+            port,
+            status: "running".into(),
+            install_path: "/usr/bin/mongod".into(),
+            data_dir: "/var/lib/mongodb".into(),
+            config_file: crate::database::mongodb::MONGOD_CONFIG.into(),
+            root_user: if password.is_empty() { "" } else { "admin" }.into(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            resource_version: 0,
+        };
+        let id = self.repo.create(&instance).await?;
+        self.repo
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| AppError::internal("Failed to create database instance"))
+    }
+
     pub async fn start(&self, id: i64) -> Result<(), AppError> {
         let inst = self.get_instance(id).await?;
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.start().await,
             "redis" => self.redis_manager.start().await,
+            "postgres" => self.postgres_manager.start().await,
+            "mongodb" => self.mongo_manager.start().await,
             t => Err(AppError::BadRequest(format!(
                 "Unknown database type: {}",
                 t
@@ -157,6 +243,8 @@ impl DatabaseService {
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.stop().await,
             "redis" => self.redis_manager.stop().await,
+            "postgres" => self.postgres_manager.stop().await,
+            "mongodb" => self.mongo_manager.stop().await,
             t => Err(AppError::BadRequest(format!(
                 "Unknown database type: {}",
                 t
@@ -170,6 +258,8 @@ impl DatabaseService {
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.restart().await,
             "redis" => self.redis_manager.restart().await,
+            "postgres" => self.postgres_manager.restart().await,
+            "mongodb" => self.mongo_manager.restart().await,
             t => Err(AppError::BadRequest(format!(
                 "Unknown database type: {}",
                 t
@@ -189,6 +279,20 @@ impl DatabaseService {
             }
             "redis" => {
                 if self.redis_manager.is_running().await? {
+                    Ok("running".into())
+                } else {
+                    Ok("stopped".into())
+                }
+            }
+            "postgres" => {
+                if self.postgres_manager.is_running().await? {
+                    Ok("running".into())
+                } else {
+                    Ok("stopped".into())
+                }
+            }
+            "mongodb" => {
+                if self.mongo_manager.is_running().await? {
                     Ok("running".into())
                 } else {
                     Ok("stopped".into())
@@ -221,6 +325,8 @@ impl DatabaseService {
         let inst = self.get_instance(instance_id).await?;
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.create_database(db_name, charset).await,
+            // PostgreSQL 无 MySQL 式字符集建库参数（模板库决定），charset 忽略
+            "postgres" => self.postgres_manager.create_database(db_name, None).await,
             t => Err(AppError::BadRequest(format!(
                 "Database creation not supported for: {}",
                 t
@@ -230,8 +336,10 @@ impl DatabaseService {
 
     pub async fn drop_database(&self, instance_id: i64, db_name: &str) -> Result<(), AppError> {
         let inst = self.get_instance(instance_id).await?;
+        ensure_droppable(&inst.db_type, DropTarget::Database, db_name)?;
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.drop_database(db_name).await,
+            "postgres" => self.postgres_manager.drop_database(db_name).await,
             t => Err(AppError::BadRequest(format!(
                 "Database drop not supported for: {}",
                 t
@@ -243,6 +351,7 @@ impl DatabaseService {
         let inst = self.get_instance(instance_id).await?;
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.list_databases().await,
+            "postgres" => self.postgres_manager.list_databases().await,
             t => Err(AppError::BadRequest(format!(
                 "Database listing not supported for: {}",
                 t
@@ -257,10 +366,23 @@ impl DatabaseService {
         password: &str,
         host: &str,
     ) -> Result<(), AppError> {
-        let _inst = self.get_instance(instance_id).await?;
-        self.mysql_manager
-            .create_user(username, password, host)
-            .await
+        let inst = self.get_instance(instance_id).await?;
+        match inst.db_type.as_str() {
+            "postgres" => {
+                self.postgres_manager
+                    .create_user(username, password, host)
+                    .await
+            }
+            "mysql" | "mariadb" => {
+                self.mysql_manager
+                    .create_user(username, password, host)
+                    .await
+            }
+            // 旧实现兜底落到 MySQL：对 Redis / MongoDB 实例会去连本机 MySQL 建用户
+            t => Err(AppError::BadRequest(format!(
+                "User management not supported for: {t}"
+            ))),
+        }
     }
 
     pub async fn drop_user(
@@ -269,8 +391,15 @@ impl DatabaseService {
         username: &str,
         host: &str,
     ) -> Result<(), AppError> {
-        let _inst = self.get_instance(instance_id).await?;
-        self.mysql_manager.drop_user(username, host).await
+        let inst = self.get_instance(instance_id).await?;
+        ensure_droppable(&inst.db_type, DropTarget::User, username)?;
+        match inst.db_type.as_str() {
+            "postgres" => self.postgres_manager.drop_user(username, host).await,
+            "mysql" | "mariadb" => self.mysql_manager.drop_user(username, host).await,
+            t => Err(AppError::BadRequest(format!(
+                "User management not supported for: {t}"
+            ))),
+        }
     }
 
     pub async fn uninstall(&self, id: i64) -> Result<(), AppError> {
@@ -278,11 +407,83 @@ impl DatabaseService {
         match inst.db_type.as_str() {
             "mysql" | "mariadb" => self.mysql_manager.uninstall().await,
             "redis" => self.redis_manager.uninstall().await,
+            "postgres" => self.postgres_manager.uninstall().await,
+            "mongodb" => self.mongo_manager.uninstall().await,
             t => Err(AppError::BadRequest(format!(
                 "Unknown database type: {}",
                 t
             ))),
         }?;
         self.repo.delete(id).await
+    }
+}
+
+/// 删除目标种类（系统库 / 超级用户保护）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropTarget {
+    Database,
+    User,
+}
+
+/// 拒绝删除引擎自身依赖的系统库与超级用户：`DROP DATABASE mysql` 会让实例无法启动，
+/// `DROP USER root` / `postgres` 则让面板永久失去管理通道。名称按大小写不敏感比较（保守）。
+pub fn ensure_droppable(db_type: &str, target: DropTarget, name: &str) -> Result<(), AppError> {
+    let protected: &[&str] = match (db_type, target) {
+        ("mysql" | "mariadb", DropTarget::Database) => {
+            &["mysql", "information_schema", "performance_schema", "sys"]
+        }
+        ("mysql" | "mariadb", DropTarget::User) => &[
+            "root",
+            "mysql.sys",
+            "mysql.session",
+            "mysql.infoschema",
+            "mariadb.sys",
+        ],
+        ("postgres", DropTarget::Database) => &["postgres", "template0", "template1"],
+        ("postgres", DropTarget::User) => &["postgres"],
+        _ => &[],
+    };
+    if protected.iter().any(|p| p.eq_ignore_ascii_case(name)) {
+        let what = match target {
+            DropTarget::Database => "system database",
+            DropTarget::User => "built-in superuser",
+        };
+        return Err(AppError::BadRequest(format!(
+            "refusing to drop {what} {name:?}"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod drop_guard_tests {
+    use super::*;
+
+    #[test]
+    fn system_databases_and_superusers_are_protected() {
+        for (t, k, n) in [
+            ("mysql", DropTarget::Database, "mysql"),
+            ("mysql", DropTarget::Database, "INFORMATION_SCHEMA"),
+            ("mariadb", DropTarget::Database, "sys"),
+            ("mysql", DropTarget::User, "root"),
+            ("postgres", DropTarget::Database, "template1"),
+            ("postgres", DropTarget::Database, "postgres"),
+            ("postgres", DropTarget::User, "postgres"),
+        ] {
+            assert!(ensure_droppable(t, k, n).is_err(), "{t} {k:?} {n}");
+        }
+    }
+
+    #[test]
+    fn user_objects_are_droppable() {
+        for (t, k, n) in [
+            ("mysql", DropTarget::Database, "mysql_app"),
+            ("mysql", DropTarget::Database, "analysis"),
+            ("mysql", DropTarget::User, "rooter"),
+            ("postgres", DropTarget::Database, "app"),
+            ("postgres", DropTarget::User, "root"),
+        ] {
+            assert!(ensure_droppable(t, k, n).is_ok(), "{t} {k:?} {n}");
+        }
     }
 }

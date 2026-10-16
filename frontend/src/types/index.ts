@@ -33,6 +33,8 @@ export type {
   CreateNodeRequest,
   CreateWebsiteRequest,
   UpdateSettingRequest,
+  RuntimeDto,
+  ProjectDto,
   CreateTaskRequest,
   UpdateTaskRequest,
   RemoteExecRequest,
@@ -75,6 +77,15 @@ export interface NodeMetrics {
   load_one?: number
 }
 
+/** Agent Edge 反向通道概况（`/status` 透出；未建立连接时 connected=false） */
+export interface NodeEdgeInfo {
+  connected: boolean
+  /** Agent 是否开启远程终端（AGENT_TERMINAL=1） */
+  terminal: boolean
+  version: string
+  connected_at: string | null
+}
+
 export interface DockerContainer {
   id: string
   image: string
@@ -86,7 +97,12 @@ export interface DockerContainer {
 
 export interface DockerImage {
   id: string
+  /** 镜像标签（扁平化，如 ["nginx:latest"]） */
+  tags?: string[]
+  /** 原始仓库标签（Docker API 原生形态） */
   repo_tags?: string[]
+  /** 镜像大小（字节） */
+  size?: number
 }
 
 export interface DockerNetwork {
@@ -98,9 +114,11 @@ export interface DockerNetwork {
   attachable: boolean
   created: string | null
   ipam?: { driver?: string; config?: Array<{ subnet?: string; gateway?: string }> } | null
-  containers?:
-    | Array<{ name: string; ipv4_address: string | null; ipv6_address: string | null }>
-    | null
+  containers?: Array<{
+    name: string
+    ipv4_address: string | null
+    ipv6_address: string | null
+  }> | null
 }
 
 export interface DockerVolume {
@@ -117,6 +135,14 @@ export interface ComposeProject {
   name: string
   status: string
   config_files: string
+}
+
+/** `docker run` / 既有容器 → Compose 的转换结果（仅供审阅，不会自动部署） */
+export interface ComposeConversion {
+  project_name: string
+  service_name: string
+  compose_yaml: string
+  warnings: string[]
 }
 
 export interface PruneResult {
@@ -143,6 +169,26 @@ export interface NativeWebServerInfo {
   listening_ports: number[]
 }
 
+export interface CapabilityInfo {
+  key: string
+  label_zh: string
+  label_en: string
+  packages: string[]
+  hint: string
+}
+
+export interface EngineCapabilitiesResponse {
+  engine: string
+  capabilities: CapabilityInfo[]
+}
+
+export interface InstallCapabilitiesResult {
+  engine: string
+  installed: string[]
+  failed: string[]
+  success: boolean
+}
+
 export interface PluginResponse {
   id: string
   name: string
@@ -154,6 +200,41 @@ export interface PluginResponse {
   loaded_at: string
   last_executed_at: string | null
   exec_count: number
+  /** 已授予的宿主能力（fs:read:<dir> / fs:write:<dir> / metrics:read / settings:write） */
+  capabilities?: string[]
+}
+
+/** 插件执行结果（output 为显式输出或返回值字节） */
+export interface PluginExecutionResponse {
+  output: number[]
+  output_hex: string
+  output_string: string
+  execution_ms: number
+  logs: string[]
+}
+
+/** 插件市场条目 */
+export interface MarketPlugin {
+  id: string
+  name: string
+  version: string
+  author: string
+  description: string
+  capabilities: string[]
+  tags: string[]
+  homepage?: string | null
+  license?: string | null
+  entry: string
+  wasm_sha256: string
+  source: 'builtin' | 'remote'
+  installed: boolean
+  installed_version?: string | null
+}
+
+export interface MarketListResponse {
+  plugins: MarketPlugin[]
+  remote_url?: string | null
+  remote_error?: string | null
 }
 
 export interface OperationLog {
@@ -208,6 +289,40 @@ export interface FileInfo {
   permissions: string
   modified_at: string
   mime_type: string | null
+  /** 条目本身是符号链接 */
+  is_symlink?: boolean
+}
+
+export interface FileWriteResult {
+  modified_at: string
+  size: number
+}
+
+export interface FileCompressResult {
+  path: string
+  size: number
+  entries: number
+  skipped: number
+}
+
+export interface FileExtractResult {
+  entries: number
+  bytes: number
+  top_level: string[]
+  replaced: string[]
+  skipped: number
+}
+
+export interface RecycleItem {
+  id: string
+  name: string
+  original_path: string
+  is_dir: boolean
+  size: number
+  size_truncated: boolean
+  deleted_at: string
+  deleted_by: string
+  expires_at: string
 }
 
 export interface DatabaseInstance {

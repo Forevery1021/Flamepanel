@@ -1,6 +1,13 @@
 <template>
   <aside class="app-sidebar" :class="{ 'is-collapsed': collapsed }">
-    <div class="sidebar-logo" @click="router.push('/dashboard')">
+    <div
+      class="sidebar-logo"
+      role="link"
+      tabindex="0"
+      :aria-label="t('nav.dashboard')"
+      @click="router.push('/dashboard')"
+      @keydown.enter="router.push('/dashboard')"
+    >
       <span class="logo-mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
           <path
@@ -14,17 +21,20 @@
       <span v-if="!collapsed" class="logo-text">FlamePanel</span>
     </div>
 
-    <nav class="sidebar-nav" aria-label="主导航">
-      <!-- 顶级项（main 分组） -->
+    <nav class="sidebar-nav" :aria-label="t('nav.mainNav')" data-tour="sidebar">
+      <!-- 顶级项（main 分组，非钉底） -->
       <template v-for="group in visibleGroups" :key="group.key">
         <template v-if="group.key === 'main'">
           <RouterLink
-            v-for="item in group.items"
+            v-for="item in group.items.filter((i) => !i.meta.pinned)"
             :key="item.path"
             :to="item.path"
             class="nav-item"
             :class="{ 'is-active': isActive(item.path), 'is-collapsed': collapsed }"
             :title="collapsed ? t(item.meta.title ?? '') : undefined"
+            @mouseenter="prefetch.enter(item.path)"
+            @mouseleave="prefetch.leave()"
+            @focus="prefetch.now(item.path)"
           >
             <span class="nav-item__icon" :class="`menu-color-${group.key}`">
               <i class="oi" :class="item.meta.icon" />
@@ -55,6 +65,9 @@
                   :to="item.path"
                   class="nav-item nav-item-sub"
                   :class="{ 'is-active': isActive(item.path) }"
+                  @mouseenter="prefetch.enter(item.path)"
+                  @mouseleave="prefetch.leave()"
+                  @focus="prefetch.now(item.path)"
                 >
                   <span class="nav-item__dot" aria-hidden="true" />
                   <span class="nav-item__label">{{ t(item.meta.title ?? '') }}</span>
@@ -80,6 +93,27 @@
       </template>
     </nav>
 
+    <!-- UX-3：钉底一级菜单（面板设置）——始终可达，不随分组折叠/隐藏 -->
+    <div v-if="pinnedBottom.length" class="sidebar-pinned" data-tour="settings">
+      <RouterLink
+        v-for="item in pinnedBottom"
+        :key="item.path"
+        :to="item.path"
+        class="nav-item nav-item-pinned"
+        :class="{ 'is-active': isActive(item.path), 'is-collapsed': collapsed }"
+        :title="collapsed ? t(item.meta.title ?? '') : undefined"
+        @mouseenter="prefetch.enter(item.path)"
+        @mouseleave="prefetch.leave()"
+        @focus="prefetch.now(item.path)"
+      >
+        <span class="nav-item__icon menu-color-system">
+          <i class="oi" :class="item.meta.icon" />
+        </span>
+        <span v-if="!collapsed" class="nav-item__label">{{ t(item.meta.title ?? '') }}</span>
+        <kbd v-if="!collapsed" class="nav-item__kbd" aria-hidden="true">,</kbd>
+      </RouterLink>
+    </div>
+
     <!-- 折叠态子菜单浮层 -->
     <div
       v-if="flyout"
@@ -94,6 +128,9 @@
         :to="item.path"
         class="nav-item nav-item-sub"
         :class="{ 'is-active': isActive(item.path) }"
+        @mouseenter="prefetch.enter(item.path)"
+        @mouseleave="prefetch.leave()"
+        @focus="prefetch.now(item.path)"
         @click="flyout = null"
       >
         <span class="nav-item__icon" :class="`menu-color-${flyout.key}`">
@@ -106,17 +143,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppearanceStore } from '@/stores/appearance'
 import { useAuthStore } from '@/stores/auth'
 import { menuRoutes, type MenuGroup } from '@/router'
-import { isMenuHiddenForRole } from '@/directives/permission'
+import { isRouteVisibleInMenu } from '@/directives/permission'
+import { useHoverPrefetch } from '@/utils/prefetchRoute'
 
 defineProps<{ collapsed?: boolean }>()
 
 const router = useRouter()
+// 悬停 / 聚焦菜单项时预取目标视图 chunk
+const prefetch = useHoverPrefetch(router)
 const route = useRoute()
 const { t } = useI18n()
 const appearance = useAppearanceStore()
@@ -151,8 +191,8 @@ const visibleGroups = computed(() => {
   for (const r of menuRoutes) {
     const group = r.meta?.group
     if (!group || appearance.state.hideMenu.includes(group)) continue
-    // 按角色过滤菜单（viewer/operator 隐藏管理类入口）
-    if (isMenuHiddenForRole(role, r.path)) continue
+    // 按角色过滤菜单（与路由守卫同源判据：权限点 + 角色级菜单规则）
+    if (!isRouteVisibleInMenu(role, r)) continue
     const list = byGroup.get(group) ?? []
     list.push(r)
     byGroup.set(group, list)
@@ -164,6 +204,34 @@ const visibleGroups = computed(() => {
     items,
   }))
 })
+
+/** 钉在导航底部的一级项（`meta.pinned === 'bottom'`，目前为「面板设置」） */
+const pinnedBottom = computed(
+  () => visibleGroups.value.find((g) => g.key === 'main')?.items.filter((i) => i.meta.pinned === 'bottom') ?? [],
+)
+
+/** 快捷键：`,`（逗号，macOS 偏好设置惯例）直达面板设置；输入框聚焦时不劫持 */
+function onGlobalKeydown(e: KeyboardEvent) {
+  if (e.key !== ',' || e.ctrlKey || e.metaKey || e.altKey) return
+  const target = e.target as HTMLElement | null
+  if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) return
+  const settings = pinnedBottom.value[0]
+  if (!settings) return
+  e.preventDefault()
+  if (route.path !== settings.path) router.push(settings.path)
+}
+onMounted(() => window.addEventListener('keydown', onGlobalKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onGlobalKeydown))
+
+/** 进入/切换路由时自动展开所在分组（不覆盖用户手动收起：只在未打开时打开） */
+watch(
+  () => route.path,
+  () => {
+    const g = route.meta?.group as MenuGroup | undefined
+    if (g && g !== 'main') appearance.ensureGroupOpen(g)
+  },
+  { immediate: true },
+)
 
 /** 高亮：路由路径或 meta.activeMenu 归属 */
 function isActive(path: string) {
@@ -316,10 +384,26 @@ function toggleFlyout(key: MenuGroup, event: MouseEvent) {
   background: oklch(1 0 0 / 0.06);
   color: oklch(0.95 0 0);
 }
+.nav-item {
+  position: relative;
+}
 .nav-item.is-active {
-  background: var(--fp-brand-soft);
-  color: var(--fp-brand);
+  background: oklch(1 0 0 / 0.05);
+  color: oklch(0.97 0 0);
   font-weight: 600;
+}
+.nav-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--fp-brand);
+}
+.nav-item-sub.is-active::before {
+  left: -16px;
 }
 .nav-item__label {
   white-space: nowrap;
@@ -347,10 +431,11 @@ function toggleFlyout(key: MenuGroup, event: MouseEvent) {
   border: none;
   border-radius: var(--fp-radius-sm);
   background: transparent;
-  color: oklch(0.8 0.02 250);
+  color: oklch(0.72 0.02 250);
   font-size: 13px;
   font-weight: 600;
   font-family: var(--fp-font-sans);
+  margin-top: 4px;
   cursor: pointer;
   text-align: left;
   width: 100%;
@@ -383,9 +468,12 @@ function toggleFlyout(key: MenuGroup, event: MouseEvent) {
 .nav-submenu {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding-left: var(--fp-space-4);
+  gap: 1px;
+  padding: 2px 0 6px var(--fp-space-4);
+  margin-left: 19px;
+  border-left: 1px solid oklch(1 0 0 / 0.08);
 }
+.nav-submenu .nav-item__dot { display: none; }
 .nav-item-sub {
   height: 34px;
   font-size: 13px;
@@ -406,7 +494,8 @@ function toggleFlyout(key: MenuGroup, event: MouseEvent) {
   background: var(--fp-brand);
 }
 .nav-item-sub.is-active {
-  background: color-mix(in srgb, var(--fp-brand-soft) 60%, transparent);
+  background: oklch(1 0 0 / 0.05);
+  color: oklch(0.97 0 0);
 }
 
 /* 子菜单展开过渡 */
@@ -420,6 +509,33 @@ function toggleFlyout(key: MenuGroup, event: MouseEvent) {
 .submenu-leave-to {
   opacity: 0;
   transform: translateY(-4px);
+}
+
+/* ── 钉底一级菜单 ── */
+.sidebar-pinned {
+  flex-shrink: 0;
+  padding: var(--fp-space-2);
+  border-top: 1px solid oklch(1 0 0 / 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-item-pinned .nav-item__label {
+  flex: 1;
+}
+.nav-item__kbd {
+  font-family: var(--fp-font-mono);
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 4px;
+  border: 1px solid oklch(1 0 0 / 0.12);
+  color: oklch(0.6 0.02 250);
+  opacity: 0;
+  transition: opacity var(--fp-transition-fast);
+}
+.nav-item-pinned:hover .nav-item__kbd {
+  opacity: 1;
 }
 
 /* ── 折叠态分组按钮 ── */

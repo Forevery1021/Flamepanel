@@ -1,130 +1,44 @@
-# FlamePanel 开发文档中心
+# FlamePanel 文档导航
 
-> 基于 Rust + Vue 3 的服务器运维管理面板 · 本文档为开发、API 对接与部署的权威指南
+> 按任务进入，不从头读全部文档。代码、生成契约和配置是事实来源；文档解释边界、流程与操作，不维护重复的计数 / 版本表。
 
-## 文档导航
+## 先读这几篇
 
-| 文档 | 说明 | 适用对象 |
-|------|------|----------|
-| [01-架构设计.md](./01-架构设计.md) | 系统架构、分层设计、核心模块与技术决策 | 架构师、后端开发 |
-| [02-API接口文档.md](./02-API接口文档.md) | 全部 REST/WebSocket 接口、请求/响应示例、认证与错误码 | 前后端开发者、API 对接方 |
-| [03-数据库设计.md](./03-数据库设计.md) | SQLite 表结构、字段说明、实体关系、迁移机制 | 后端开发、DBA |
-| [04-前端开发指南.md](./04-前端开发指南.md) | 前端工程结构、页面路由、API 封装、i18n 与主题 | 前端开发 |
-| [05-后端开发指南.md](./05-后端开发指南.md) | 后端分层开发流程、新功能标准步骤、代码规范 | 后端开发 |
-| [06-部署运维指南.md](./06-部署运维指南.md) | 四种部署方式、环境变量、Nginx、Docker、systemd 运维 | 运维、部署人员 |
-| [07-权限体系设计.md](./07-权限体系设计.md) | JWT 认证、RBAC 角色权限、中间件流程、权限扩展 | 后端开发、安全 |
-| [08-应用商店与插件系统.md](./08-应用商店与插件系统.md) | 应用商店三格式/三模式、WASM 插件沙箱、安全扫描（入门概览） | 应用开发者、插件开发者 |
-| [15-应用商店SDK开发指南.md](./15-应用商店SDK开发指南.md) | 应用包格式/清单 Schema/安装模式/WASM 插件 SDK/API 对接/FAQ（SDK 实操） | 应用开发者、插件开发者 |
-| [16-1Panel与原生软件兼容性开发指导.md](./16-1Panel与原生软件兼容性开发指导.md) | 1Panel/宝塔包迁移清单、原生控制软件接入、差异与后续路线 | 应用开发者、迁移实施者 |
-| [17-重构与现代化落地手册.md](./17-重构与现代化落地手册.md) | 后端重构（Stage0–3）+ 前端修复（F0–F4）+ OpenVue 现代化的统一可执行手册 | Coding Agent、全体开发者 |
-| [18-兼容性与安全基线.md](./18-兼容性与安全基线.md) | 操作系统兼容矩阵、上线前安全验收清单、CI 安全门禁 | 运维、安全、全体 |
-| [19-后端架构分析与完善落地手册.md](./19-后端架构分析与完善落地手册.md) | 后端架构现状/问题/性能分析 + Stage0–9 分阶段完善手册（分页下沉、鉴权缓存、限流、任务生命周期、权限元数据等） | Coding Agent、后端开发、架构师 |
-| [09-测试指南.md](./09-测试指南.md) | 测试策略、集成/单元测试编写、运行命令 | 全栈开发 |
-| [10-故障排查手册.md](./10-故障排查手册.md) | 常见问题排查、日志定位、健康检查 | 运维、开发 |
-| [11-Agent节点通信协议.md](./11-Agent节点通信协议.md) | Agent 注册/心跳/远程命令/文件接口、安全模型与扩展 | 后端、运维、Agent 开发者 |
-| [12-事件与通知系统.md](./12-事件与通知系统.md) | EventBus、DomainEvent、邮件通知与事件驱动扩展 | 后端开发 |
-| [13-开发路线图与后续规划.md](./13-开发路线图与后续规划.md) | P0/P1/P2 优先级、里程碑、技术债清单 | 架构师、PM、全体 |
-| [14-开发协作与发布流程.md](./14-开发协作与发布流程.md) | 分支/PR/CI/版本发布/数据库迁移/文档同步规范 | 全体 |
+| 目标                             | 入口                                                                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 理解启动、组合根、端口与安全边界 | [01 核心架构与代码导航](./01-架构设计.md)                                                                               |
+| 查看维护方向，而不是自动新增功能 | [30 维护路线](./30-路线图与里程碑.md)                                                                                   |
+| 做清理：先列证据、风险、兼容项   | [35 工程清理清单](./35-工程清理清单.md)                                                                                 |
+| 开发与云原生验证                 | [31 开发流程](./31-开发流程.md) · [AGENTS](../AGENTS.md)                                                                |
+| 安装、升级、回滚                 | [10 部署运维](./10-部署运维指南.md) · [12 安全与兼容](./12-安全基线与兼容矩阵.md) · [13 故障排查](./13-故障排查手册.md) |
 
-### 文档地图
+## 按业务查细节
 
-```mermaid
-flowchart LR
-    subgraph 入门
-        A["01 架构设计"] --> B["02 API 接口"]
-        B --> C["03 数据库设计"]
-    end
-    subgraph 开发
-        D["04 前端指南"] & E["05 后端指南"] --> F["07 权限体系"]
-        E --> G["09 测试指南"]
-        E --> H["12 事件与通知"]
-    end
-    subgraph 生态
-        I["08/15 应用商店与 SDK"] --> J["16 1Panel 兼容"]
-        K["11 Agent 协议"]
-    end
-    subgraph 运维
-        L["06 部署运维"] --> M["10 故障排查"]
-    end
-    subgraph 管理
-        N["13 路线图"] & O["14 协作流程"]
-    end
-    subgraph 执行
-        P["17 重构与现代化落地手册"] --> D
-        P --> E
-        P --> N
-        Q["19 后端架构完善手册"] --> E
-    end
-```
+| 主题                  | 文档                                                                                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 前端 / 后端 / 测试    | [04 前端](./04-前端开发指南.md) · [05 后端](./05-后端开发指南.md) · [06 测试](./06-测试指南.md) · [设计语言](../frontend/design.md)           |
+| 接口 / 数据 / 权限    | [生成 API 目录](./api/README.md) · [02 API 场景说明](./02-API接口文档.md) · [03 数据库](./03-数据库设计.md) · [07 权限](./07-权限体系设计.md) |
+| 应用商店 / SDK / 兼容 | [20](./20-应用商店与插件系统.md) · [21](./21-应用商店SDK开发指南.md) · [22](./22-1Panel与原生软件兼容性.md)                                   |
+| Agent / 事件          | [23 Agent 协议](./23-Agent节点通信协议.md) · [24 事件与通知](./24-事件与通知系统.md)                                                          |
+| 专项审查 / 历史计划   | [33 代码审计](./33-代码审计与优化报告.md) · [34 MCP 接入](./34-MCP-Server接入指南.md) · [32 v1.x 历史执行计划](./32-v1.x执行计划.md)          |
 
-## 快速开始
+## 单一事实来源
 
-```bash
-# 1. 启动后端（端口 8080）
-cd flame-kernel && cargo run
+- **Rust**：[`rust-toolchain.toml`](../rust-toolchain.toml)；受支持最低基线由 workspace `rust-version` 声明，精确依赖由 `Cargo.lock` 锁定。
+- **Node / npm**：`.node-version` / `frontend/package.json::packageManager`；前端依赖用 `package-lock.json`。
+- **API / 权限**：handler 注解与 `openapi.rs` / `api/permissions.rs` → `frontend/openapi.json` → `Doc/api/` 和生成类型；不要手改生成结果。
+- **持久化**：领域仓储、SQLite 实现与 `run_migrations`；手写表格不是迁移定义。
+- **门禁 / 阈值**：`scripts/ci-local.sh`、`frontend/vitest.config.ts` 与 `frontend/scripts/check-bundle-size.mjs`。
+- **交付历史 / 发布**：[`CHANGELOG.md`](../CHANGELOG.md) 与实际 tag / Release；路线图上的版本名不证明已发布。
 
-# 2. 启动前端（端口 5173，自动代理 /api 与 /ws）
-cd frontend && npm install && npm run dev
+新增文档应能回答一个具体问题；优先链接代码与已有文档，避免再建一份命令、阈值、端点或历史清单。
 
-# 3.（可选）启动节点 Agent
-cd agent && PANEL_URL=http://127.0.0.1:8080 AUTH_TOKEN=dev-token cargo run
-```
+## 后续规划
 
-访问 `http://localhost:5173`。首次启动进入 Setup 向导创建管理员；配置了 `OP_ADMIN_PASSWORD` 的环境变量时自动创建并强制首次登录改密。
+- [36 · 后续产品路线规划（提案）](./36-后续产品路线规划.md)：现代运维面板参考、源码差距核验、分阶段切片及验收条件；不代表功能已实现或已获开工授权。
 
-> 详细开发步骤见 [05-后端开发指南.md](./05-后端开发指南.md) 与 [04-前端开发指南.md](./04-前端开发指南.md)。
-> Agent 协议见 [11-Agent节点通信协议.md](./11-Agent节点通信协议.md)。
+- [37 · SQLite 隔离恢复演练](./37-SQLite隔离恢复演练.md)：R-01 首片的安全边界、命令、分阶段报告与验收方法。
 
-## 技术栈总览
+- [38 · 恢复探针启动隔离](./38-恢复探针启动隔离.md)：R-01B 的装配隔离决策、迁移副本、HTTP 契约与未验收边界。
 
-| 层面 | 技术 |
-|------|------|
-| 后端架构 | Clean Architecture + Hexagonal（domain → application → infrastructure → api） |
-| 后端框架 | Rust + Axum 0.8 |
-| 数据库 | SQLite（sqlx 0.9）+ InMemory 双模式 |
-| 认证 | jsonwebtoken 9 + bcrypt |
-| WASM | wasmtime 46 |
-| 前端 | Vue 3.5 + TypeScript 6.0 + OpenVue 0.7 + Vite 8 |
-| 状态/路由 | Pinia 3 + Vue Router 5 |
-| 国际化 | vue-i18n 10（zh-CN / en-US / ja-JP） |
-| 终端 | xterm.js 5.5 + @xterm/addon-fit |
-
-## 目录结构速览
-
-```
-Flamepanel/
-├── flame-kernel/          # Rust 核心后端（Axum）
-│   ├── src/
-│   │   ├── domain/        # 实体 + Repository trait + 领域端口（execution_mode，零依赖）
-│   │   ├── application/   # 服务层（每域一文件，T8 拆分 + app_store_ports）
-│   │   ├── infrastructure/# 仓库实现（InMemory/SQLite/Docker/OS + app_store/firewall 适配器）
-│   │   ├── api/           # HTTP 层（22 个 handler 模块 + types/dto/permissions/pagination 拆分）
-│   │   ├── plugin/        # WASM 沙箱 + 注册表
-│   │   ├── webserver/     # 5 种 Web 引擎 + 性能预设 + 原生控制（包管理/systemd）
-│   │   ├── database/      # MySQL/MariaDB/Redis 原生管理
-│   │   ├── firewall/      # 防火墙（ufw/firewalld/iptables，FirewallManager 下沉基础设施）
-│   │   ├── terminal/      # Web 终端（bash 子进程管道）
-│   │   ├── event/         # 事件总线（broadcast + Outbox 落库重试 + 邮件通知）
-│   │   ├── resilience/    # Circuit Breaker + Retry
-│   │   └── utils/         # JWT / bcrypt / AuthCache / 校验
-│   └── tests/             # 集成 + 单元测试（295 用例）
-├── frontend/              # Vue 3 前端（23 个视图、3 语言 i18n、30+ Fp* 组件、vue-query）
-├── agent/                 # 轻量 Rust Agent
-├── Doc/                   # 本文档中心
-├── install.sh / uninstall.sh / cnb-dev-setup.sh
-├── Dockerfile / docker-compose.yml / nginx.conf
-└── justfile
-```
-
-## 版本信息
-
-- 当前版本：v0.7.0（内核），前端 0.1.0
-- 测试基线：295 个测试全部通过（156 集成 + 139 单元 + stage/agent 等）
-- 路由规模：179 条 HTTP 路由（含 `/health` + `/api/health` + `/api/openapi.json`）+ 3 条 WebSocket 路由
-- 权限规模：73 项 RBAC 权限 + 3 角色（admin/operator/viewer）
-- 后端架构重构（Doc/19 Stage 0–9 + P0/P1/P2/P3 T1–T16）：已全部落地（分页下沉、鉴权缓存 AuthCache、限流分级、权限元数据化+默认拒绝、错误映射 10 码、JWT 加固、Docker 门面拆分、Outbox 事件一致性、service/types 上帝文件拆分、domain 依赖方向修正、索引/panic 清理/死代码/配置化）
-- 前端现代化（Doc/17 F0–F4 + M1–M11）：已全部落地（vue-query 数据层、Fp* 封装 30+ 组件、OpenAPI 类型单源、a11y/IA、CI typecheck + 单测）
-
-## 相关链接
-
-- [根 README](../README.md)
+- [39 · 恢复资产与外部密钥清单](./39-恢复资产与外部密钥清单.md)：R-01C 的源码来源矩阵、暂存材料检查与未验证边界。

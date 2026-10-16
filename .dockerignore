@@ -1,0 +1,15 @@
+# Never let COPY frontend/ overwrite npm ci with host dependencies.
+.git
+**/node_modules
+**/dist
+**/coverage
+**/target
+**/test-results
+**/playwright-report
+.e2e-state
+**/.env
+**/.env.*
+!**/.env.example
+.vscode
+.idea
+**/*.log

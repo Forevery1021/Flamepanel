@@ -1,5 +1,5 @@
 <template>
-  <LayoutContent :title="t('user.title')" reload @reload="fetch">
+  <LayoutContent :title="t('user.title')" :description="t('pageDesc.users')" reload @reload="fetch">
     <template #toolbar>
       <div class="toolbar-left">
         <FpInput
@@ -16,7 +16,12 @@
           class="toolbar-filter"
         />
       </div>
-      <FpButton v-permission="{ perm: 'user:create', mode: 'view' }" variant="primary" icon="oi oi-plus" @click="openCreate">
+      <FpButton
+        v-permission="{ perm: 'user:create', mode: 'view' }"
+        variant="primary"
+        icon="oi oi-plus"
+        @click="openCreate"
+      >
         {{ t('user.createUser') }}
       </FpButton>
     </template>
@@ -30,7 +35,21 @@
         :empty-title="t('common.noData')"
         @retry="fetch"
       >
-        <FpTable :rows="filteredUsers" :loading="loading" :first="(currentPage - 1) * pageSize">
+        <FpTable
+          :rows="filteredUsers"
+          :loading="loading"
+          :first="first"
+          :empty-desc="t('pageDesc.emptyHint')"
+        >
+          <template #emptyAction>
+            <FpButton
+              v-permission="{ perm: 'user:create', mode: 'view' }"
+              variant="primary"
+              icon="oi oi-plus"
+              @click="openCreate"
+              >{{ t('user.createUser') }}</FpButton
+            >
+          </template>
           <FpColumn field="id" :header="t('user.id')" style="width: 80px" />
           <FpColumn field="username" :header="t('user.username')" />
           <FpColumn :header="t('user.role')" style="width: 140px">
@@ -43,22 +62,35 @@
               <span class="mono">{{ data.created_at }}</span>
             </template>
           </FpColumn>
-          <FpColumn :header="t('common.operation')" style="width: 160px" frozen>
+          <FpColumn :header="t('common.operation')" style="width: 260px" frozen>
             <template #body="{ data }">
               <div class="row-actions">
-                <FpButton v-permission="{ perm: 'user:update', mode: 'view' }" variant="link" @click="handleEdit(data)">{{ t('common.edit') }}</FpButton>
-                <FpButton v-permission="{ perm: 'user:delete', mode: 'view' }" variant="link" @click="confirmDelete(data)">{{ t('common.delete') }}</FpButton>
+                <FpButton
+                  v-permission="{ perm: 'user:update', mode: 'view' }"
+                  variant="link"
+                  @click="handleEdit(data)"
+                  >{{ t('common.edit') }}</FpButton
+                >
+                <FpButton v-if="auth.isAdmin" variant="link" @click="confirmResetTwoFactor(data)">{{
+                  t('twoFactor.adminReset')
+                }}</FpButton>
+                <FpButton
+                  v-permission="{ perm: 'user:delete', mode: 'view' }"
+                  variant="link"
+                  @click="confirmDelete(data)"
+                  >{{ t('common.delete') }}</FpButton
+                >
               </div>
             </template>
           </FpColumn>
         </FpTable>
         <FpPagination
           v-if="total > pageSize"
-          :first="(currentPage - 1) * pageSize"
+          :first="first"
           :rows="pageSize"
           :total="total"
           :rows-per-page-options="[20, 50, 100]"
-          @update:first="(f) => goPage(f)"
+          @update:first="onFirst"
         />
       </FpStatePanel>
     </div>
@@ -67,8 +99,20 @@
     <FpModal v-model="dialogVisible" :header="t('user.createUser')">
       <div class="modal-form">
         <FpInput v-model="form.username" :label="t('user.username')" :error="formErrors.username" />
-        <FpInput v-model="form.password" :label="t('user.password')" type="password" toggle-mask :error="formErrors.password" />
-        <FpSelect v-model="form.role" :label="t('user.role')" :options="roleOptions" option-label="label" option-value="value" />
+        <FpInput
+          v-model="form.password"
+          :label="t('user.password')"
+          type="password"
+          toggle-mask
+          :error="formErrors.password"
+        />
+        <FpSelect
+          v-model="form.role"
+          :label="t('user.role')"
+          :options="roleOptions"
+          option-label="label"
+          option-value="value"
+        />
       </div>
       <template #footer>
         <FpButton variant="ghost" @click="dialogVisible = false">{{ t('common.cancel') }}</FpButton>
@@ -81,9 +125,25 @@
     <!-- 编辑 -->
     <FpModal v-model="editVisible" :header="t('user.editUser')">
       <div class="modal-form">
-        <FpInput v-model="editForm.username" :label="t('user.username')" :error="formErrors.username" />
-        <FpInput v-model="editForm.password" :label="t('user.password')" type="password" toggle-mask :placeholder="t('user.passwordOptional')" />
-        <FpSelect v-model="editForm.role" :label="t('user.role')" :options="roleOptions" option-label="label" option-value="value" />
+        <FpInput
+          v-model="editForm.username"
+          :label="t('user.username')"
+          :error="formErrors.username"
+        />
+        <FpInput
+          v-model="editForm.password"
+          :label="t('user.password')"
+          type="password"
+          toggle-mask
+          :placeholder="t('user.passwordOptional')"
+        />
+        <FpSelect
+          v-model="editForm.role"
+          :label="t('user.role')"
+          :options="roleOptions"
+          option-label="label"
+          option-value="value"
+        />
       </div>
       <template #footer>
         <FpButton variant="ghost" @click="editVisible = false">{{ t('common.cancel') }}</FpButton>
@@ -99,8 +159,9 @@
 import { reactive, ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-
 import { listUsers, createUser, updateUser, deleteUser } from '@/api/users'
+import { resetUserTwoFactor } from '@/api/auth'
+import { useAuthStore } from '@/stores/auth'
 import LayoutContent from '@/components/ui/LayoutContent.vue'
 import FpTable from '@/components/ui/FpTable.vue'
 import FpModal from '@/components/ui/FpModal.vue'
@@ -115,14 +176,17 @@ import FpPagination from '@/components/ui/FpPagination.vue'
 import FpStatePanel from '@/components/ui/FpStatePanel.vue'
 import type { User, Page } from '@/api/generated'
 import { useApiQuery } from '@/composables/useApiQuery'
+import { useCrudPage } from '@/composables/useCrudPage'
 import { queryKeys } from '@/api/queryKeys'
 
 const { t } = useI18n()
 const toast = useFpToast()
 const { confirmAction } = useFpConfirm()
+const auth = useAuthStore()
 
-const currentPage = ref(1)
-const pageSize = ref(20)
+// Y9：分页状态收敛到 useCrudPage，统一 first/onFirst/翻页语义
+const crud = useCrudPage({ pageSize: 20 })
+const { total, first, pageSize, onFirst } = crud
 const dialogVisible = ref(false)
 const editVisible = ref(false)
 const submitting = ref(false)
@@ -153,15 +217,15 @@ function roleSeverity(role: string) {
 
 // Modernization M2：分页走统一数据获取层，切换页保留上一页数据（keepPreviousData）
 const usersQuery = useApiQuery<Page<User>>(
-  () => queryKeys.users.list(currentPage.value, pageSize.value),
+  () => queryKeys.users.list(crud.currentPage.value, crud.pageSize.value),
   async () => {
-    const res = await listUsers(currentPage.value, pageSize.value)
+    const res = await listUsers(crud.currentPage.value, crud.pageSize.value)
+    crud.total.value = res.data.total
     return { data: res.data }
   },
   { keepPrevious: true },
 )
 const users = computed<Page<User>['data']>(() => usersQuery.data.value?.data ?? [])
-const total = computed(() => usersQuery.data.value?.total ?? 0)
 const loading = usersQuery.loading
 const usersError = usersQuery.error
 
@@ -179,11 +243,6 @@ const filteredUsers = computed(() => {
 
 async function fetch() {
   await usersQuery.refresh()
-}
-
-function goPage(first: number) {
-  currentPage.value = first / pageSize.value + 1
-  void fetch()
 }
 
 function openCreate() {
@@ -248,6 +307,22 @@ async function handleSave() {
   }
 }
 
+/** 管理员重置他人两步验证（后端要求 user:update + admin 角色，故仅 admin 可见） */
+function confirmResetTwoFactor(row: User) {
+  confirmAction({
+    message: t('twoFactor.adminResetConfirm', { name: row.username }),
+    header: t('twoFactor.adminReset'),
+    accept: async () => {
+      try {
+        await resetUserTwoFactor(row.id)
+        toast.success(t('twoFactor.adminResetOk'))
+      } catch (e) {
+        toast.error(e, t('common.failed'))
+      }
+    },
+  })
+}
+
 function confirmDelete(row: User) {
   confirmAction({
     message: t('user.deleteConfirm', { name: row.username }),
@@ -281,10 +356,5 @@ function confirmDelete(row: User) {
 .row-actions {
   display: flex;
   gap: var(--fp-space-2);
-}
-.modal-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--fp-space-4);
 }
 </style>

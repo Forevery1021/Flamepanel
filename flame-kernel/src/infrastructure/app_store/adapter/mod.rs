@@ -1,6 +1,7 @@
 pub mod baota;
 pub mod flame;
 pub mod onepanel;
+pub mod xflame;
 
 use crate::core::error::AppError;
 use crate::domain::entity::FormField;

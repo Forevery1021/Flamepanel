@@ -1,0 +1,17 @@
+{
+  "schema": "flamepanel/recovery-assets/v1",
+  "jwt_strategy": "preserve",
+  "assets": [
+    {"role": "deployment_config", "path": "config/deployment.env"},
+    {"role": "encryption_master", "path": "secrets/secret_encryption.key"},
+    {"role": "jwt_signing", "path": "secrets/jwt_secret.key"},
+    {"role": "bootstrap_token", "path": "secrets/bootstrap_token.key"},
+    {"role": "acme_account", "path": "secrets/acme-account.key"},
+    {"role": "certificate_bundle", "path": "payload/certificates"},
+    {"role": "website_data", "path": "payload/websites"},
+    {"role": "project_data", "path": "payload/projects"},
+    {"role": "application_data", "path": "payload/applications"},
+    {"role": "external_database_backups", "path": "payload/external-databases"},
+    {"role": "agent_material", "path": "payload/agents"}
+  ]
+}

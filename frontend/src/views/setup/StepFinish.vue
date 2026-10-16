@@ -13,6 +13,10 @@
         <dd>{{ summary.dbType }}{{ summary.dbName !== 'SQLite' ? ` / ${summary.dbName}` : '' }}</dd>
       </div>
       <div class="summary-row">
+        <dt>{{ t('setup.summaryPort') }}</dt>
+        <dd class="mono">{{ summary.port }}</dd>
+      </div>
+      <div class="summary-row">
         <dt>{{ t('setup.summaryTheme') }}</dt>
         <dd>{{ t(`settingsTheme.${summary.theme}`) }}</dd>
       </div>
@@ -42,6 +46,7 @@ defineProps<{
     username: string
     dbType: string
     dbName: string
+    port: number
     theme: string
     language: string
   }

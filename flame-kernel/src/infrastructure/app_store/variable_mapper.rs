@@ -145,4 +145,36 @@ mod tests {
         let (out, _) = m.replace("${PORT}");
         assert_eq!(out, "9090");
     }
+
+    #[test]
+    fn every_builtin_manifest_renders_to_valid_safe_compose() {
+        // 安装流程注入的系统变量（与 AppStoreService::install 一致的最小集合）
+        for m in crate::domain::entity::builtin_apps() {
+            let mut mapper = VariableMapper::new(HashMap::new());
+            mapper.insert("NAME", m.key.clone());
+            mapper.insert("PORT", m.default_port.to_string());
+            mapper.insert(
+                "DATA_DIR",
+                format!("/opt/flamepanel/data/apps/{}/x/data", m.key),
+            );
+            let (rendered, warnings) = mapper.replace(&m.compose);
+            assert!(
+                warnings.is_empty(),
+                "{}: 未解析的占位符 {:?}",
+                m.key,
+                warnings
+            );
+            serde_yaml::from_str::<serde_yaml::Value>(&rendered)
+                .unwrap_or_else(|e| panic!("{}: 渲染后的 compose 无法解析: {e}", m.key));
+            // 确认风险后不得有阻断项（内置应用可含 docker.sock 等需确认的挂载）
+            let scan =
+                crate::infrastructure::app_store::security_scanner::scan_compose(&rendered, true);
+            assert!(
+                !scan.has_blockers(),
+                "{}: {:?}",
+                m.key,
+                scan.block_messages()
+            );
+        }
+    }
 }

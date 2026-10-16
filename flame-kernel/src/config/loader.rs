@@ -4,6 +4,15 @@ use std::fs;
 use std::path::Path;
 
 /// 缺省配置时生成的安全随机值来源：基于 `uuid::Uuid::new_v4()`（熵来自 getrandom）。
+/// F-03: 计算 JWT 密钥指纹（SHA-256 前 8 hex 字符），用于启动日志比对，
+/// 不泄露密钥明文。
+fn secret_fingerprint(secret: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    secret.hash(&mut h);
+    h.finish()
+}
+
 fn random_secret_hex() -> String {
     // 4 个 UUID（各 32 hex）拼接，共 128 hex 字符 = 64 字节随机密钥，远超 32 字节强度下限。
     let mut out = String::with_capacity(128);
@@ -73,6 +82,10 @@ pub struct AppConfig {
     /// Redis 配置文件路径（T16 配置化，默认 `/etc/redis/redis.conf`）
     #[serde(default = "default_redis_config")]
     pub redis_config_file: String,
+    /// F-24: /metrics 端点访问令牌。为空时不校验（默认仅内网部署）；
+    /// 设置后访问 /metrics 必须携带 `Authorization: Bearer <token>`。
+    #[serde(default)]
+    pub metrics_token: String,
 }
 
 fn default_mysql_config() -> String {
@@ -97,7 +110,15 @@ pub struct ServerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
+    /// 后端类型：`sqlite`（默认）| `memory`
+    /// 默认 SQLite，禁止静默回退内存（F-02 修复）
+    #[serde(default = "default_db_backend")]
+    pub backend: String,
     pub url: String,
+}
+
+fn default_db_backend() -> String {
+    "sqlite".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,6 +152,7 @@ impl Default for AppConfig {
                 port: 8080,
             },
             database: DatabaseConfig {
+                backend: "sqlite".to_string(),
                 url: "sqlite://data/app.db".to_string(),
             },
             notifications: NotificationsConfig::default(),
@@ -138,13 +160,16 @@ impl Default for AppConfig {
             jwt_secret: String::new(),
             admin_password: String::new(),
             bootstrap_token: String::new(),
-            file_root: ".".to_string(),
-            terminal_cwd: ".".to_string(),
+            // M12：文件沙箱安全默认值。默认指向独立的 `data/files`（不暴露面板自身数据目录），
+            // 避免未配置 OP_FILE_ROOT 时文件管理器可合法访问 data/jwt_secret.key、data/app.db 等。
+            file_root: "data/files".to_string(),
+            terminal_cwd: "data/files".to_string(),
             execution_mode: "embedded".to_string(),
             rate_limit_max: default_rate_max(),
             rate_limit_window_secs: default_rate_window(),
             mysql_config_file: default_mysql_config(),
             redis_config_file: default_redis_config(),
+            metrics_token: String::new(),
         }
     }
 }
@@ -171,6 +196,11 @@ impl AppConfig {
         }
         if let Ok(val) = std::env::var("OP_HOST") {
             self.server.host = val;
+        }
+        if let Ok(val) = std::env::var("OP_DATABASE_BACKEND") {
+            if !val.is_empty() {
+                self.database.backend = val;
+            }
         }
         if let Ok(val) = std::env::var("OP_DATABASE_URL") {
             self.database.url = val;
@@ -212,6 +242,12 @@ impl AppConfig {
         if let Ok(val) = std::env::var("OP_REDIS_CONFIG") {
             if !val.is_empty() {
                 self.redis_config_file = val;
+            }
+        }
+        // F-24: metrics 访问令牌
+        if let Ok(val) = std::env::var("OP_METRICS_TOKEN") {
+            if !val.is_empty() {
+                self.metrics_token = val;
             }
         }
         if let Ok(val) = std::env::var("OP_ADMIN_PASSWORD") {
@@ -287,22 +323,74 @@ impl AppConfig {
             };
             config.jwt_secret = generated;
             tracing::warn!("No OP_JWT_SECRET provided; using a generated signing secret");
+        } else if Self::read_persisted_secret().is_some() {
+            // F-03 加固：rotate_secret 会把轮换后的新密钥写入 data/jwt_secret.key；
+            // 若此时部署仍设置了 OP_JWT_SECRET 环境变量，重启后 env 会覆盖掉轮换结果，
+            // 导致「已泄露的旧密钥复活」（轮换动作被静默回退）。
+            // 因此持久化密钥优先级高于环境变量：以最后写入者（轮换后的密钥文件）为准。
+            if let Some(rotated) = Self::read_persisted_secret() {
+                tracing::warn!(
+                    "OP_JWT_SECRET is set but data/jwt_secret.key holds a rotated secret;                      using the rotated key (fingerprint {:x}) to keep revocation effective.                      Remove OP_JWT_SECRET or re-rotate to resolve.",
+                    secret_fingerprint(&rotated)
+                );
+                config.jwt_secret = rotated;
+            }
         }
+
+        // F-03: 启动时打印当前密钥指纹（SHA-256 前 8 hex），便于比对是否发生意外回退。
+        tracing::info!(
+            "JWT secret fingerprint: {:x}",
+            secret_fingerprint(&config.jwt_secret)
+        );
         // admin_password 未提供时保持为空 → 向导模式（Setup 向导创建管理员）。
         // 无人值守（B1）仅当显式配置了 admin_password（OP_ADMIN_PASSWORD / TOML）时启用；
         // 这里不再自动填充随机密码，否则「空密码」语义被破坏、向导永远不会出现。
         // install.sh 交互模式会自动生成并打印管理员密码，无需内核代为生成。
         // A3.2：bootstrap token 未提供时生成随机值并仅打印一次（节点注册端点鉴权用）。
+        // M6：持久化到 data/bootstrap_token.key（0600）供重启复用，日志只提示位置不打印明文。
         if config.bootstrap_token.is_empty() {
-            let generated = random_password();
-            config.bootstrap_token = generated;
+            let existing = Self::read_persisted_bootstrap_token();
+            config.bootstrap_token = match existing {
+                Some(prev) => prev,
+                None => {
+                    let fresh = random_password();
+                    if let Err(e) = Self::persist_generated_bootstrap_token(&fresh) {
+                        tracing::warn!("failed to persist generated bootstrap_token: {e}");
+                    }
+                    fresh
+                }
+            };
             tracing::info!(
-                "Bootstrap token auto-generated (required by agents via X-Bootstrap-Token): {}",
-                config.bootstrap_token
+                "Bootstrap token auto-generated; see data/bootstrap_token.key (do not share plaintext)"
             );
         }
 
         Ok(config)
+    }
+
+    /// 读取已持久化的 bootstrap token（供重启复用）。
+    fn read_persisted_bootstrap_token() -> Option<String> {
+        let path = Path::new("./data").join("bootstrap_token.key");
+        fs::read_to_string(&path)
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.trim().to_string())
+    }
+
+    /// 持久化生成的 bootstrap token 到 data 目录（0600）。
+    fn persist_generated_bootstrap_token(token: &str) -> Result<(), AppError> {
+        let data_dir = Path::new("./data");
+        fs::create_dir_all(data_dir)
+            .map_err(|e| AppError::internal(format!("Failed to create data dir: {e}")))?;
+        let path = data_dir.join("bootstrap_token.key");
+        fs::write(&path, token)
+            .map_err(|e| AppError::internal(format!("Failed to persist bootstrap_token: {e}")))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+        }
+        Ok(())
     }
 
     /// 若已存在持久化密钥则读取之（供重启复用，保证令牌稳定）。

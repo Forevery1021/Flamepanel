@@ -1,5 +1,5 @@
 <template>
-  <LayoutContent :title="t('nav.tasks')" reload @reload="invalidate">
+  <LayoutContent :title="t('nav.tasks')" :description="t('pageDesc.tasks')" reload @reload="invalidate">
     <template #toolbar>
       <div class="toolbar-left">
         <FpSelect

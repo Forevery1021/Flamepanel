@@ -34,6 +34,8 @@ pub async fn request_id_middleware(mut req: Request, next: Next) -> axum::respon
         .unwrap_or_else(generate_request_id);
 
     req.extensions_mut().insert(RequestId(request_id.clone()));
+    // 回填外层 TraceLayer span 预留的 `request_id` 字段（未预留该字段的 span 上为 no-op）
+    tracing::Span::current().record("request_id", request_id.as_str());
 
     let method = req.method().to_string();
     let uri = req.uri().path().to_string();

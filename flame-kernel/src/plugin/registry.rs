@@ -1,5 +1,6 @@
 use crate::core::error::AppError;
 use crate::domain::entity::*;
+use crate::utils::sync::lock_or_recover;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -16,7 +17,7 @@ impl PluginRegistry {
     }
 
     pub fn register(&self, plugin: Plugin) -> Result<(), AppError> {
-        let mut plugins = self.plugins.lock().unwrap();
+        let mut plugins = lock_or_recover(&self.plugins);
         if plugins.contains_key(&plugin.id) {
             return Err(AppError::BadRequest(format!(
                 "Plugin {} already registered",
@@ -28,8 +29,23 @@ impl PluginRegistry {
         Ok(())
     }
 
+    /// 替换已注册插件的元数据（能力 / 设置变更），不存在则 404。
+    pub fn replace(&self, plugin: Plugin) -> Result<(), AppError> {
+        let mut plugins = lock_or_recover(&self.plugins);
+        match plugins.get_mut(&plugin.id) {
+            Some(slot) => {
+                *slot = plugin;
+                Ok(())
+            }
+            None => Err(AppError::NotFound(format!(
+                "Plugin {} not found",
+                plugin.id
+            ))),
+        }
+    }
+
     pub fn unregister(&self, id: &str) -> Result<Plugin, AppError> {
-        let mut plugins = self.plugins.lock().unwrap();
+        let mut plugins = lock_or_recover(&self.plugins);
         let dept_plugins: Vec<String> = plugins
             .values()
             .filter(|p| p.dependencies.iter().any(|d| d.plugin_id == id))
@@ -47,7 +63,7 @@ impl PluginRegistry {
     }
 
     pub fn get(&self, id: &str) -> Result<Plugin, AppError> {
-        let plugins = self.plugins.lock().unwrap();
+        let plugins = lock_or_recover(&self.plugins);
         plugins
             .get(id)
             .cloned()
@@ -55,12 +71,12 @@ impl PluginRegistry {
     }
 
     pub fn list_all(&self) -> Vec<Plugin> {
-        let plugins = self.plugins.lock().unwrap();
+        let plugins = lock_or_recover(&self.plugins);
         plugins.values().cloned().collect()
     }
 
     pub fn enable(&self, id: &str) -> Result<Plugin, AppError> {
-        let mut plugins = self.plugins.lock().unwrap();
+        let mut plugins = lock_or_recover(&self.plugins);
         let plugin = plugins
             .get_mut(id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
@@ -70,7 +86,7 @@ impl PluginRegistry {
     }
 
     pub fn disable(&self, id: &str) -> Result<Plugin, AppError> {
-        let mut plugins = self.plugins.lock().unwrap();
+        let mut plugins = lock_or_recover(&self.plugins);
         let plugin = plugins
             .get_mut(id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
@@ -80,7 +96,7 @@ impl PluginRegistry {
     }
 
     pub fn exists(&self, id: &str) -> bool {
-        let plugins = self.plugins.lock().unwrap();
+        let plugins = lock_or_recover(&self.plugins);
         plugins.contains_key(id)
     }
 
@@ -114,7 +130,7 @@ impl PluginRegistry {
     }
 
     pub fn find_by_tag(&self, tag: &str) -> Vec<Plugin> {
-        let plugins = self.plugins.lock().unwrap();
+        let plugins = lock_or_recover(&self.plugins);
         plugins
             .values()
             .filter(|p| p.tags.iter().any(|t| t == tag))
@@ -124,7 +140,7 @@ impl PluginRegistry {
 
     pub fn search(&self, query: &str) -> Vec<Plugin> {
         let q = query.to_lowercase();
-        let plugins = self.plugins.lock().unwrap();
+        let plugins = lock_or_recover(&self.plugins);
         plugins
             .values()
             .filter(|p| {

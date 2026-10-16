@@ -4,10 +4,36 @@
  */
 
 :root {
-  /* ── Brand · Flame Orange ── */
-  --fp-brand: oklch(0.65 0.19 35);
-  --fp-brand-strong: oklch(0.55 0.19 35);
-  --fp-brand-soft: oklch(0.65 0.19 35 / 0.12);
+  /* ── Brand · Flame Orange ──
+   * 种子三元组 (L C H) 由主题 store 在运行时覆写；下方整条色阶用 OKLCH 相对色语法派生，
+   * 因而换色相 / 换预设时 hover、active、前景、ring、50–900 全部自动跟随且保持感知均匀。 */
+  --fp-brand-l: 0.65;
+  --fp-brand-c: 0.19;
+  --fp-brand-h: 35;
+  --fp-brand: oklch(var(--fp-brand-l) var(--fp-brand-c) var(--fp-brand-h));
+  --fp-brand-strong: oklch(calc(var(--fp-brand-l) - 0.1) var(--fp-brand-c) var(--fp-brand-h));
+  --fp-brand-soft: oklch(var(--fp-brand-l) var(--fp-brand-c) var(--fp-brand-h) / 0.12);
+  /* 交互态：hover 提亮 4、active 压暗 6（OKLCH 下 ΔL 即感知亮度差，不会像 HSL 那样偏色） */
+  --fp-brand-hover: oklch(calc(var(--fp-brand-l) + 0.04) var(--fp-brand-c) var(--fp-brand-h));
+  --fp-brand-active: oklch(calc(var(--fp-brand-l) - 0.06) var(--fp-brand-c) var(--fp-brand-h));
+  /* 品牌色上的前景：亮度 < 0.62 用白字，否则用同色相深字（避免 L≈0.7 的橙上白字对比不足） */
+  --fp-brand-fg: oklch(from var(--fp-brand) clamp(0.16, (0.62 - l) * 1000, 0.99) calc(c * 0.35) h);
+  --fp-brand-ring: oklch(var(--fp-brand-l) var(--fp-brand-c) var(--fp-brand-h) / 0.35);
+  /* 色阶：50（几乎白）→ 900（几乎黑），色相锁定、彩度随亮度两端收敛 */
+  --fp-brand-50: oklch(0.97 calc(var(--fp-brand-c) * 0.12) var(--fp-brand-h));
+  --fp-brand-100: oklch(0.93 calc(var(--fp-brand-c) * 0.25) var(--fp-brand-h));
+  --fp-brand-200: oklch(0.87 calc(var(--fp-brand-c) * 0.45) var(--fp-brand-h));
+  --fp-brand-300: oklch(0.8 calc(var(--fp-brand-c) * 0.7) var(--fp-brand-h));
+  --fp-brand-400: oklch(0.72 calc(var(--fp-brand-c) * 0.9) var(--fp-brand-h));
+  --fp-brand-500: var(--fp-brand);
+  --fp-brand-600: oklch(0.58 var(--fp-brand-c) var(--fp-brand-h));
+  --fp-brand-700: oklch(0.5 calc(var(--fp-brand-c) * 0.9) var(--fp-brand-h));
+  --fp-brand-800: oklch(0.4 calc(var(--fp-brand-c) * 0.7) var(--fp-brand-h));
+  --fp-brand-900: oklch(0.3 calc(var(--fp-brand-c) * 0.5) var(--fp-brand-h));
+  /* 品牌色渐变（登录页 / 空状态 / 引导卡片 hero） */
+  --fp-brand-gradient: linear-gradient(135deg, var(--fp-brand-400), var(--fp-brand-600));
+  /* 焦点环：统一 2px 品牌色 + 2px 偏移 */
+  --fp-focus-ring: 0 0 0 2px var(--fp-bg-elevated), 0 0 0 4px var(--fp-brand);
 
   /* ── Surfaces (Light) ── */
   --fp-bg-app: oklch(0.97 0.005 250);
@@ -15,6 +41,7 @@
   --fp-bg-hover: oklch(0.95 0.006 250);
   --fp-bg-sidebar: oklch(0.16 0.02 250);
   --fp-bg-terminal: oklch(0.11 0.012 250);
+  --fp-bg-subtle: oklch(0.985 0.003 250);
   --fp-border: oklch(0.91 0.006 250);
   --fp-border-strong: oklch(0.85 0.01 250);
 
@@ -36,7 +63,9 @@
   --fp-info-soft: oklch(0.55 0.12 250 / 0.12);
 
   /* ── Typography ── */
-  --fp-font-sans: 'Geist Variable', 'Inter', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
+  --fp-font-sans:
+    'Geist Variable', 'Inter', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', -apple-system,
+    sans-serif;
   --fp-font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
   --fp-font-xs: 12px;
   --fp-font-sm: 13px;
@@ -44,6 +73,8 @@
   --fp-font-md: 15px;
   --fp-font-lg: 18px;
   --fp-font-xl: 24px;
+  --fp-font-2xl: 28px;
+  --fp-font-title: 20px;
   --fp-line-tight: 1.25;
   --fp-line-base: 1.5;
 
@@ -67,6 +98,43 @@
   --fp-glass-blur-dense: 6px;
   --fp-glass-bg: oklch(1 0 0 / 0.62);
   --fp-glass-bg-heavy: oklch(1 0 0 / 0.72);
+
+  /* ── Material（`<html data-material="solid|glass|acrylic">`，由主题 store 写入）──
+   * 业务组件只消费下面 5 个 --fp-surface-* 令牌，材质切换不需要改任何组件样式。 */
+  --fp-surface-alpha: 0.62; /* 表面不透明度（solid=1） */
+  --fp-surface-blur: var(--fp-glass-blur);
+  --fp-surface-saturate: 1.4;
+  --fp-surface-bg: oklch(1 0 0 / var(--fp-surface-alpha));
+  --fp-surface-bg-heavy: oklch(1 0 0 / calc(var(--fp-surface-alpha) + 0.1));
+  --fp-surface-border: oklch(1 0 0 / 0.5);
+  --fp-surface-highlight: 0 1px 0 0 oklch(1 0 0 / 0.4) inset;
+  --fp-surface-noise: none;
+  --fp-surface-filter: blur(var(--fp-surface-blur)) saturate(var(--fp-surface-saturate));
+  /* 面板 / 卡片 / 表格等「内容表面」：随材质半透明（W4-a）。
+   * 旧版这些表面全部写死 --fp-bg-elevated（不透明），材质只作用于顶栏与弹窗——
+   * 实机切换「玻璃 / 亚克力」几乎看不出差别。输入框 / 下拉浮层仍用 elevated 保证可读性。 */
+  --fp-bg-surface: color-mix(
+    in oklch,
+    var(--fp-bg-elevated) calc(var(--fp-surface-alpha) * 100% + 16%),
+    transparent
+  );
+  /* 环境底色：半透明材质需要「背后有东西」才看得出来——用品牌色相派生的柔和光斑垫底 */
+  --fp-ambient:
+    radial-gradient(
+      60vw 50vh at 8% -6%,
+      oklch(0.86 calc(var(--fp-brand-c) * 0.55) var(--fp-brand-h) / 0.55),
+      transparent 70%
+    ),
+    radial-gradient(
+      50vw 55vh at 100% 12%,
+      oklch(0.88 0.07 calc(var(--fp-brand-h) + 70) / 0.45),
+      transparent 70%
+    ),
+    radial-gradient(
+      60vw 50vh at 70% 108%,
+      oklch(0.86 0.08 calc(var(--fp-brand-h) - 60) / 0.4),
+      transparent 70%
+    );
 
   /* ── Terminal（Catppuccin Mocha 适配）── */
   --fp-term-bg: #1a1b1e;
@@ -122,6 +190,7 @@
   --fp-bg-hover: oklch(0.24 0.016 250);
   --fp-bg-sidebar: oklch(0.14 0.012 250);
   --fp-bg-terminal: oklch(0.11 0.012 250);
+  --fp-bg-subtle: oklch(0.175 0.012 250);
   --fp-border: oklch(0.28 0.016 250);
   --fp-border-strong: oklch(0.36 0.02 250);
 
@@ -130,9 +199,14 @@
   --fp-text-muted: oklch(0.55 0.015 250);
   --fp-text-code: oklch(0.78 0.09 250);
 
-  --fp-brand: oklch(0.72 0.18 35);
-  --fp-brand-strong: oklch(0.8 0.16 35);
-  --fp-brand-soft: oklch(0.72 0.18 35 / 0.16);
+  /* 暗色下品牌色默认更亮一档（JS 覆写种子时同样生效）；strong 在暗色里是「提亮」而非压暗 */
+  --fp-brand-l: 0.72;
+  --fp-brand-c: 0.18;
+  --fp-brand-strong: oklch(
+    calc(var(--fp-brand-l) + 0.08) calc(var(--fp-brand-c) * 0.9) var(--fp-brand-h)
+  );
+  --fp-brand-soft: oklch(var(--fp-brand-l) var(--fp-brand-c) var(--fp-brand-h) / 0.16);
+  --fp-brand-ring: oklch(var(--fp-brand-l) var(--fp-brand-c) var(--fp-brand-h) / 0.45);
 
   /* ── Dark Shadows（更柔，避免刺眼）── */
   --fp-shadow-xs: 0 1px 2px oklch(0 0 0 / 0.4);
@@ -144,4 +218,70 @@
   /* ── Dark Glass ── */
   --fp-glass-bg: oklch(0.2 0.014 250 / 0.55);
   --fp-glass-bg-heavy: oklch(0.18 0.014 250 / 0.7);
+
+  /* ── Dark Material ── */
+  --fp-surface-alpha: 0.55;
+  --fp-surface-bg: oklch(0.2 0.014 250 / var(--fp-surface-alpha));
+  --fp-surface-bg-heavy: oklch(0.18 0.014 250 / calc(var(--fp-surface-alpha) + 0.15));
+  --fp-surface-border: oklch(1 0 0 / 0.08);
+  --fp-surface-highlight: 0 1px 0 0 oklch(1 0 0 / 0.06) inset;
+  --fp-ambient:
+    radial-gradient(
+      60vw 50vh at 8% -6%,
+      oklch(0.42 calc(var(--fp-brand-c) * 0.7) var(--fp-brand-h) / 0.5),
+      transparent 70%
+    ),
+    radial-gradient(
+      50vw 55vh at 100% 12%,
+      oklch(0.36 0.08 calc(var(--fp-brand-h) + 70) / 0.42),
+      transparent 70%
+    ),
+    radial-gradient(
+      60vw 50vh at 70% 108%,
+      oklch(0.38 0.08 calc(var(--fp-brand-h) - 60) / 0.38),
+      transparent 70%
+    );
+}
+
+/* ═══════════ Material 档位 ═══════════ */
+/* solid：不透明、无模糊——低端设备 / 减弱透明度偏好 / 截图场景 */
+:root[data-material='solid'] {
+  --fp-surface-alpha: 1;
+  --fp-surface-blur: 0px;
+  --fp-surface-saturate: 1;
+  --fp-surface-bg: var(--fp-bg-elevated);
+  --fp-surface-bg-heavy: var(--fp-bg-elevated);
+  --fp-surface-border: var(--fp-border);
+  --fp-surface-highlight: none;
+  --fp-glass-bg: var(--fp-bg-elevated);
+  --fp-glass-bg-heavy: var(--fp-bg-elevated);
+  --fp-bg-surface: var(--fp-bg-elevated);
+  --fp-surface-filter: none;
+  --fp-ambient: none;
+}
+/* acrylic：更厚的模糊 + 更高饱和 + 亮度叠加 + 细噪点（Fluent Acrylic 质感） */
+:root[data-material='acrylic'] {
+  --fp-surface-alpha: 0.5;
+  --fp-surface-blur: calc(var(--fp-glass-blur) * 2.5);
+  --fp-surface-saturate: 1.8;
+  --fp-surface-border: oklch(1 0 0 / 0.6);
+  --fp-surface-noise: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.035 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.dark[data-material='acrylic'] {
+  --fp-surface-alpha: 0.42;
+  --fp-surface-border: oklch(1 0 0 / 0.12);
+}
+/* 系统级偏好：减弱透明度 → 无论用户选什么都回退 solid 的表面参数 */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --fp-surface-alpha: 1;
+    --fp-surface-blur: 0px;
+    --fp-surface-saturate: 1;
+    --fp-surface-bg: var(--fp-bg-elevated);
+    --fp-surface-bg-heavy: var(--fp-bg-elevated);
+    --fp-surface-noise: none;
+    --fp-bg-surface: var(--fp-bg-elevated);
+    --fp-surface-filter: none;
+    --fp-ambient: none;
+  }
 }

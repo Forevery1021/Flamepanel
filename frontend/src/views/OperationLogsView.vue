@@ -1,5 +1,5 @@
 <template>
-  <LayoutContent :title="t('log.title')" reload @reload="fetch">
+  <LayoutContent :title="t('log.title')" :description="t('pageDesc.operationLogs')" reload @reload="fetch">
     <template #toolbar>
       <FpSelect
         v-model="actionFilter"
@@ -16,7 +16,7 @@
       <FpTable
         :rows="logs"
         :loading="loading"
-        :first="(currentPage - 1) * pageSize"
+        :first="first"
         :empty-text="t('common.noData')"
         striped-rows
         virtual
@@ -39,11 +39,11 @@
       </FpTable>
       <FpPagination
         v-if="total > pageSize"
-        :first="(currentPage - 1) * pageSize"
+        :first="first"
         :rows="pageSize"
         :total="total"
         :rows-per-page-options="[20, 50, 100]"
-        @update:first="(f) => goPage(f)"
+        @update:first="onFirst"
       />
     </div>
   </LayoutContent>
@@ -62,16 +62,18 @@ import FpColumn from '@/components/ui/FpColumn.vue'
 import FpPagination from '@/components/ui/FpPagination.vue'
 import { listOperationLogs } from '@/api/logs'
 import { useApiQuery } from '@/composables/useApiQuery'
+import { useCrudPage } from '@/composables/useCrudPage'
 import { queryKeys } from '@/api/queryKeys'
 import type { OperationLog } from '@/types'
 
 const { t } = useI18n()
-const currentPage = ref(1)
-const pageSize = ref(20)
+// Y9：分页状态收敛到 useCrudPage
+const crud = useCrudPage({ pageSize: 20 })
+const { total, first, pageSize, onFirst } = crud
 const actionFilter = ref('')
 
 const actionOptions = computed(() => [
-  { label: '全部', value: '' },
+  { label: t('common.all'), value: '' },
   { label: t('log.loginActions'), value: 'LOGIN' },
   { label: 'POST', value: 'POST' },
   { label: 'PUT', value: 'PUT' },
@@ -86,28 +88,23 @@ function actionSeverity(action: string): 'success' | 'warning' | 'danger' | 'inf
 
 // F1.1：分页走统一数据获取层，切换页/筛选保留上一页数据（keepPreviousData）
 const logsQuery = useApiQuery<{ data: OperationLog[]; total: number }>(
-  () => queryKeys.operationLogs.list(currentPage.value, pageSize.value, actionFilter.value),
+  () => queryKeys.operationLogs.list(crud.currentPage.value, crud.pageSize.value, actionFilter.value),
   async () => {
     const res = await listOperationLogs(
-      currentPage.value,
-      pageSize.value,
+      crud.currentPage.value,
+      crud.pageSize.value,
       actionFilter.value || undefined,
     )
+    crud.total.value = res.data.total
     return { data: { data: res.data.data, total: res.data.total } }
   },
   { keepPrevious: true },
 )
 const logs = computed<OperationLog[]>(() => logsQuery.data.value?.data ?? [])
 const loading = logsQuery.loading
-const total = computed(() => logsQuery.data.value?.total ?? 0)
 
 async function fetch() {
   await logsQuery.refresh()
-}
-
-function goPage(first: number) {
-  currentPage.value = first / pageSize.value + 1
-  void fetch()
 }
 </script>
 

@@ -1,145 +1,172 @@
-name: Release
+name: Release binaries
 
 on:
   push:
-    tags: [ 'v*' ]
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
-        description: '手动触发时的版本号（无 v 前缀，如 1.2.3；默认读取 Cargo.toml）'
+        description: "Version without v (defaults to flame-kernel/Cargo.toml)"
         required: false
         type: string
+      create_draft:
+        description: "Create a draft release after a successful manual build"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Resolve and validate version
+        id: version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: python3 scripts/release-assets.py version >> "$GITHUB_OUTPUT"
+
   build-frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version-file: .node-version
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: cd frontend && npm ci
-
+      - name: Pin npm and verify toolchain
+        run: |
+          npm install --global "$(node -p "require('./frontend/package.json').packageManager")"
+          npm --prefix frontend run check:toolchain
+      - name: Install locked dependencies
+        run: cd frontend && npm ci --no-audit --no-fund
       - name: Build frontend
         run: cd frontend && npm run build
-
-      - name: Upload frontend artifact
-        uses: actions/upload-artifact@v5
+      - name: Package frontend once
+        run: |
+          mkdir -p release-assets
+          tar -czf release-assets/flamepanel-frontend.tar.gz -C frontend/dist .
+      - uses: actions/upload-artifact@v5
         with:
-          name: frontend-dist
-          path: frontend/dist
+          name: release-frontend
+          path: release-assets/flamepanel-frontend.tar.gz
           if-no-files-found: error
 
-  release:
-    needs: [build-frontend]
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+  build-binaries:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
-          # GNU 动态链接（默认，兼容主流发行版）
+          # GNU builds target glibc 2.28, not the runner's newer host glibc.
           - target: x86_64-unknown-linux-gnu
-            pkg_arch: amd64
+            zig_target: x86_64-unknown-linux-gnu.2.28
+            arch: amd64
           - target: aarch64-unknown-linux-gnu
-            pkg_arch: arm64
-          # musl 静态链接（单一二进制，无需系统依赖，适合 alpine / 最小容器）
+            zig_target: aarch64-unknown-linux-gnu.2.28
+            arch: arm64
           - target: x86_64-unknown-linux-musl
-            pkg_arch: amd64-musl
+            zig_target: x86_64-unknown-linux-musl
+            arch: amd64-musl
           - target: aarch64-unknown-linux-musl
-            pkg_arch: arm64-musl
-          # ARMv7（32 位，树莓派等）
-          - target: armv7-unknown-linux-gnueabihf
-            pkg_arch: armv7
+            zig_target: aarch64-unknown-linux-musl
+            arch: arm64-musl
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v5
+      - name: Install pinned Rust and target
+        run: |
+          rustup show active-toolchain
+          rustup target add "${{ matrix.target }}"
+          bash scripts/check-rust-toolchain.sh
+      - uses: mlugg/setup-zig@v2
         with:
-          targets: ${{ matrix.target }}
-
-      # cargo-zigbuild：基于 zig 的跨平台编译，统一处理 gnu/musl 目标链接，无需手工配置各架构链接器
-      # 固定工具版本保证可复现（zig 版本由 cargo-zigbuild 内置锁定）
-      - name: Install cargo-zigbuild
-        uses: taiki-e/install-action@v2
+          version: 0.14.1
+      - uses: taiki-e/install-action@v2
         with:
           tool: cargo-zigbuild@0.23.0
-
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build backend (release, ${{ matrix.pkg_arch }})
-        run: cargo zigbuild --release --package flame-kernel --target ${{ matrix.target }}
-
-      - name: Download frontend artifact
-        uses: actions/download-artifact@v5
+      - uses: Swatinem/rust-cache@v2
         with:
-          name: frontend-dist
-          path: frontend-dist
-
-      - name: Package backend
+          key: release-${{ matrix.target }}
+      - name: Build panel, CLI, recovery tools, and agent
         run: |
-          mkdir -p release-assets/backend-stage
-          cp target/${{ matrix.target }}/release/flame-kernel release-assets/backend-stage/flamepanel
-          tar -czf release-assets/flamepanel-linux-${{ matrix.pkg_arch }}.tar.gz -C release-assets/backend-stage flamepanel
-          rm -rf release-assets/backend-stage
-
-      - name: Package frontend
+          cargo zigbuild --locked --release -p flame-kernel -p flamepanel-agent \
+            --bins --target "${{ matrix.zig_target }}"
+      - name: Package explicitly selected binaries
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
         run: |
-          tar -czf release-assets/flamepanel-frontend.tar.gz -C frontend-dist .
-
-      - name: Upload per-arch artifacts
-        uses: actions/upload-artifact@v5
+          set -euo pipefail
+          mkdir -p release-assets panel-stage agent-stage
+          install -m755 "target/$TARGET/release/flame-kernel" panel-stage/flamepanel
+          for binary in fpctl fp-restore-probe fp-restore-keycheck; do
+            install -m755 "target/$TARGET/release/$binary" "panel-stage/$binary"
+          done
+          install -m755 "target/$TARGET/release/flamepanel-agent" agent-stage/flamepanel-agent
+          tar -czf "release-assets/flamepanel-linux-$ARCH.tar.gz" -C panel-stage .
+          tar -czf "release-assets/flamepanel-agent-linux-$ARCH.tar.gz" -C agent-stage .
+      - uses: actions/upload-artifact@v5
         with:
-          name: release-${{ matrix.pkg_arch }}
-          path: release-assets/flamepanel-linux-${{ matrix.pkg_arch }}.tar.gz
+          name: release-${{ matrix.arch }}
+          path: release-assets/*.tar.gz
           if-no-files-found: error
 
-  github-release:
-    needs: [release]
-    runs-on: ubuntu-latest
+  assemble-assets:
+    needs: [metadata, build-frontend, build-binaries]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v5
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
         with:
+          pattern: release-*
           path: release-assets
           merge-multiple: true
-
-      # 汇总一份总 checksum：matrix 各 arch 二进制 + 前端包
-      - name: Generate combined checksums
-        run: |
-          cd release-assets
-          VERSION="${{ inputs.version }}"
-          if [[ -z "$VERSION" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          fi
-          if [[ -z "$VERSION" ]]; then
-            VERSION=$(grep -m1 '^version' Cargo.toml 2>/dev/null | sed -E 's/.*"([^"]+)".*/\1/' || true)
-          fi
-          if [[ -z "$VERSION" ]]; then
-            echo "::error::Cannot determine version (no tag / input / Cargo.toml)" && exit 1
-          fi
-          sha256sum flamepanel-linux-*.tar.gz flamepanel-frontend.tar.gz > flamepanel-${VERSION}-checksums.txt
-          cat flamepanel-${VERSION}-checksums.txt
-          echo "version=${VERSION}" >> "$GITHUB_ENV"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Validate complete asset set and generate SHA-256 manifest
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: python3 scripts/release-assets.py checksums release-assets
+      - uses: actions/upload-artifact@v5
         with:
-          tag_name: v${{ env.version }}
-          name: FlamePanel v${{ env.version }}
-          files: release-assets/*
+          name: verified-release-assets
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  github-release:
+    if: github.event_name == 'push' || inputs.create_draft
+    needs: [metadata, assemble-assets]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: verified-release-assets
+          path: release-assets
+      # Manual builds publish nothing unless draft creation is explicitly requested.
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.metadata.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: FlamePanel v${{ needs.metadata.outputs.version }}
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*-checksums.txt
           generate_release_notes: true

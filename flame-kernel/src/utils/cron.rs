@@ -133,22 +133,26 @@ fn parse_field(spec: &str, min: u32, max: u32) -> Result<Vec<u32>, String> {
 }
 
 fn floor_minute(dt: DateTime<Utc>) -> DateTime<Utc> {
-    dt.with_second(0).unwrap().with_nanosecond(0).unwrap()
+    dt.with_second(0)
+        .and_then(|d| d.with_nanosecond(0))
+        .unwrap_or(dt)
 }
 
 fn hour_start(dt: DateTime<Utc>) -> DateTime<Utc> {
-    dt.with_minute(0).unwrap().with_second(0).unwrap()
+    dt.with_minute(0)
+        .and_then(|d| d.with_second(0))
+        .unwrap_or(dt)
 }
 
 fn next_month_start(dt: DateTime<Utc>) -> DateTime<Utc> {
-    let first = dt.date_naive().with_day(1).unwrap();
+    let first = dt.date_naive().with_day(1).unwrap_or(dt.date_naive());
     let next = first.checked_add_months(Months::new(1)).unwrap_or(first);
-    next.and_hms_opt(0, 0, 0).unwrap().and_utc()
+    next.and_time(chrono::NaiveTime::MIN).and_utc()
 }
 
 fn next_day_start(dt: DateTime<Utc>) -> DateTime<Utc> {
     let next = dt.date_naive() + Duration::days(1);
-    next.and_hms_opt(0, 0, 0).unwrap().and_utc()
+    next.and_time(chrono::NaiveTime::MIN).and_utc()
 }
 
 #[cfg(test)]

@@ -12,6 +12,7 @@ pub enum ErrorCode {
     AuthUnauthorized,
     AuthForbidden,
     PasswordChangeRequired,
+    TwoFactorSetupRequired,
     NotFound,
     BadRequest,
     ValidationError,
@@ -27,6 +28,7 @@ impl ErrorCode {
             ErrorCode::AuthUnauthorized => "AUTH_UNAUTHORIZED",
             ErrorCode::AuthForbidden => "AUTH_FORBIDDEN",
             ErrorCode::PasswordChangeRequired => "PASSWORD_CHANGE_REQUIRED",
+            ErrorCode::TwoFactorSetupRequired => "TWO_FACTOR_SETUP_REQUIRED",
             ErrorCode::NotFound => "NOT_FOUND",
             ErrorCode::BadRequest => "BAD_REQUEST",
             ErrorCode::ValidationError => "VALIDATION_ERROR",
@@ -42,6 +44,7 @@ impl ErrorCode {
             ErrorCode::AuthUnauthorized => StatusCode::UNAUTHORIZED,
             ErrorCode::AuthForbidden => StatusCode::FORBIDDEN,
             ErrorCode::PasswordChangeRequired => StatusCode::FORBIDDEN,
+            ErrorCode::TwoFactorSetupRequired => StatusCode::FORBIDDEN,
             ErrorCode::NotFound => StatusCode::NOT_FOUND,
             ErrorCode::BadRequest | ErrorCode::ValidationError => StatusCode::BAD_REQUEST,
             ErrorCode::Conflict => StatusCode::CONFLICT,
@@ -60,6 +63,9 @@ pub enum AppError {
     Forbidden(String),
     #[error("Password change required: {0}")]
     PasswordChangeRequired(String),
+    /// 面板强制两步验证而当前用户尚未绑定
+    #[error("Two-factor setup required: {0}")]
+    TwoFactorSetupRequired(String),
     #[error("Not found: {0}")]
     NotFound(String),
     #[error("Bad request: {0}")]
@@ -103,6 +109,7 @@ impl AppError {
             AppError::Unauthorized(_) => ErrorCode::AuthUnauthorized,
             AppError::Forbidden(_) => ErrorCode::AuthForbidden,
             AppError::PasswordChangeRequired(_) => ErrorCode::PasswordChangeRequired,
+            AppError::TwoFactorSetupRequired(_) => ErrorCode::TwoFactorSetupRequired,
             AppError::NotFound(_) => ErrorCode::NotFound,
             AppError::BadRequest(_) => ErrorCode::BadRequest,
             AppError::ValidationError(_) => ErrorCode::ValidationError,
@@ -174,7 +181,12 @@ impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         let status = self.status_code();
         let error = self.code().as_str();
-        let message = self.to_string();
+        // M9：服务器内部错误对客户端脱敏，message 固定为通用文案，详情只进服务端日志。
+        let message = if status.is_server_error() {
+            "internal server error".to_string()
+        } else {
+            self.to_string()
+        };
         let body = Json(ErrorResponse {
             code: status.as_u16(),
             error,

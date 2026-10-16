@@ -1,3 +1,4 @@
+use super::xflame::{env_hints, parse_xflame};
 use super::{field_type_from_str, form_field, is_version_dir, AppPackageAdapter};
 use crate::core::error::AppError;
 use crate::domain::entity::{
@@ -33,6 +34,9 @@ struct FlameAppJson {
     readme: Option<String>,
     #[serde(default)]
     recommended: Option<bool>,
+    /// 生命周期钩子声明（Doc/20 §4.3，路径相对包根/版本目录）
+    #[serde(default)]
+    hooks: Option<crate::domain::entity::AppHooks>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,6 +91,20 @@ impl FlameAdapter {
     pub fn builtin_version(manifest: &AppManifest) -> AppVersionInfo {
         manifest.to_version()
     }
+
+    /// 读取默认版本的 compose 并解析 x-flame 扩展字段（无 compose 返回默认空结构）
+    fn read_xflame(&self, root: &Path, versions: &[String]) -> super::xflame::XFlame {
+        versions
+            .iter()
+            .find(|v| *v != "latest")
+            .or_else(|| versions.first())
+            .and_then(|v| {
+                let p = root.join(v).join("docker-compose.yml");
+                std::fs::read_to_string(p).ok()
+            })
+            .map(|c| parse_xflame(&c))
+            .unwrap_or_default()
+    }
 }
 
 impl AppPackageAdapter for FlameAdapter {
@@ -128,10 +146,23 @@ impl AppPackageAdapter for FlameAdapter {
         let mode = InstallMode::from_name(json.mode.as_deref().unwrap_or("container"))
             .unwrap_or(InstallMode::Container);
 
+        // M-M1（Doc/20 §4.6）：x-flame 扩展字段增强——compose 中声明的分类/架构
+        // 仅在 app.json 未显式提供时补充（app.json 优先，两种声明方式可共存）。
+        let xf = self.read_xflame(root, &versions);
+        let category = if json.category.is_some() {
+            json.category.unwrap_or_default()
+        } else {
+            xf.app.category.clone().unwrap_or_default()
+        };
+        let architectures = match &xf.app.arch {
+            Some(arch) if !arch.is_empty() => arch.clone(),
+            _ => vec![],
+        };
+
         Ok(AppMetadata {
             key: json.key.unwrap_or_else(|| key.to_string()),
             name: json.name.unwrap_or_else(|| key.to_string()),
-            category: json.category.unwrap_or_default(),
+            category,
             short_desc_zh: json.short_desc_zh.unwrap_or_default(),
             short_desc_en: json.short_desc_en,
             tags: json.tags.unwrap_or_default(),
@@ -141,7 +172,7 @@ impl AppPackageAdapter for FlameAdapter {
             default_version,
             logo: json.icon,
             min_memory_mb: None,
-            architectures: vec![],
+            architectures,
             readme: json.readme,
             recommended: json.recommended.unwrap_or(false),
         })
@@ -195,6 +226,13 @@ impl AppPackageAdapter for FlameAdapter {
         let mode = InstallMode::from_name(json.mode.as_deref().unwrap_or("container"))
             .unwrap_or(InstallMode::Container);
 
+        // Compose 模板（先读出供 x-flame 解析；M-M1 Doc/20 §4.6）
+        let compose_template = version_dir
+            .join("docker-compose.yml")
+            .is_file()
+            .then(|| std::fs::read_to_string(version_dir.join("docker-compose.yml")).ok())
+            .flatten();
+
         let mut form_fields: Vec<FormField> = json
             .form_fields
             .unwrap_or_default()
@@ -231,11 +269,23 @@ impl AppPackageAdapter for FlameAdapter {
             form_fields.push(form_field("PORT", "服务端口"));
         }
 
-        let compose_template = version_dir
-            .join("docker-compose.yml")
-            .is_file()
-            .then(|| std::fs::read_to_string(version_dir.join("docker-compose.yml")).ok())
-            .flatten();
+        // x-flame service 级 env 说明 → 补充表单字段（表单即元数据，Doc/20 §4.6）。
+        // 仅追加 app.json / 默认 PORT 未覆盖的变量，不覆盖显式声明。
+        if mode == InstallMode::Container {
+            if let Some(compose) = &compose_template {
+                let xf = parse_xflame(compose);
+                let declared: std::collections::HashSet<String> =
+                    form_fields.iter().map(|f| f.env_key.clone()).collect();
+                for (env_key, hint) in env_hints(&xf) {
+                    if !declared.contains(&env_key) {
+                        let mut f = form_field(&env_key, &hint);
+                        f.description = Some(hint);
+                        form_fields.push(f);
+                    }
+                }
+            }
+        }
+
         let native_scripts = if version_dir.join("install.sh").is_file() {
             std::fs::read_to_string(version_dir.join("install.sh"))
                 .map(|s| {
@@ -256,6 +306,22 @@ impl AppPackageAdapter for FlameAdapter {
             None
         };
 
+        // 生命周期钩子（Doc/20 §4.3）：app.json "hooks" 显式声明优先，
+        // 否则按 scripts/ 目录标准命名探测（pre_install.sh / post_install.sh / ...）。
+        let hooks = json.hooks.clone().unwrap_or_else(|| {
+            let hook = |name: &str| -> Option<String> {
+                let p = version_dir.join("scripts").join(name);
+                p.is_file().then(|| format!("scripts/{}", name))
+            };
+            crate::domain::entity::AppHooks {
+                pre_install: hook("pre_install.sh"),
+                post_install: hook("post_install.sh"),
+                pre_upgrade: hook("pre_upgrade.sh"),
+                post_upgrade: hook("post_upgrade.sh"),
+                pre_uninstall: hook("pre_uninstall.sh"),
+            }
+        });
+
         Ok(AppVersionInfo {
             version: version.into(),
             mode,
@@ -264,6 +330,7 @@ impl AppPackageAdapter for FlameAdapter {
             compose_template,
             native_scripts,
             wasm_base64,
+            hooks,
             min_memory_mb: None,
             architectures: vec![],
         })
@@ -359,6 +426,70 @@ mod tests {
         assert_eq!(version.mode, InstallMode::Native);
         assert_eq!(version.native_scripts.len(), 2);
         assert!(version.native_scripts[0].contains("apt-get"));
+        // Doc/20 §4.3：无 hooks 声明且无 scripts/ → 默认空
+        assert!(version.hooks.is_empty());
+    }
+
+    #[test]
+    fn parses_explicit_hooks_from_app_json() {
+        // Doc/20 §4.3：app.json "hooks" 显式声明优先于 scripts/ 目录探测
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("app.json"),
+            r#"{
+                "key": "myapp", "name": "MyApp",
+                "mode": "container",
+                "versions": ["1.0"],
+                "hooks": {
+                    "pre_install": "scripts/pre.sh",
+                    "post_install": "scripts/post.sh",
+                    "pre_uninstall": "scripts/bye.sh"
+                }
+            }"#,
+        )
+        .unwrap();
+        let vdir = dir.path().join("1.0");
+        std::fs::create_dir_all(&vdir).unwrap();
+        std::fs::write(
+            vdir.join("docker-compose.yml"),
+            "services:\n  app:\n    image: busybox\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(vdir.join("scripts")).unwrap();
+        std::fs::write(vdir.join("scripts/pre.sh"), "echo pre").unwrap();
+
+        let version = FlameAdapter.parse_version(dir.path(), "1.0").unwrap();
+        let h = &version.hooks;
+        assert!(!h.is_empty());
+        assert_eq!(h.pre_install.as_deref(), Some("scripts/pre.sh"));
+        assert_eq!(h.post_install.as_deref(), Some("scripts/post.sh"));
+        assert_eq!(h.pre_uninstall.as_deref(), Some("scripts/bye.sh"));
+        assert!(h.pre_upgrade.is_none());
+    }
+
+    #[test]
+    fn probes_hooks_from_scripts_dir_when_not_declared() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("app.json"),
+            r#"{ "key": "myapp", "name": "MyApp", "mode": "container", "versions": ["1.0"] }"#,
+        )
+        .unwrap();
+        let vdir = dir.path().join("1.0");
+        std::fs::create_dir_all(vdir.join("scripts")).unwrap();
+        std::fs::write(vdir.join("scripts/pre_install.sh"), "echo pre").unwrap();
+        std::fs::write(vdir.join("scripts/post_install.sh"), "echo post").unwrap();
+
+        let version = FlameAdapter.parse_version(dir.path(), "1.0").unwrap();
+        assert_eq!(
+            version.hooks.pre_install.as_deref(),
+            Some("scripts/pre_install.sh")
+        );
+        assert_eq!(
+            version.hooks.post_install.as_deref(),
+            Some("scripts/post_install.sh")
+        );
+        assert!(version.hooks.pre_uninstall.is_none());
     }
 
     #[test]
@@ -374,6 +505,108 @@ mod tests {
             .contains("wordpress:"));
         assert_eq!(version.form_fields[0].env_key, "PORT");
         assert_eq!(version.default_port, Some(8081));
+    }
+
+    #[test]
+    fn merges_xflame_category_and_arch_from_compose() {
+        // M-M1 Doc/20 §4.6：compose x-flame 声明分类/架构，app.json 未提供时补充
+        let dir = temp_dir("xflame_meta");
+        std::fs::write(
+            dir.join("app.json"),
+            r#"{ "key": "wp", "name": "WP", "mode": "container", "versions": ["1.0"] }"#,
+        )
+        .unwrap();
+        let vdir = dir.join("1.0");
+        std::fs::create_dir_all(&vdir).unwrap();
+        std::fs::write(
+            vdir.join("docker-compose.yml"),
+            "x-flame:\n  app:\n    category: website\n    arch: [amd64, arm64]\nservices:\n  app:\n    image: docker.io/library/wordpress:6.7\n",
+        )
+        .unwrap();
+
+        let meta = FlameAdapter.parse_metadata(&dir).unwrap();
+        assert_eq!(meta.category, "website");
+        assert_eq!(meta.architectures, vec!["amd64", "arm64"]);
+    }
+
+    #[test]
+    fn app_json_category_overrides_xflame() {
+        // app.json 显式声明优先，x-flame 不覆盖
+        let dir = temp_dir("xflame_prio");
+        std::fs::write(
+            dir.join("app.json"),
+            r#"{ "key": "wp", "name": "WP", "category": "cms", "mode": "container", "versions": ["1.0"] }"#,
+        )
+        .unwrap();
+        let vdir = dir.join("1.0");
+        std::fs::create_dir_all(&vdir).unwrap();
+        std::fs::write(
+            vdir.join("docker-compose.yml"),
+            "x-flame:\n  app:\n    category: website\nservices:\n  app:\n    image: docker.io/library/wordpress:6.7\n",
+        )
+        .unwrap();
+
+        let meta = FlameAdapter.parse_metadata(&dir).unwrap();
+        assert_eq!(meta.category, "cms");
+    }
+
+    #[test]
+    fn xflame_env_hints_become_supplementary_form_fields() {
+        // service 级 env 说明 → 补充表单字段（不覆盖 app.json 显式声明）
+        let dir = temp_dir("xflame_env");
+        std::fs::write(
+            dir.join("app.json"),
+            r#"{
+                "key": "wp", "name": "WP", "mode": "container", "versions": ["1.0"],
+                "form_fields": [{"env_key": "PORT", "label_zh": "端口", "field_type": "port"}]
+            }"#,
+        )
+        .unwrap();
+        let vdir = dir.join("1.0");
+        std::fs::create_dir_all(&vdir).unwrap();
+        std::fs::write(
+            vdir.join("docker-compose.yml"),
+            "x-flame:\n  services:\n    app:\n      env:\n        PANEL_APP_PORT_HTTP: 网站对外端口\n        PORT: 不应覆盖\nservices:\n  app:\n    image: docker.io/library/wordpress:6.7\n",
+        )
+        .unwrap();
+
+        let version = FlameAdapter.parse_version(&dir, "1.0").unwrap();
+        let port_field = version
+            .form_fields
+            .iter()
+            .find(|f| f.env_key == "PORT")
+            .unwrap();
+        assert_eq!(port_field.label_zh, "端口"); // 显式声明不被覆盖
+        let extra = version
+            .form_fields
+            .iter()
+            .find(|f| f.env_key == "PANEL_APP_PORT_HTTP")
+            .expect("x-flame env hint 应生成补充字段");
+        assert_eq!(extra.label_zh, "网站对外端口");
+        assert_eq!(extra.description.as_deref(), Some("网站对外端口"));
+        assert!(!extra.required); // 补充字段非必填
+    }
+
+    #[test]
+    fn xflame_env_hint_rejects_path_traversal_key() {
+        // 恶意输入：env 变量名含路径穿越/非法字符时忽略该提示
+        let dir = temp_dir("xflame_mal");
+        std::fs::write(
+            dir.join("app.json"),
+            r#"{ "key": "wp", "name": "WP", "mode": "container", "versions": ["1.0"] }"#,
+        )
+        .unwrap();
+        let vdir = dir.join("1.0");
+        std::fs::create_dir_all(&vdir).unwrap();
+        std::fs::write(
+            vdir.join("docker-compose.yml"),
+            "x-flame:\n  services:\n    app:\n      env:\n        \"../evil\": 穿越\n        GOOD_VAR: 正常\nservices:\n  app:\n    image: docker.io/library/wordpress:6.7\n",
+        )
+        .unwrap();
+
+        let version = FlameAdapter.parse_version(&dir, "1.0").unwrap();
+        assert!(version.form_fields.iter().all(|f| f.env_key != "../evil"));
+        assert!(version.form_fields.iter().any(|f| f.env_key == "GOOD_VAR"));
     }
 
     #[test]

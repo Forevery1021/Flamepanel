@@ -149,8 +149,9 @@ impl NodeService {
         }
     }
 
-    /// 校验 Agent 心跳令牌：库中 auth_token 存在且与请求一致才通过；
-    /// 库中无 token（旧 Agent）时放行并告警（兼容）
+    /// 校验 Agent 心跳令牌：库中 auth_token 存在且与请求一致才通过。
+    /// M7：库中无 token（旧 Agent）不再放行——未注册 token 的节点心跳一律拒绝，
+    /// 防止伪造节点指标/在线抖动；存量节点应一次性补发 token 后更新。
     pub async fn verify_agent_token(
         &self,
         id: i64,
@@ -163,18 +164,22 @@ impl NodeService {
                 .unwrap_or(false)),
             None => {
                 tracing::warn!(
-                    "Node {} has no auth_token recorded; heartbeat token check skipped",
+                    "Node {} has no auth_token recorded; heartbeat rejected (补发 token 后恢复)",
                     id
                 );
-                Ok(true)
+                Ok(false)
             }
         }
     }
 
     // ── Stage5 多节点远程调用 ────────────────────────────────────────────
 
-    /// 构造 Agent 的 base_url：`http://<ip>:<agent_port>`
+    /// 构造 Agent 的 base_url：节点有活动 Edge 连接时为 `edge://<id>`（反向通道，NAT 后零入站），
+    /// 否则直连 `http://<ip>:<agent_port>`（ip 可带 https:// 前缀，见 R1）。
     fn agent_base_url(&self, node: &ServerNode) -> Result<String, AppError> {
+        if self.agent_client.edge().is_connected(node.id) {
+            return Ok(crate::infrastructure::edge::edge_base_url(node.id));
+        }
         if node.ip_address.is_empty() {
             return Err(AppError::BadRequest(
                 "Node has no ip_address; cannot reach agent".into(),
@@ -279,16 +284,24 @@ impl NodeService {
         AppError,
     > {
         // 统一 Task 状态机（Phase B1：批量节点操作编排）
-        let task = self.task_tracker.create(
-            crate::runtime::task_state::TaskKind::BatchNode,
-            format!("batch execute on {} node(s): {}", node_ids.len(), command),
-        );
+        let task = self
+            .task_tracker
+            .create(
+                crate::runtime::task_state::TaskKind::BatchNode,
+                format!("batch execute on {} node(s): {}", node_ids.len(), command),
+            )
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
         let task_id = task.id;
         let _ = self
             .task_tracker
-            .transition(task_id, crate::runtime::task_state::TaskState::Running);
+            .transition(task_id, crate::runtime::task_state::TaskState::Running)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
         self.task_tracker
-            .update_progress(task_id, 0, "starting batch");
+            .update_progress(task_id, 0, "starting batch")
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
 
         let mut handles = Vec::new();
         for &id in node_ids {
@@ -311,30 +324,42 @@ impl NodeService {
                 .map_err(|e| AppError::internal(format!("Batch task join failed: {}", e)))?;
             out.push((id, name, result));
             let done = ((i + 1) as f32 / total as f32 * 100.0) as u8;
-            self.task_tracker.update_progress(
-                task_id,
-                done,
-                &format!("processed {}/{} nodes", i + 1, total),
-            );
+            self.task_tracker
+                .update_progress(
+                    task_id,
+                    done,
+                    &format!("processed {}/{} nodes", i + 1, total),
+                )
+                .await
+                .map_err(|e| AppError::internal(e.to_string()))?;
         }
 
         let succeeded = out.iter().filter(|(_, _, r)| r.is_ok()).count();
         let failed = out.len() - succeeded;
         if failed == 0 {
             self.task_tracker
-                .update_progress(task_id, 100, "batch succeeded");
+                .update_progress(task_id, 100, "batch succeeded")
+                .await
+                .map_err(|e| AppError::internal(e.to_string()))?;
             let _ = self
                 .task_tracker
-                .transition(task_id, crate::runtime::task_state::TaskState::Success);
+                .transition(task_id, crate::runtime::task_state::TaskState::Success)
+                .await
+                .map_err(|e| AppError::internal(e.to_string()))?;
         } else {
-            self.task_tracker.update_progress(
-                task_id,
-                100,
-                &format!("batch finished: {} ok, {} failed", succeeded, failed),
-            );
+            self.task_tracker
+                .update_progress(
+                    task_id,
+                    100,
+                    &format!("batch finished: {} ok, {} failed", succeeded, failed),
+                )
+                .await
+                .map_err(|e| AppError::internal(e.to_string()))?;
             let _ = self
                 .task_tracker
-                .transition(task_id, crate::runtime::task_state::TaskState::Failed);
+                .transition(task_id, crate::runtime::task_state::TaskState::Failed)
+                .await
+                .map_err(|e| AppError::internal(e.to_string()))?;
         }
         Ok(out)
     }

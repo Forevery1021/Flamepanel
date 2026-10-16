@@ -1,5 +1,5 @@
 import api from './client'
-import type { PluginResponse } from '@/types'
+import type { MarketListResponse, PluginExecutionResponse, PluginResponse } from '@/types'
 
 export function listPlugins() {
   return api.get<PluginResponse[]>('/plugins')
@@ -13,7 +13,7 @@ export function loadPlugin(
   id: string,
   name: string,
   wasm_base64: string,
-  opts?: { version?: string; author?: string; description?: string },
+  opts?: { version?: string; author?: string; description?: string; capabilities?: string[] },
 ) {
   return api.post<PluginResponse>('/plugins', { id, name, wasm_base64, ...opts })
 }
@@ -30,8 +30,26 @@ export function disablePlugin(id: string) {
   return api.post<PluginResponse>(`/plugins/${id}/disable`)
 }
 
-export function executePlugin(id: string, func: string, args?: number[]) {
-  return api.post(`/plugins/${id}/execute/${func}`, { args })
+/** 执行插件导出函数；input 经宿主 API `flame.input_read` 传给插件 */
+export function executePlugin(id: string, func: string, input?: string) {
+  return api.post<PluginExecutionResponse>(`/plugins/${id}/execute/${func}`, { input })
+}
+
+/** 整体替换插件的宿主能力授予 */
+export function updatePluginCapabilities(id: string, capabilities: string[]) {
+  return api.put<PluginResponse>(`/plugins/${id}/capabilities`, { capabilities })
+}
+
+/** 插件市场目录（内置 + 远程索引） */
+export function listMarketPlugins() {
+  return api.get<MarketListResponse>('/plugins/market')
+}
+
+/** 从市场安装；插件申请能力时须 acceptCapabilities=true */
+export function installMarketPlugin(id: string, acceptCapabilities: boolean) {
+  return api.post<PluginResponse>(`/plugins/market/${id}/install`, {
+    accept_capabilities: acceptCapabilities,
+  })
 }
 
 export function reloadPlugin(

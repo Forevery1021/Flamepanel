@@ -1,0 +1,9 @@
+# 构建产物 / 自动生成文件不参与格式化
+dist
+node_modules
+
+# P0-1：OpenAPI 自动生成类型——保持生成器原生格式，避免 prettier 反复改写
+src/api/generated/**
+
+# Doc/32 §6：后端导出的 OpenAPI 快照——CI 以 diff 逐字节比对，禁止格式化
+openapi.json

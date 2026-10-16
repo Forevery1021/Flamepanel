@@ -1,6 +1,21 @@
+pub mod assistant;
+pub mod cert_renewal;
+pub mod compose_convert;
+pub mod compose_merge;
+pub mod docker_ref;
 pub mod entity;
 pub mod error;
 pub mod execution_mode;
+pub mod firewall;
+pub mod host_info;
+pub mod inspection;
+pub mod kernel_log;
+pub mod mcp;
+pub mod project_command;
 pub mod repository;
+pub mod runbook;
+pub mod settings_schema;
+pub mod toolbox;
+pub mod two_factor;
 
 pub use error::DomainError;

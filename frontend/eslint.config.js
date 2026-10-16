@@ -29,6 +29,17 @@ export default tseslint.config(
       },
     },
   },
+  // T1-3：构建期工具脚本（Node ESM，frontend/scripts/）——非浏览器运行环境，
+  // 故单独给 Node 全局；未在此声明前 eslint 对 .mjs 实际无规则生效（等于漏检）。
+  {
+    files: ['scripts/**/*.mjs'],
+    extends: [tseslint.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.node },
+    },
+  },
   {
     files: ['**/*.{ts,vue}'],
     plugins: { '@typescript-eslint': tseslint.plugin },

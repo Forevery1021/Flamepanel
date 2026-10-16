@@ -1,4 +1,4 @@
-import api from './client'
+import api, { longApi } from './client'
 import type { DatabaseInstance } from '@/types'
 import type { Page } from '@/api/generated'
 
@@ -32,6 +32,25 @@ export function installRedis(data: {
   password?: string
 }) {
   return api.post<DatabaseInstance>('/databases/redis/install', data)
+}
+
+export function installPostgres(data: {
+  name: string
+  version?: string
+  port?: number
+  password?: string
+}) {
+  return api.post<DatabaseInstance>('/databases/postgres/install', data)
+}
+
+/** MongoDB 官方仓库安装：version 取 8.0 / 9.0；填写 password 时创建 admin 并开启鉴权。 */
+export function installMongodb(data: {
+  name: string
+  version?: string
+  port?: number
+  password?: string
+}) {
+  return api.post<DatabaseInstance>('/databases/mongodb/install', data)
 }
 
 export function startDatabase(id: number) {
@@ -71,7 +90,8 @@ export function dropDatabaseUser(id: number, username: string) {
 }
 
 export function uninstallDatabase(id: number) {
-  return api.post(`/databases/${id}/uninstall`)
+  // F-33: 卸载为长操作
+  return longApi.post(`/databases/${id}/uninstall`)
 }
 
 /**

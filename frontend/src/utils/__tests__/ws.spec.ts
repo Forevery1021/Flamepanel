@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { connectWithRetry } from '@/utils/ws'
+import { connectWithRetry, RENEW_INTERVAL_MS } from '@/utils/ws'
+
+const { refreshMock } = vi.hoisted(() => ({ refreshMock: vi.fn() }))
+vi.mock('@/api/client', () => ({ getRefreshedToken: refreshMock }))
 
 class MockWebSocket {
   static instances: MockWebSocket[] = []
   static OPEN = 1
   readyState = 0
   onopen: (() => void) | null = null
-  onclose: (() => void) | null = null
+  onclose: ((ev?: { code: number }) => void) | null = null
   onerror: (() => void) | null = null
   onmessage: ((ev: MessageEvent) => void) | null = null
   sent: string[] = []
@@ -26,9 +29,9 @@ class MockWebSocket {
     this.onopen?.()
   }
   /** 模拟连接关闭（如服务端断开） */
-  closeFromServer() {
+  closeFromServer(code = 1006) {
     this.readyState = 3
-    this.onclose?.()
+    this.onclose?.({ code })
   }
 }
 
@@ -81,5 +84,78 @@ describe('ws reconnectNow', () => {
     MockWebSocket.instances[0].closeFromServer()
     vi.runAllTimers()
     expect(MockWebSocket.instances).toHaveLength(1)
+  })
+
+  describe('会话关闭码与带内续期', () => {
+    const flush = async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve()
+    }
+
+    it('4003 停止重连并通知 onDenied', async () => {
+      const onDenied = vi.fn()
+      const onStatus = vi.fn()
+      connectWithRetry('/ws/terminal', { onMessage: () => {}, onDenied, onStatus })
+      MockWebSocket.instances[0].open()
+      await flush()
+      MockWebSocket.instances[0].closeFromServer(4003)
+      await flush()
+      vi.advanceTimersByTime(60_000)
+      await flush()
+      expect(onDenied).toHaveBeenCalledTimes(1)
+      expect(onStatus).toHaveBeenLastCalledWith(false)
+      expect(MockWebSocket.instances).toHaveLength(1)
+    })
+
+    it('4004（节点不存在）同样停止重连', async () => {
+      const onDenied = vi.fn()
+      connectWithRetry('/ws/metrics?node_id=9', { onMessage: () => {}, onDenied })
+      MockWebSocket.instances[0].open()
+      await flush()
+      MockWebSocket.instances[0].closeFromServer(4004)
+      await flush()
+      vi.advanceTimersByTime(60_000)
+      await flush()
+      expect(onDenied).toHaveBeenCalledTimes(1)
+      expect(MockWebSocket.instances).toHaveLength(1)
+    })
+
+    it('4001 强制刷新 token 后重连；刷新失败则不再重连', async () => {
+      refreshMock.mockResolvedValueOnce('new-token')
+      connectWithRetry('/ws/metrics', { onMessage: () => {} })
+      MockWebSocket.instances[0].open()
+      await flush()
+      MockWebSocket.instances[0].closeFromServer(4001)
+      await flush()
+      expect(refreshMock).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(1000)
+      expect(MockWebSocket.instances).toHaveLength(2)
+
+      refreshMock.mockResolvedValueOnce(null)
+      MockWebSocket.instances[1].open()
+      await flush()
+      MockWebSocket.instances[1].closeFromServer(4001)
+      await flush()
+      vi.advanceTimersByTime(60_000)
+      expect(MockWebSocket.instances).toHaveLength(2)
+    })
+
+    it('token 变化后发送带内续期帧，未变化不重复发送', async () => {
+      localStorage.setItem('token', 'tok-1')
+      connectWithRetry('/ws/terminal', { onMessage: () => {} })
+      const sock = MockWebSocket.instances[0]
+      sock.open()
+      await flush()
+      const authFrames = () => sock.sent.filter((f) => f.includes('"type":"auth"'))
+      expect(authFrames()).toHaveLength(1)
+      vi.advanceTimersByTime(RENEW_INTERVAL_MS)
+      await flush()
+      expect(authFrames()).toHaveLength(1)
+      localStorage.setItem('token', 'tok-2')
+      vi.advanceTimersByTime(RENEW_INTERVAL_MS)
+      await flush()
+      expect(authFrames()).toHaveLength(2)
+      expect(authFrames()[1]).toContain('tok-2')
+      localStorage.removeItem('token')
+    })
   })
 })

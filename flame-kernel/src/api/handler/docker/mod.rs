@@ -8,6 +8,12 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+/// 容器日志尾行上限（输出另有 1 MiB 截断）
+pub const MAX_LOG_TAIL: usize = 10_000;
+/// compose YAML 上限
+pub const MAX_COMPOSE_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Deserialize)]
 pub struct ContainerQuery {
@@ -19,18 +25,22 @@ pub struct LogsQuery {
     tail: Option<usize>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ComposeDeployRequest {
+    /// `[A-Za-z0-9][A-Za-z0-9_.-]*`，≤ 63
     pub project_name: String,
+    /// ≤ 256 KiB；文件持久化到 `data/compose/<project>/docker-compose.yml`
     pub compose_yaml: String,
 }
 
-#[derive(Debug, Deserialize)]
+/// 重命名容器（schema 加前缀，避免与文件管理 `RenameRequest` 同名覆盖）
+#[derive(Debug, Deserialize, ToSchema)]
+#[schema(as = DockerRenameRequest)]
 pub struct RenameRequest {
     pub new_name: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateNetworkRequest {
     pub name: String,
     #[serde(default = "default_network_driver")]
@@ -42,14 +52,14 @@ fn default_network_driver() -> String {
     "bridge".into()
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ConnectNetworkRequest {
     pub container_id: String,
     #[serde(default)]
     pub force: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateVolumeRequest {
     pub name: String,
     #[serde(default = "default_volume_driver")]
@@ -60,14 +70,16 @@ fn default_volume_driver() -> String {
     "local".into()
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct PullImageRequest {
     pub image: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct TagImageRequest {
+    /// 仓库名（不含 tag / digest），如 `registry.local:5000/team/app`
     pub repo: String,
+    /// `[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}`
     pub tag: String,
 }
 
@@ -77,13 +89,26 @@ pub struct ForceQuery {
     pub force: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ComposeDeployResponse {
     pub project_name: String,
     pub status: String,
     pub message: String,
 }
 
+/// 容器列表
+#[utoipa::path(
+    get,
+    path = "/api/docker/containers",
+    tag = "docker",
+    params(("node_id" = Option<i64>, Query, description = "节点 ID，缺省 0 = 本机")),
+    responses(
+        (status = 200, description = "容器", body = [DockerContainer]),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<ContainerQuery>,
@@ -93,6 +118,20 @@ pub async fn list(
     Ok(Json(containers))
 }
 
+/// 单个容器（按 ID 或名称匹配）
+#[utoipa::path(
+    get,
+    path = "/api/docker/containers/{id}",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）")),
+    responses(
+        (status = 200, description = "容器", body = DockerContainer),
+        (status = 404, description = "容器不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn get(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -105,6 +144,20 @@ pub async fn get(
     Ok(Json(container))
 }
 
+/// 启动容器
+#[utoipa::path(
+    post,
+    path = "/api/docker/containers/{id}/start",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）")),
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:start 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn start(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -113,6 +166,20 @@ pub async fn start(
     Ok(Json(()))
 }
 
+/// 停止容器（10 s 超时）
+#[utoipa::path(
+    post,
+    path = "/api/docker/containers/{id}/stop",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）")),
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:stop 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn stop(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -121,6 +188,20 @@ pub async fn stop(
     Ok(Json(()))
 }
 
+/// 重启容器（10 s 超时）
+#[utoipa::path(
+    post,
+    path = "/api/docker/containers/{id}/restart",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）")),
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:start 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn restart(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -129,6 +210,20 @@ pub async fn restart(
     Ok(Json(()))
 }
 
+/// 删除容器（非强制）
+#[utoipa::path(
+    post,
+    path = "/api/docker/containers/{id}/remove",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）")),
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:delete 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn remove(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -137,16 +232,45 @@ pub async fn remove(
     Ok(Json(()))
 }
 
+/// 容器日志（stdout + stderr，输出上限 1 MiB）
+#[utoipa::path(
+    get,
+    path = "/api/docker/containers/{id}/logs",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）"),
+        ("tail" = Option<usize>, Query, description = "尾行数，缺省 100，钳制到 1–10000")),
+    responses(
+        (status = 200, description = "日志文本", body = String),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn logs(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Query(query): Query<LogsQuery>,
 ) -> Result<Json<String>, AppError> {
-    let tail = query.tail.unwrap_or(100);
+    let tail = query.tail.unwrap_or(100).clamp(1, MAX_LOG_TAIL);
     let logs = state.docker_service.get_container_logs(&id, tail).await?;
     Ok(Json(logs))
 }
 
+/// 容器资源统计（Engine API 原样）
+#[utoipa::path(
+    get,
+    path = "/api/docker/containers/{id}/stats",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）")),
+    responses(
+        (status = 200, description = "统计", body = serde_json::Value),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn stats(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -155,6 +279,18 @@ pub async fn stats(
     Ok(Json(stats))
 }
 
+/// 镜像列表
+#[utoipa::path(
+    get,
+    path = "/api/docker/images",
+    tag = "docker",
+    responses(
+        (status = 200, description = "镜像", body = [serde_json::Value]),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list_images(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
@@ -162,6 +298,20 @@ pub async fn list_images(
     Ok(Json(images))
 }
 
+/// 删除镜像
+#[utoipa::path(
+    post,
+    path = "/api/docker/images/{id}/remove",
+    tag = "docker",
+    params(("id" = String, Path, description = "镜像 ID 或引用")),
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:delete 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn remove_image(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -170,10 +320,60 @@ pub async fn remove_image(
     Ok(Json(()))
 }
 
+/// `docker run` 转换请求
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ConvertRunRequest {
+    /// 完整的 `docker run …` 命令（可含 `\` 续行，≤ 16 KiB）
+    pub command: String,
+}
+
+/// `docker run` 命令 → Compose YAML（纯文本转换，不执行命令、不接触 Docker）
+#[utoipa::path(
+    post,
+    path = "/api/docker/compose/convert-run",
+    tag = "docker",
+    request_body = ConvertRunRequest,
+    responses(
+        (status = 200, description = "转换结果；`warnings` 列出无法等价转换的参数", body = crate::domain::compose_convert::ComposeConversion),
+        (status = 400, description = "不是 docker run 命令 / 含管道等 shell 结构 / 不支持的参数 / 超过 16 KiB"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:create 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
+pub async fn compose_convert_run(
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<ConvertRunRequest>,
+) -> Result<Json<crate::domain::compose_convert::ComposeConversion>, AppError> {
+    Ok(Json(
+        state.docker_service.convert_run_command(&req.command)?,
+    ))
+}
+
+/// 部署 Compose 项目（等价于宿主机 root 能力，故归 `docker:create`）
+#[utoipa::path(
+    post,
+    path = "/api/docker/compose/deploy",
+    tag = "docker",
+    request_body = ComposeDeployRequest,
+    responses(
+        (status = 200, description = "`{project_name, path, status}`", body = serde_json::Value),
+        (status = 400, description = "项目名非法 / YAML 为空或超过 256 KiB"),
+        (status = 500, description = "docker compose up 失败"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:create 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn compose_deploy(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<ComposeDeployRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    if req.compose_yaml.trim().is_empty() || req.compose_yaml.len() > MAX_COMPOSE_BYTES {
+        return Err(AppError::ValidationError(format!(
+            "compose_yaml: must be non-empty and at most {MAX_COMPOSE_BYTES} bytes"
+        )));
+    }
     let result = state
         .docker_service
         .compose_deploy(&req.project_name, &req.compose_yaml)
@@ -181,6 +381,20 @@ pub async fn compose_deploy(
     Ok(Json(result))
 }
 
+/// 启动 Compose 项目（使用项目记录的配置文件）
+#[utoipa::path(
+    post,
+    path = "/api/docker/compose/{project_name}/up",
+    tag = "docker",
+    params(("project_name" = String, Path, description = "Compose 项目名")),
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "项目名非法"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:start 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn compose_up(
     State(state): State<AppState>,
     Path(project_name): Path<String>,
@@ -189,6 +403,20 @@ pub async fn compose_up(
     Ok(Json(()))
 }
 
+/// 停止并移除 Compose 项目容器与网络（保留配置文件与数据）
+#[utoipa::path(
+    post,
+    path = "/api/docker/compose/{project_name}/down",
+    tag = "docker",
+    params(("project_name" = String, Path, description = "Compose 项目名")),
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "项目名非法"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:stop 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn compose_down(
     State(state): State<AppState>,
     Path(project_name): Path<String>,
@@ -199,6 +427,20 @@ pub async fn compose_down(
 
 // ── 容器高级操作 ─────────────────────────────────────────────
 
+/// 容器详情（Engine API inspect 原样）
+#[utoipa::path(
+    get,
+    path = "/api/docker/containers/{id}/inspect",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）")),
+    responses(
+        (status = 200, description = "详情", body = serde_json::Value),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn inspect(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -207,6 +449,42 @@ pub async fn inspect(
     Ok(Json(detail))
 }
 
+/// 既有容器 → Compose YAML（收编：导出后停止原容器，再以该 YAML 部署）
+#[utoipa::path(
+    get,
+    path = "/api/docker/containers/{id}/compose",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）")),
+    responses(
+        (status = 200, description = "转换结果（YAML 仅供审阅，不会部署）", body = crate::domain::compose_convert::ComposeConversion),
+        (status = 400, description = "引用含非法字符 / 容器信息缺少镜像"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
+pub async fn container_compose(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<crate::domain::compose_convert::ComposeConversion>, AppError> {
+    Ok(Json(state.docker_service.container_to_compose(&id).await?))
+}
+
+/// 重命名容器
+#[utoipa::path(
+    post,
+    path = "/api/docker/containers/{id}/rename",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）")),
+    request_body = RenameRequest,
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "ID 或新名称非法"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:update 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn rename(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -219,6 +497,20 @@ pub async fn rename(
     Ok(Json(()))
 }
 
+/// 暂停容器
+#[utoipa::path(
+    post,
+    path = "/api/docker/containers/{id}/pause",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）")),
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:start 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn pause(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -227,6 +519,20 @@ pub async fn pause(
     Ok(Json(()))
 }
 
+/// 恢复容器
+#[utoipa::path(
+    post,
+    path = "/api/docker/containers/{id}/unpause",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）")),
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:start 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn unpause(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -235,6 +541,20 @@ pub async fn unpause(
     Ok(Json(()))
 }
 
+/// 强制终止容器
+#[utoipa::path(
+    post,
+    path = "/api/docker/containers/{id}/kill",
+    tag = "docker",
+    params(("id" = String, Path, description = "容器 ID 或名称（`[A-Za-z0-9][A-Za-z0-9_.-]*`）")),
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:start 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn kill(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -243,6 +563,18 @@ pub async fn kill(
     Ok(Json(()))
 }
 
+/// 清理已停止容器
+#[utoipa::path(
+    post,
+    path = "/api/docker/containers/prune",
+    tag = "docker",
+    responses(
+        (status = 200, description = "清理结果", body = serde_json::Value),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:delete 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn prune_containers(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -252,6 +584,18 @@ pub async fn prune_containers(
 
 // ── 网络管理 ────────────────────────────────────────────────
 
+/// 网络列表
+#[utoipa::path(
+    get,
+    path = "/api/docker/networks",
+    tag = "docker",
+    responses(
+        (status = 200, description = "网络", body = [serde_json::Value]),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list_networks(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
@@ -259,6 +603,20 @@ pub async fn list_networks(
     Ok(Json(networks))
 }
 
+/// 创建网络
+#[utoipa::path(
+    post,
+    path = "/api/docker/networks",
+    tag = "docker",
+    request_body = CreateNetworkRequest,
+    responses(
+        (status = 200, description = "创建结果", body = serde_json::Value),
+        (status = 400, description = "名称 / 驱动 / 子网（CIDR）非法"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:create 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn create_network(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<CreateNetworkRequest>,
@@ -270,6 +628,20 @@ pub async fn create_network(
     Ok(Json(result))
 }
 
+/// 删除网络
+#[utoipa::path(
+    delete,
+    path = "/api/docker/networks/{id}",
+    tag = "docker",
+    params(("id" = String, Path, description = "网络 ID 或名称")),
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:delete 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn remove_network(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -278,6 +650,21 @@ pub async fn remove_network(
     Ok(Json(()))
 }
 
+/// 把容器接入网络
+#[utoipa::path(
+    post,
+    path = "/api/docker/networks/{id}/connect",
+    tag = "docker",
+    params(("id" = String, Path, description = "网络 ID 或名称")),
+    request_body = ConnectNetworkRequest,
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:update 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn connect_network(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -290,6 +677,21 @@ pub async fn connect_network(
     Ok(Json(()))
 }
 
+/// 把容器移出网络（`force` 可强制）
+#[utoipa::path(
+    post,
+    path = "/api/docker/networks/{id}/disconnect",
+    tag = "docker",
+    params(("id" = String, Path, description = "网络 ID 或名称")),
+    request_body = ConnectNetworkRequest,
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:update 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn disconnect_network(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -302,6 +704,18 @@ pub async fn disconnect_network(
     Ok(Json(()))
 }
 
+/// 清理未使用网络
+#[utoipa::path(
+    post,
+    path = "/api/docker/networks/prune",
+    tag = "docker",
+    responses(
+        (status = 200, description = "清理结果", body = serde_json::Value),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:delete 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn prune_networks(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -311,6 +725,18 @@ pub async fn prune_networks(
 
 // ── 卷管理 ──────────────────────────────────────────────────
 
+/// 卷列表
+#[utoipa::path(
+    get,
+    path = "/api/docker/volumes",
+    tag = "docker",
+    responses(
+        (status = 200, description = "卷", body = [serde_json::Value]),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list_volumes(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
@@ -318,6 +744,20 @@ pub async fn list_volumes(
     Ok(Json(volumes))
 }
 
+/// 创建卷
+#[utoipa::path(
+    post,
+    path = "/api/docker/volumes",
+    tag = "docker",
+    request_body = CreateVolumeRequest,
+    responses(
+        (status = 200, description = "创建结果", body = serde_json::Value),
+        (status = 400, description = "名称 / 驱动非法"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:create 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn create_volume(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<CreateVolumeRequest>,
@@ -329,6 +769,21 @@ pub async fn create_volume(
     Ok(Json(result))
 }
 
+/// 删除卷
+#[utoipa::path(
+    delete,
+    path = "/api/docker/volumes/{name}",
+    tag = "docker",
+    params(("name" = String, Path, description = "卷名"),
+        ("force" = Option<bool>, Query, description = "强制删除")),
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "引用含非法字符（`/`、`..`、`?` 等，Doc/33 P-12）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:delete 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn remove_volume(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -341,6 +796,18 @@ pub async fn remove_volume(
     Ok(Json(()))
 }
 
+/// 清理未使用卷
+#[utoipa::path(
+    post,
+    path = "/api/docker/volumes/prune",
+    tag = "docker",
+    responses(
+        (status = 200, description = "清理结果", body = serde_json::Value),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:delete 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn prune_volumes(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -350,6 +817,20 @@ pub async fn prune_volumes(
 
 // ── 镜像管理 ────────────────────────────────────────────────
 
+/// 拉取镜像（`{image, message}`）
+#[utoipa::path(
+    post,
+    path = "/api/docker/images/pull",
+    tag = "docker",
+    request_body = PullImageRequest,
+    responses(
+        (status = 200, description = "拉取结果", body = serde_json::Value),
+        (status = 400, description = "镜像引用非法"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:start 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn pull_image(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<PullImageRequest>,
@@ -360,6 +841,21 @@ pub async fn pull_image(
     ))
 }
 
+/// 为镜像打标签
+#[utoipa::path(
+    post,
+    path = "/api/docker/images/{id}/tag",
+    tag = "docker",
+    params(("id" = String, Path, description = "镜像 ID 或引用")),
+    request_body = TagImageRequest,
+    responses(
+        (status = 200, description = "成功（`null`）"),
+        (status = 400, description = "镜像 / 仓库 / tag 非法；repo 含 tag 或 digest"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:update 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn tag_image(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -372,6 +868,18 @@ pub async fn tag_image(
     Ok(Json(()))
 }
 
+/// 清理悬空镜像
+#[utoipa::path(
+    post,
+    path = "/api/docker/images/prune",
+    tag = "docker",
+    responses(
+        (status = 200, description = "清理结果", body = serde_json::Value),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:delete 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn prune_images(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -381,6 +889,18 @@ pub async fn prune_images(
 
 // ── Compose 项目 ────────────────────────────────────────────
 
+/// Compose 项目列表（含已停止项目；`{name, status, config_files}`）
+#[utoipa::path(
+    get,
+    path = "/api/docker/compose",
+    tag = "docker",
+    responses(
+        (status = 200, description = "项目", body = [serde_json::Value]),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 docker:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn compose_ls(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
@@ -433,6 +953,10 @@ pub fn routes() -> Router<AppState> {
             axum::routing::get(inspect),
         )
         .route(
+            "/api/docker/containers/{id}/compose",
+            axum::routing::get(container_compose),
+        )
+        .route(
             "/api/docker/containers/{id}/rename",
             axum::routing::post(rename),
         )
@@ -481,6 +1005,10 @@ pub fn routes() -> Router<AppState> {
             axum::routing::delete(remove_volume),
         )
         .route("/api/docker/compose", axum::routing::get(compose_ls))
+        .route(
+            "/api/docker/compose/convert-run",
+            axum::routing::post(compose_convert_run),
+        )
         .route(
             "/api/docker/compose/deploy",
             axum::routing::post(compose_deploy),
