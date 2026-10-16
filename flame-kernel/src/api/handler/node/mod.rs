@@ -5,7 +5,6 @@ use crate::domain::entity::ServerNode;
 use axum::Router;
 use axum::{
     extract::{Path, Query, State},
-    http::HeaderMap,
     Json,
 };
 use serde::Deserialize;
@@ -13,12 +12,54 @@ use utoipa::ToSchema;
 
 const HEARTBEAT_TIMEOUT_SECS: i64 = 30;
 
+/// Agent 心跳。前 4 项为旧 Agent 即有的字段；其余为 batch-12 起的完整快照字段
+/// （缺省 0，旧 Agent 照常可用），并入 `MetricsHub` 统一模型后供仪表盘按节点展示。
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct HeartbeatRequest {
     pub cpu_usage: f32,
     pub memory_usage_percent: f32,
     pub disk_usage_percent: f32,
     pub load_one: f32,
+    #[serde(default)]
+    pub load_five: f32,
+    #[serde(default)]
+    pub load_fifteen: f32,
+    #[serde(default)]
+    pub cpu_cores: u64,
+    #[serde(default)]
+    pub memory_total_mb: u64,
+    #[serde(default)]
+    pub memory_used_mb: u64,
+    #[serde(default)]
+    pub disk_total_gb: f64,
+    #[serde(default)]
+    pub disk_used_gb: f64,
+    /// 网络接收速率（MB/s，Agent 按两次心跳间的字节差 / 实际间隔计算）
+    #[serde(default)]
+    pub network_rx_mbps: f64,
+    /// 网络发送速率（MB/s）
+    #[serde(default)]
+    pub network_tx_mbps: f64,
+}
+
+impl HeartbeatRequest {
+    fn to_metrics(&self) -> crate::infrastructure::node_metrics::HeartbeatMetrics {
+        crate::infrastructure::node_metrics::HeartbeatMetrics {
+            cpu_usage: f64::from(self.cpu_usage),
+            memory_usage_percent: f64::from(self.memory_usage_percent),
+            disk_usage_percent: f64::from(self.disk_usage_percent),
+            load_one: f64::from(self.load_one),
+            load_five: f64::from(self.load_five),
+            load_fifteen: f64::from(self.load_fifteen),
+            cpu_cores: self.cpu_cores,
+            memory_total_mb: self.memory_total_mb,
+            memory_used_mb: self.memory_used_mb,
+            disk_total_gb: self.disk_total_gb,
+            disk_used_gb: self.disk_used_gb,
+            network_rx_mbps: self.network_rx_mbps,
+            network_tx_mbps: self.network_tx_mbps,
+        }
+    }
 }
 
 /// 节点列表（分页）
@@ -84,7 +125,7 @@ pub async fn register_agent(
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
-/// Agent 心跳上报（白名单免 JWT，校验 Agent token）
+/// Agent 心跳上报（免 JWT，Agent token 已在中间件集中校验——S15）
 #[utoipa::path(
     post,
     path = "/api/nodes/heartbeat/{id}",
@@ -99,29 +140,19 @@ pub async fn register_agent(
 pub async fn heartbeat(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    headers: HeaderMap,
     ApiJson(req): ApiJson<HeartbeatRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // Agent token 校验（兼容旧 Agent：库中无 token 时放行）
-    let provided = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.strip_prefix("Bearer ").unwrap_or(s).to_string());
-    let valid = state
-        .node_service
-        .verify_agent_token(id, provided.as_deref())
-        .await?;
-    if !valid {
-        return Err(AppError::Unauthorized("Invalid agent token".into()));
-    }
-
-    let metrics = serde_json::json!({
-        "cpu_usage": req.cpu_usage,
-        "memory_usage_percent": req.memory_usage_percent,
-        "disk_usage_percent": req.disk_usage_percent,
-        "load_one": req.load_one,
-    });
+    // S15：Agent token 鉴权已集中到中间件 `auth_middleware`（`is_agent_heartbeat_guarded_path`），
+    // 与 register 的 bootstrap 守卫统一管理；此处不再重复校验。
+    // 钳制后的统一快照：既落库为「最近一次指标」，也推入该节点的 MetricsHub
+    let snapshot = crate::infrastructure::node_metrics::snapshot_from_heartbeat(
+        &req.to_metrics(),
+        chrono::Utc::now().timestamp_millis(),
+    );
+    let metrics = serde_json::to_value(&snapshot)
+        .map_err(|e| AppError::internal(format!("serialize node metrics: {e}")))?;
     let node = state.node_service.record_heartbeat(id, &metrics).await?;
+    state.metrics.nodes().publish(node.id, snapshot);
     Ok(Json(serde_json::json!({
         "id": node.id,
         "status": "ok",
@@ -136,7 +167,7 @@ pub async fn heartbeat(
     tag = "nodes",
     params(("id" = i64, Path, description = "节点 ID")),
     responses(
-        (status = 200, description = "在线状态"),
+        (status = 200, description = "在线状态 `{id, status, edge: EdgeInfo}`"),
         (status = 404, description = "节点不存在"),
     ),
     security(("BearerAuth" = []))
@@ -149,16 +180,62 @@ pub async fn status(
         .node_service
         .node_status(id, HEARTBEAT_TIMEOUT_SECS)
         .await?;
-    Ok(Json(serde_json::json!({ "id": id, "status": status })))
+    // Doc/30 Agent Edge：反向通道连接状态（connected / terminal / version / connected_at）
+    let edge = state.node_service.agent_client.edge().info(id);
+    Ok(Json(
+        serde_json::json!({ "id": id, "status": status, "edge": edge }),
+    ))
 }
 
 /// 节点最近指标快照
+#[utoipa::path(
+    get,
+    path = "/api/nodes/{id}/metrics",
+    tag = "nodes",
+    params(("id" = i64, Path, description = "ID")),
+    responses(
+        (status = 200, description = "最近一次心跳上报的指标（结构随 Agent 版本演进）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "无权限"),
+        (status = 404, description = "节点不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn metrics(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let metrics = state.node_service.node_metrics(id).await?;
     Ok(Json(metrics))
+}
+
+/// 节点指标历史（内存窗口：Agent 10 s 一点、最多 120 点 ≈ 20 分钟；面板重启后重新积累）
+#[utoipa::path(
+    get,
+    path = "/api/nodes/{id}/metrics/history",
+    tag = "nodes",
+    params(("id" = i64, Path, description = "节点 ID")),
+    responses(
+        (status = 200, description = "按时间升序的快照（未收到过心跳为空数组）", body = Vec<crate::domain::entity::MetricsSnapshot>),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 node:read 权限"),
+        (status = 404, description = "节点不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
+pub async fn metrics_history(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Vec<crate::domain::entity::MetricsSnapshot>>, AppError> {
+    state.node_service.get_node(id).await?;
+    Ok(Json(
+        state
+            .metrics
+            .nodes()
+            .hub(id)
+            .map(|h| h.history())
+            .unwrap_or_default(),
+    ))
 }
 
 // ── Stage5 多节点远程调用 ────────────────────────────────────────────────
@@ -204,6 +281,9 @@ fn default_remote_path() -> String {
 }
 
 /// 在远程节点执行命令
+///
+/// S4：统一走 Agent `/action`（`whitelisted_command`）。在 `execution_mode=agent` 下，
+/// 仅执行白名单命令，非白名单命令将返回 `ACTION_NOT_ALLOWED`（功能降级）。
 #[utoipa::path(
     post,
     path = "/api/nodes/{id}/execute",
@@ -211,7 +291,7 @@ fn default_remote_path() -> String {
     params(("id" = i64, Path, description = "节点 ID")),
     request_body = RemoteExecRequest,
     responses(
-        (status = 200, description = "执行结果"),
+        (status = 200, description = "执行结果（agent 模式下受命令白名单约束）"),
         (status = 401, description = "未认证"),
     ),
     security(("BearerAuth" = []))
@@ -261,13 +341,15 @@ pub async fn remote_action(
 }
 
 /// 批量在多个节点并行执行命令
+///
+/// S4：同样走 Agent `/action`（`whitelisted_command`），agent 模式下仅执行白名单命令。
 #[utoipa::path(
     post,
     path = "/api/nodes/batch-execute",
     tag = "nodes",
     request_body = RemoteBatchExecRequest,
     responses(
-        (status = 200, description = "各节点执行结果聚合"),
+        (status = 200, description = "各节点执行结果聚合（agent 模式下受命令白名单约束）"),
         (status = 401, description = "未认证"),
     ),
     security(("BearerAuth" = []))
@@ -398,6 +480,21 @@ pub async fn remote_upload_file(
     })))
 }
 
+/// 更新节点
+#[utoipa::path(
+    put,
+    path = "/api/nodes/{id}",
+    tag = "nodes",
+    params(("id" = i64, Path, description = "ID")),
+    request_body = CreateNodeRequest,
+    responses(
+        (status = 200, description = "更新后的节点", body = ServerNode),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "无权限"),
+        (status = 404, description = "节点不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -410,11 +507,27 @@ pub async fn update(
     Ok(Json(updated))
 }
 
+/// 删除节点
+#[utoipa::path(
+    delete,
+    path = "/api/nodes/{id}",
+    tag = "nodes",
+    params(("id" = i64, Path, description = "ID")),
+    responses(
+        (status = 200, description = "删除成功", body = String),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "无权限"),
+        (status = 404, description = "节点不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<&'static str>, AppError> {
     state.node_service.delete_node(id).await?;
+    state.metrics.nodes().remove(id);
+    state.node_service.agent_client.edge().remove_node(id);
     Ok(Json("deleted"))
 }
 
@@ -429,6 +542,10 @@ pub fn routes() -> Router<AppState> {
         .route("/api/nodes/heartbeat/{id}", axum::routing::post(heartbeat))
         .route("/api/nodes/{id}/status", axum::routing::get(status))
         .route("/api/nodes/{id}/metrics", axum::routing::get(metrics))
+        .route(
+            "/api/nodes/{id}/metrics/history",
+            axum::routing::get(metrics_history),
+        )
         .route(
             "/api/nodes/{id}/execute",
             axum::routing::post(remote_execute),

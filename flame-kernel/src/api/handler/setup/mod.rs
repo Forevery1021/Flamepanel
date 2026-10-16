@@ -16,17 +16,36 @@ use axum::{
 };
 
 /// `GET /api/setup/status`
+#[utoipa::path(
+    get,
+    path = "/api/setup/status",
+    tag = "setup",
+    responses(
+        (status = 200, description = "初始化状态与环境探测", body = SetupStatusResponse),
+    )
+)]
 pub async fn status(State(state): State<AppState>) -> Result<Json<SetupStatusResponse>, AppError> {
     let resp = state.setup_service.status().await?;
     Ok(Json(resp))
 }
 
 /// `POST /api/setup/initialize`
+#[utoipa::path(
+    post,
+    path = "/api/setup/initialize",
+    tag = "setup",
+    request_body = SetupRequest,
+    responses(
+        (status = 200, description = "步骤完成；`admin` 步骤返回登录令牌", body = InitializeResponse),
+        (status = 400, description = "参数错误"),
+        (status = 409, description = "面板已初始化"),
+    )
+)]
 pub async fn initialize(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     ApiJson(req): ApiJson<SetupRequest>,
-) -> Result<Json<InitializeResponse>, AppError> {
+) -> Result<(axum::http::HeaderMap, Json<InitializeResponse>), AppError> {
     // 以访问域名（Host 头，去端口/括号）作为自签证书 SAN 的默认域名
     let access_domain = headers
         .get("Host")
@@ -42,11 +61,24 @@ pub async fn initialize(
         })
         .unwrap_or_else(|| "localhost".into());
     let jwt = state.shared_jwt();
-    let resp = state
+    let mut resp = state
         .setup_service
         .initialize(&req, &jwt, &access_domain)
         .await?;
-    Ok(Json(resp))
+    // Y1：refresh token 经 httpOnly Cookie 下发，不写入 JSON 响应体。
+    let mut resp_headers = axum::http::HeaderMap::new();
+    if let Some(refresh_token) = resp.refresh_token.take() {
+        resp_headers.insert(
+            axum::http::header::SET_COOKIE,
+            axum::http::HeaderValue::from_str(&crate::api::handler::auth::set_refresh_cookie(
+                &refresh_token,
+                crate::utils::jwt::DEFAULT_REFRESH_TTL_HOURS * 3600,
+                crate::api::handler::auth::request_is_https(&headers),
+            ))
+            .map_err(|_| AppError::internal("invalid refresh cookie"))?,
+        );
+    }
+    Ok((resp_headers, Json(resp)))
 }
 
 /// 路由表（集中注册于 routes.rs 组合根）

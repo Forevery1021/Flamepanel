@@ -8,11 +8,12 @@ vi.mock('vue-i18n', () => ({
       if (key === 'common.error.NETWORK_ERROR') return '网络不可用'
       return key
     },
-    te: (key: string) => key === 'common.error.INVALID_TOKEN' || key === 'common.error.NETWORK_ERROR',
+    te: (key: string) =>
+      key === 'common.error.INVALID_TOKEN' || key === 'common.error.NETWORK_ERROR',
   }),
 }))
 
-import { getErrorMessage } from '@/utils/error'
+import { getErrorMessage, getErrorRequestId } from '@/utils/error'
 import { isNetworkError } from '@/api/client'
 
 describe('getErrorMessage（F0.1 统一错误文案）', () => {
@@ -62,5 +63,21 @@ describe('PASSWORD_CHANGE_REQUIRED 常量', () => {
   it('与后端错误码一致', () => {
     // 见 flame-kernel/src/core/error.rs（强制改密错误码）
     expect('PASSWORD_CHANGE_REQUIRED').toBe('PASSWORD_CHANGE_REQUIRED')
+  })
+})
+
+describe('getErrorRequestId（W0 5xx 请求编号）', () => {
+  it('规范化错误 ≥500 返回 requestId', () => {
+    expect(getErrorRequestId({ code: 'INTERNAL_ERROR', status: 502, requestId: 'r-1' })).toBe('r-1')
+  })
+  it('原始 AxiosError（无统一错误体）从响应头读取', () => {
+    expect(
+      getErrorRequestId({ response: { status: 500, headers: { 'x-request-id': 'r-2' } } }),
+    ).toBe('r-2')
+  })
+  it('4xx / 无响应 / 空值返回空串', () => {
+    expect(getErrorRequestId({ code: 'CONFLICT', status: 409, requestId: 'r-3' })).toBe('')
+    expect(getErrorRequestId(new Error('Network Error'))).toBe('')
+    expect(getErrorRequestId(null)).toBe('')
   })
 })

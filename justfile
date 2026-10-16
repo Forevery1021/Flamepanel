@@ -85,3 +85,31 @@ docker-down:
 docker-logs:
     docker compose logs -f
 
+# 门禁单一入口（Doc/31 §5.3）：just ci [组…]，组 = installer backend backend-features frontend e2e all quick
+ci *GROUPS="quick":
+    bash scripts/ci-local.sh {{GROUPS}}
+
+# 性能 / 稳定性压测（Doc/32 §8）：just perf [--quick 0.1] [load.py 参数…]，报告在 perf-out/
+perf *ARGS:
+    bash scripts/perf/run.sh {{ARGS}}
+
+# CNB 云原生开发环境：just ws start|sync|bg|log|stop|ssh <参数>（需 CNB_TOKEN 环境变量）
+ws *ARGS:
+    bash scripts/cnb-workspace.sh {{ARGS}}
+
+# 重新生成 OpenAPI 快照（T-05：与 CI 漂移门禁同源）
+openapi:
+    cargo run -q -p flame-kernel --bin export-openapi > frontend/openapi.json
+
+# 由 OpenAPI 快照生成 Markdown API 文档到 Doc/api/（Doc/32 §6；CI 以 --check 校验）
+api-docs:
+    python3 scripts/gen-api-docs.py
+
+# 一步刷新：快照 + 前端类型 + Markdown 文档
+api-refresh: openapi api-docs
+    cd frontend && npm run openapi:generate
+
+# 版本号单源（T-06）：一次修改 Cargo.toml × 2 + package.json + 刷新 Cargo.lock
+bump VERSION:
+    ./scripts/bump-version.sh {{VERSION}}
+

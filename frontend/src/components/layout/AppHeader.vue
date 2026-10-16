@@ -5,13 +5,22 @@
         v-tooltip="collapsed ? t('nav.expandSidebar') : t('nav.toggleSidebar')"
         class="icon-btn"
         :aria-label="t('nav.toggleSidebar')"
-        @click="isMobile ? $emit('open-mobile') : $emit('toggle-collapse')"      >
-        <i class="oi" :class="isMobile ? 'oi-bars' : collapsed ? 'oi-chevron-right' : 'oi-chevron-left'" />
+        @click="isMobile ? $emit('open-mobile') : $emit('toggle-collapse')"
+      >
+        <i
+          class="oi"
+          :class="isMobile ? 'oi-bars' : collapsed ? 'oi-chevron-right' : 'oi-chevron-left'"
+        />
       </button>
 
       <Breadcrumb :model="breadcrumbs" class="header-breadcrumb" />
 
-      <button class="search-trigger" :aria-label="t('topbar.searchPlaceholder')" @click="paletteOpen = true">
+      <button
+        class="search-trigger"
+        data-tour="search"
+        :aria-label="t('topbar.searchPlaceholder')"
+        @click="paletteOpen = true"
+      >
         <i class="oi oi-search" />
         <span class="search-text">{{ t('topbar.searchPlaceholder') }}</span>
         <kbd class="search-kbd">Ctrl K</kbd>
@@ -32,34 +41,94 @@
         </button>
       </div>
 
-      <div class="live-status">
-        <button v-tooltip="t('topbar.panelStatus')" class="status-item" :aria-label="t('topbar.panelStatus')" @click="router.push('/health')">
+      <!-- S-06：四个徽标来自同一个 GET /api/overview/badges（30 s），分组为 null 即隐藏 -->
+      <div class="live-status" data-tour="status" data-testid="overview-badges">
+        <button
+          v-tooltip="panelOk ? t('topbar.panelOnline') : t('topbar.panelOffline')"
+          class="status-item"
+          :aria-label="t('topbar.panelStatus')"
+          @click="router.push('/health')"
+        >
           <span class="dot" :class="panelOk ? 'green' : 'red'" />
         </button>
-        <button v-tooltip="t('topbar.onlineNodes')" class="status-item" :aria-label="t('topbar.onlineNodes')" @click="router.push('/nodes')">
+        <button
+          v-if="nodes"
+          v-tooltip="t('topbar.onlineNodes')"
+          class="status-item"
+          data-testid="badge-nodes"
+          :aria-label="t('topbar.onlineNodes')"
+          @click="router.push('/nodes')"
+        >
           <i class="oi oi-sitemap" />
-          <span>{{ onlineNodes }}</span>
+          <span>{{ nodes.online }}</span>
         </button>
-        <button v-tooltip="t('topbar.runningContainers')" class="status-item" :aria-label="t('topbar.runningContainers')" @click="router.push('/docker')">
+        <button
+          v-if="containers"
+          v-tooltip="t('topbar.runningContainers')"
+          class="status-item"
+          data-testid="badge-containers"
+          :aria-label="t('topbar.runningContainers')"
+          @click="router.push('/docker')"
+        >
           <i class="oi oi-database" />
-          <span>{{ runningContainers }}</span>
+          <span>{{ containers.running }}</span>
+        </button>
+        <button
+          v-if="activeTasks"
+          v-tooltip="t('topbar.runningTasks')"
+          class="status-item status-item--busy"
+          data-testid="badge-tasks"
+          :aria-label="t('topbar.runningTasks')"
+          @click="router.push('/tasks')"
+        >
+          <i class="oi oi-spinner fp-spin" />
+          <span>{{ activeTasks }}</span>
         </button>
       </div>
 
-      <button v-tooltip="t('topbar.notifications')" class="icon-btn notify-btn" :aria-label="t('topbar.notifications')" @click="notifyOpen = !notifyOpen">
+      <button
+        v-tooltip="t('topbar.notifications')"
+        class="icon-btn notify-btn"
+        data-testid="notify-toggle"
+        :aria-label="t('topbar.notifications')"
+        @click="notifyOpen = !notifyOpen"
+      >
         <i class="oi oi-bell" />
-        <span v-if="notifyCount" class="notify-badge">{{ notifyCount }}</span>
+        <span v-if="alertTotal" class="notify-badge" data-testid="alert-count">{{
+          alertTotal > 99 ? '99+' : alertTotal
+        }}</span>
       </button>
       <Popover :visible="notifyOpen" class="notify-panel" @hide="notifyOpen = false">
         <div class="notify-header">
-          <span class="font-semibold">{{ t('topbar.notifications') }}</span>
+          <span class="font-semibold">{{ t('topbar.alerts') }}</span>
           <Button text size="small" @click="router.push('/operation-logs')">
             {{ t('topbar.viewAll') }}
           </Button>
         </div>
+        <div v-if="alertItems.length" class="notify-list">
+          <button
+            v-for="a in alertItems"
+            :key="a.key"
+            class="notify-item notify-item--alert"
+            type="button"
+            @click="goAlert(a.to)"
+          >
+            <i class="oi" :class="a.icon" />
+            <span class="notify-msg">{{ t(`topbar.alert.${a.key}`, { n: a.count }) }}</span>
+            <FpTag severity="warning" :value="String(a.count)" />
+          </button>
+        </div>
+        <div v-else class="notify-empty notify-empty--ok">
+          <i class="oi oi-check-circle" />
+          {{ t('topbar.noAlerts') }}
+        </div>
+        <div class="notify-subheader">{{ t('topbar.recentActivity') }}</div>
         <div v-if="notifications.length" class="notify-list">
           <div v-for="n in notifications" :key="n.id" class="notify-item">
-            <FpTag :severity="n.action.startsWith('LOGIN') ? 'warning' : 'info'" :value="n.action" />
+            <FpTag
+              :severity="n.action.startsWith('LOGIN') ? 'warning' : 'info'"
+              :value="n.action"
+            />
             <span class="notify-msg">{{ n.target || '' }}</span>
             <span class="notify-time">{{ shortTime(n.created_at) }}</span>
           </div>
@@ -67,21 +136,27 @@
         <div v-else class="notify-empty">{{ t('common.noData') }}</div>
       </Popover>
 
-      <button v-tooltip="t('topbar.language')" class="icon-btn" :aria-label="t('topbar.language')" @click="langMenu?.toggle($event)">
-        <i class="oi oi-language" />
+      <button
+        v-tooltip="t('theme.toggle')"
+        class="icon-btn"
+        data-tour="theme"
+        :aria-label="t('theme.toggle')"
+        @click="toggleTheme"
+      >
+        <i class="oi" :class="themeStore.isDark ? 'oi-sun' : 'oi-moon'" />
       </button>
-      <Menu ref="langMenu" :model="langItems" popup />
 
-      <button v-tooltip="t('theme.toggle')" class="icon-btn" :aria-label="t('theme.toggle')" @click="toggleTheme">
-        <i class="oi" :class="themeStore.mode === 'dark' ? 'oi-sun' : 'oi-moon'" />
-      </button>
-
-      <button class="user-dropdown" @click="userMenu?.toggle($event)">
+      <button
+        class="user-dropdown"
+        data-tour="user"
+        :aria-label="t('topbar.userMenu')"
+        @click="userMenu?.toggle($event)"
+      >
         <span class="user-avatar">{{ auth.username?.charAt(0).toUpperCase() }}</span>
         <span class="user-name">{{ auth.username }}</span>
         <i class="oi oi-angle-down user-arrow" />
       </button>
-      <Menu ref="userMenu" :model="userItems" popup />
+      <TieredMenu ref="userMenu" :model="userItems" popup />
     </div>
 
     <CommandPalette v-model="paletteOpen" />
@@ -89,24 +164,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Breadcrumb from 'openvue/breadcrumb'
 import Popover from 'openvue/popover'
 import Button from 'openvue/button'
-import Menu from 'openvue/menu'
+import TieredMenu from 'openvue/tieredmenu'
 import type { MenuItem } from 'openvue/menuitem'
 import { useAuthStore } from '@/stores/auth'
 import { setLanguage } from '@/locales'
 import { useThemeStore } from '@/stores/theme'
-import { listNodes } from '@/api/nodes'
-import { listContainers } from '@/api/docker'
 import { listInstalledApps, launchApp } from '@/api/appStore'
 import type { InstalledApp } from '@/api/appStore'
 import { listOperationLogs } from '@/api/logs'
 import FpTag from '@/components/ui/FpTag.vue'
 import CommandPalette from './CommandPalette.vue'
+import { useOnboardingStore } from '@/stores/onboarding'
+import { useOverviewBadges } from '@/composables/useOverviewBadges'
 
 defineProps<{
   collapsed?: boolean
@@ -122,6 +197,7 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 const themeStore = useThemeStore()
+const onboarding = useOnboardingStore()
 
 // ── 面包屑 ──
 const breadcrumbs = computed(() => {
@@ -130,34 +206,23 @@ const breadcrumbs = computed(() => {
   return [{ label: t(title) }]
 })
 
-// ── 实时状态 ──
-const panelOk = ref(true)
-const onlineNodes = ref(0)
-const runningContainers = ref(0)
-let statusTimer: number | null = null
+// ── 实时状态（S-06：单接口聚合，替代原三路 10 s 轮询） ──
+const { panelOk, nodes, containers, activeTasks, alertTotal, alertItems } = useOverviewBadges()
 
-async function refreshStatus() {
-  try {
-    const [nodes, containers] = await Promise.all([
-      listNodes(1, 200).catch(() => null),
-      listContainers().catch(() => null),
-    ])
-    onlineNodes.value =
-      nodes?.data.data.filter((n: { status: string }) => n.status === 'online').length ?? 0
-    runningContainers.value =
-      containers?.data.filter((c: { status: string }) => c.status === 'running').length ?? 0
-    panelOk.value = true
-  } catch {
-    panelOk.value = false
-  }
-}
-
-// ── 通知中心 ──
+// ── 通知中心：告警来自聚合徽标；最近操作日志只在面板打开时拉取，不再周期轮询 ──
 const notifyOpen = ref(false)
 const notifications = ref<
   Array<{ id: number; action: string; target: string | null; created_at: string }>
 >([])
-const notifyCount = computed(() => notifications.value.length)
+
+watch(notifyOpen, (open) => {
+  if (open) refreshNotifications()
+})
+
+function goAlert(to: string) {
+  notifyOpen.value = false
+  router.push(to)
+}
 
 async function refreshNotifications() {
   try {
@@ -187,12 +252,11 @@ async function refreshInstalled() {
 
 async function openApp(app: InstalledApp) {
   launchApp(app.id).catch(() => {})
-  if (app.access_url) window.open(app.access_url, '_blank')
+  if (app.access_url) window.open(app.access_url, '_blank', 'noopener')
 }
 
 // ── 语言 / 用户菜单 ──
-const langMenu = ref<InstanceType<typeof Menu>>()
-const userMenu = ref<InstanceType<typeof Menu>>()
+const userMenu = ref<InstanceType<typeof TieredMenu>>()
 
 const langItems = computed<MenuItem[]>(() =>
   ['zh-CN', 'en-US', 'ja-JP'].map((lang) => ({
@@ -202,25 +266,36 @@ const langItems = computed<MenuItem[]>(() =>
   })),
 )
 
-const userItems: MenuItem[] = [
+/** 用户菜单：设置 / 语言（子菜单，从顶栏独立图标合并进来以减负）/ 退出 */
+const userItems = computed<MenuItem[]>(() => [
   {
-    label: computed(() => t('nav.settings')).value,
+    label: t('nav.settings'),
     icon: 'oi oi-cog',
     command: () => router.push('/settings'),
   },
+  {
+    label: t('topbar.language'),
+    icon: 'oi oi-language',
+    items: langItems.value,
+  },
+  {
+    label: t('onboarding.replay'),
+    icon: 'oi oi-compass',
+    command: () => onboarding.start(),
+  },
   { separator: true },
   {
-    label: computed(() => t('common.logout') || '退出登录').value,
+    label: t('common.logout') || '退出登录',
     icon: 'oi oi-power-off',
     command: () => {
       auth.logout()
       router.push('/login')
     },
   },
-]
+])
 
 function toggleTheme() {
-  themeStore.setMode(themeStore.mode === 'dark' ? 'light' : 'dark')
+  themeStore.toggleDark()
 }
 
 function shortTime(ts: string) {
@@ -238,18 +313,11 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => {
-  refreshStatus()
-  refreshNotifications()
   refreshInstalled()
-  statusTimer = window.setInterval(() => {
-    refreshStatus()
-    refreshNotifications()
-  }, 10000)
   window.addEventListener('keydown', onKeydown)
 })
 
 onUnmounted(() => {
-  if (statusTimer !== null) clearInterval(statusTimer)
   window.removeEventListener('keydown', onKeydown)
 })
 </script>
@@ -305,10 +373,24 @@ onUnmounted(() => {
   transform: scale(0.94);
 }
 
+.header-breadcrumb {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+}
 .header-breadcrumb :deep(.p-breadcrumb) {
   background: transparent;
   border: none;
   padding: 0;
+}
+/* 面包屑单行省略：窄窗口下旧版会逐字换行成竖排 */
+.header-breadcrumb :deep(.p-breadcrumb-list) {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.header-breadcrumb :deep(.p-breadcrumb-item-label) {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .search-trigger {
@@ -316,7 +398,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   height: 32px;
-  width: 240px;
+  width: clamp(160px, 22vw, 260px);
+  flex: 0 1 auto;
+  min-width: 0;
   padding: 0 10px;
   border-radius: var(--fp-radius-sm);
   background: var(--fp-bg-hover);
@@ -406,6 +490,22 @@ onUnmounted(() => {
   background: var(--fp-danger);
   box-shadow: 0 0 0 3px var(--fp-danger-soft);
 }
+.status-item--busy {
+  color: var(--fp-brand);
+}
+.fp-spin {
+  animation: fp-rotate 0.8s linear infinite;
+}
+@keyframes fp-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fp-spin {
+    animation: none;
+  }
+}
 
 .notify-btn {
   position: relative;
@@ -460,11 +560,47 @@ onUnmounted(() => {
   font-family: var(--fp-font-mono);
   font-size: 11px;
 }
+.notify-item--alert {
+  width: 100%;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  background: transparent;
+  color: var(--fp-text-primary);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--fp-font-sans);
+  border-radius: var(--fp-radius-sm);
+}
+.notify-item--alert:hover {
+  background: var(--fp-bg-hover);
+}
+.notify-item--alert .oi {
+  color: var(--fp-warning);
+  font-size: 14px;
+}
+.notify-subheader {
+  margin-top: var(--fp-space-3);
+  padding: var(--fp-space-1) 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fp-text-muted);
+}
 .notify-empty {
   padding: var(--fp-space-4);
   text-align: center;
   color: var(--fp-text-muted);
   font-size: 13px;
+}
+.notify-empty--ok {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fp-space-2);
+  padding: var(--fp-space-3);
+  color: var(--fp-success);
 }
 
 .user-dropdown {
@@ -509,27 +645,39 @@ onUnmounted(() => {
   font-size: 10px;
 }
 
-@media (max-width: 768px) {
-  .header-breadcrumb,
+/* 平板：让出空间给搜索框，状态徽标只保留圆点 */
+@media (max-width: 1100px) {
   .quick-apps,
-  .live-status {
-    display: none;
-  }
-  .search-trigger {
-    width: 140px;
-  }
-}
-@media (max-width: 480px) {
   .user-name,
   .user-arrow {
     display: none;
   }
-  .search-text {
+  .search-kbd {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  .header-breadcrumb {
+    display: none;
+  }
+}
+/* 手机：搜索收成图标按钮（旧版 140px 宽框里塞图标 + kbd，二者重叠） */
+@media (max-width: 767px) {
+  .app-header {
+    padding: 0 var(--fp-space-2);
+  }
+  .live-status {
     display: none;
   }
   .search-trigger {
-    width: 34px;
+    width: 32px;
+    padding: 0;
     justify-content: center;
+    background: transparent;
+    border-color: transparent;
+  }
+  .search-text {
+    display: none;
   }
 }
 </style>

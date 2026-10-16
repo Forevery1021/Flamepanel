@@ -1,18 +1,8 @@
 <template>
   <div class="fp-number" :class="{ 'fp-field-invalid': !!error || invalid }">
-    <FloatLabel v-if="label">
-      <InputNumber
-        :id="uid"
-        v-bind="$attrs"
-        :model-value="model"
-        :invalid="!!error || invalid"
-        class="w-full"
-        @update:model-value="emit"
-      />
-      <label :for="uid">{{ label }}</label>
-    </FloatLabel>
+    <label v-if="label" class="fp-field__label" :for="uid">{{ label }}</label>
     <InputNumber
-      v-else
+      :input-id="inputId || uid"
       v-bind="$attrs"
       :model-value="model"
       :invalid="!!error || invalid"
@@ -26,15 +16,16 @@
 <script setup lang="ts">
 import { useId } from 'vue'
 import InputNumber from 'openvue/inputnumber'
-import FloatLabel from 'openvue/floatlabel'
 
 withDefaults(
   defineProps<{
+    /** 外部 `<label for>` 关联用：指定内部可聚焦控件的 id（默认自动生成） */
+    inputId?: string
     label?: string
     error?: string
     invalid?: boolean
   }>(),
-  { label: '', error: '', invalid: false },
+  { label: '', error: '', invalid: false, inputId: '' },
 )
 
 const model = defineModel<number | null>()
@@ -51,6 +42,11 @@ function emit(value: number | null | undefined) {
   flex-direction: column;
   gap: 6px;
   width: 100%;
+}
+.fp-field__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fp-text-secondary);
 }
 .fp-field-error {
   font-size: 12px;

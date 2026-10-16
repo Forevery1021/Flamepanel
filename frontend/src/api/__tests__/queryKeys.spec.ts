@@ -23,3 +23,16 @@ describe('queryKeys（F1.1 统一 queryKey 约定）', () => {
     expect(queryKeys.files.list('/etc/nginx')).toEqual(['files', 'list', '/etc/nginx'])
   })
 })
+
+describe('queryKeys · runtimes/projects（M-B Stage A-5）', () => {
+  it('runtimes.available 按 kind 区分缓存', () => {
+    expect(queryKeys.runtimes.available('php')).toEqual(['runtimes', 'available', 'php'])
+    expect(queryKeys.runtimes.available('node')).not.toEqual(queryKeys.runtimes.available('php'))
+  })
+
+  it('projects logs/status 按项目 id 区分缓存', () => {
+    expect(queryKeys.projects.logs(1)).toEqual(['projects', 'logs', 1])
+    expect(queryKeys.projects.logs(2)).not.toEqual(queryKeys.projects.logs(1))
+    expect(queryKeys.projects.status(3)).toEqual(['projects', 'status', 3])
+  })
+})

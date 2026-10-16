@@ -102,21 +102,32 @@ static GLOBAL_LIMITER: OnceLock<RwLock<RateLimiter>> = OnceLock::new();
 pub fn init_global_limiter(default_max: u64, default_window_secs: u64) {
     // 保持既有语义：每次调用覆盖为新实例（测试可调高阈值；生产仅启动时调用一次）。
     let limiter = GLOBAL_LIMITER.get_or_init(|| RwLock::new(RateLimiter::new(120, 60)));
-    *limiter.write().unwrap() = RateLimiter::new(default_max, default_window_secs);
+    // M11：锁中毒恢复内层数据，避免进程崩溃。
+    *limiter.write().unwrap_or_else(|e| e.into_inner()) =
+        RateLimiter::new(default_max, default_window_secs);
 }
 
-/// 从请求头提取客户端 IP（与 `api/extract.rs::extract_client_ip` 语义一致）。
-/// 优先 `X-Real-IP`（可信代理设置），回退到 `X-Forwarded-For` 链首值（最左即真实客户端）。
-pub fn client_ip(req: &Request) -> String {
-    crate::api::extract::extract_client_ip(req.headers())
+/// 从请求提取客户端 IP（M3：优先 TCP 对端，回环代理才信任 XFF）。
+pub fn client_ip(req: &Request, connect_addr: Option<&std::net::SocketAddr>) -> String {
+    crate::api::extract::extract_client_ip_trusted(connect_addr, req.headers())
 }
 
-pub async fn rate_limit_middleware(req: Request, next: Next) -> Result<Response, StatusCode> {
+pub async fn rate_limit_middleware(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
     let limiter = GLOBAL_LIMITER.get_or_init(|| RwLock::new(RateLimiter::new(120, 60)));
     let tier = Tier::from_path(req.uri().path());
-    let ip = client_ip(&req);
+    let ip = client_ip(&req, Some(&addr));
 
-    if !limiter.read().unwrap().check(tier, &ip) {
+    // F-06: 使用写锁保证限流计数 read-modify-write 原子性。
+    // 读锁下并发请求会同时读到相同 count 并放行，限流可被系统性突破。
+    if !limiter
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .check(tier, &ip)
+    {
         let body = serde_json::to_string(&ErrorResponse {
             code: StatusCode::TOO_MANY_REQUESTS.as_u16(),
             error: "RATE_LIMITED",
@@ -199,6 +210,34 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_check_is_atomic() {
+        // F-06: 并发调用 check() 不应突破限流阈值。
+        // 用写锁保证 read-modify-write 原子性，50 个并发请求最多放行 5 个。
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+
+        let limiter = Arc::new(Mutex::new(RateLimiter::new(120, 60)));
+        let counter = Arc::new(Mutex::new(0usize));
+        let mut handles = vec![];
+
+        for _ in 0..50 {
+            let limiter = limiter.clone();
+            let counter = counter.clone();
+            handles.push(thread::spawn(move || {
+                let passed = limiter.lock().unwrap().check(Tier::Login, "10.0.0.100");
+                if passed {
+                    *counter.lock().unwrap() += 1;
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let passed = *counter.lock().unwrap();
+        assert!(passed <= 5, "expected <=5 passes, got {}", passed);
+    }
+
+    #[test]
     fn ip_prefers_x_real_ip() {
         let req = HttpRequest::builder()
             .method(Method::GET)
@@ -207,7 +246,7 @@ mod tests {
             .header("X-Forwarded-For", "2.2.2.2, 3.3.3.3")
             .body(Body::empty())
             .unwrap();
-        assert_eq!(client_ip(&req), "1.1.1.1");
+        assert_eq!(client_ip(&req, None), "1.1.1.1");
 
         let req = HttpRequest::builder()
             .method(Method::GET)
@@ -215,6 +254,6 @@ mod tests {
             .header("X-Forwarded-For", "2.2.2.2, 3.3.3.3")
             .body(Body::empty())
             .unwrap();
-        assert_eq!(client_ip(&req), "2.2.2.2");
+        assert_eq!(client_ip(&req, None), "2.2.2.2");
     }
 }

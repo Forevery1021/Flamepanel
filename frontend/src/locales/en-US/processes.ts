@@ -1,0 +1,81 @@
+export default {
+  processes: {
+    title: 'Processes',
+    autoRefresh: 'Auto refresh',
+    searchPlaceholder: 'Search PID / name / user / command',
+    allUsers: 'All users',
+    includeKernel: 'Show kernel threads',
+    limit: 'Up to {n}',
+    loadFailed: 'Failed to load processes',
+    empty: 'No matching processes',
+    truncated:
+      'Showing the first {shown} of {matched} matches. Narrow the search or raise the limit.',
+    panelTag: 'Panel',
+    kernelTag: 'Kernel',
+    summary: {
+      total: 'Processes',
+      matched: 'Matched',
+      memory: 'Total resident memory',
+    },
+    col: {
+      name: 'Name',
+      user: 'User',
+      cpu: 'CPU',
+      memory: 'Memory',
+      status: 'State',
+      runTime: 'Uptime',
+      command: 'Command',
+    },
+    sort: {
+      cpu: 'By CPU',
+      memory: 'By memory',
+      pid: 'By PID',
+      name: 'By name',
+      started: 'By start time',
+    },
+    order: {
+      desc: 'Descending',
+      asc: 'Ascending',
+    },
+    state: {
+      run: 'Running',
+      sleep: 'Sleeping',
+      idle: 'Idle',
+      disk_sleep: 'Uninterruptible',
+      stop: 'Stopped',
+      tracing: 'Traced',
+      zombie: 'Zombie',
+      dead: 'Dead',
+      other: 'Other',
+    },
+    protected: {
+      init: 'System init process cannot be terminated',
+      kernel_thread: 'Kernel threads cannot be terminated',
+      panel: 'The panel process itself cannot be terminated',
+      panel_ancestor: 'Parent of the panel process; terminating it would stop the panel too',
+    },
+    signal: {
+      TERM: 'Ask the process to exit gracefully (recommended)',
+      KILL: 'Terminate immediately; the process cannot clean up',
+      HUP: 'Hang-up; most daemons reload their configuration',
+      INT: 'Interrupt, same as pressing Ctrl+C in a terminal',
+    },
+    kill: {
+      action: 'Kill',
+      title: 'Terminate process',
+      signal: 'Signal',
+      confirm: 'Send {signal}',
+      hint: 'The process decides how to exit on its own. If it does not exit, try SIGKILL.',
+      killWarning:
+        'SIGKILL stops the process immediately and unsaved data may be lost. Make sure it is safe to force-kill.',
+      success: 'Sent {signal} to {name} (PID {pid})',
+      failed: 'Failed to terminate the process',
+      gone: 'Process {pid} no longer exists; the list has been refreshed',
+      reused:
+        'Process {pid} was restarted or its PID reused. Cancelled to avoid killing the wrong process.',
+      protected: 'Process {pid} is protected and cannot be terminated',
+      privilege:
+        'Insufficient privilege: the process belongs to another user. Run the panel as root or configure passwordless sudo.',
+    },
+  },
+}

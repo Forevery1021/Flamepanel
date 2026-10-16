@@ -1,12 +1,19 @@
 import api from './client'
-import type { ServerNode, RemoteFileEntry, RemoteExecResult, BatchExecItem } from '@/types'
-import type { Page } from '@/api/generated'
+import type {
+  ServerNode,
+  RemoteFileEntry,
+  RemoteExecResult,
+  BatchExecItem,
+  NodeMetrics,
+  NodeEdgeInfo,
+} from '@/types'
+import type { Page, CreateNodeRequest } from '@/api/generated'
 
 export function listNodes(page = 1, pageSize = 20) {
   return api.get<Page<ServerNode>>('/nodes', { params: { page, page_size: pageSize } })
 }
 
-export function createNode(node: ServerNode) {
+export function createNode(node: CreateNodeRequest) {
   return api.post<number>('/nodes', { node })
 }
 
@@ -19,16 +26,11 @@ export function deleteNode(id: number) {
 }
 
 export function nodeStatus(id: number) {
-  return api.get<{ id: number; status: string }>(`/nodes/${id}/status`)
+  return api.get<{ id: number; status: string; edge?: NodeEdgeInfo }>(`/nodes/${id}/status`)
 }
 
 export function nodeMetrics(id: number) {
-  return api.get<{
-    cpu_usage?: number
-    memory_usage_percent?: number
-    disk_usage_percent?: number
-    load_one?: number
-  }>(`/nodes/${id}/metrics`)
+  return api.get<NodeMetrics>(`/nodes/${id}/metrics`)
 }
 
 // ── Stage5 多节点远程调用 ──────────────────────────────────────

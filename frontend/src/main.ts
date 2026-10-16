@@ -32,8 +32,8 @@ app.use(pinia)
 app.use(router)
 app.use(VueQueryPlugin, { queryClient: createQueryClient() })
 app.use(i18n)
-// 启动时异步加载保存的非默认语言包（不阻塞首屏）
-preloadSavedLocale()
+// 启动时异步装载保存的语言包（含默认语言，不阻塞首屏；路由守卫会等待同一个 Promise）
+void preloadSavedLocale()
 app.use(OpenVue, {
   theme: {
     preset: flamePreset,

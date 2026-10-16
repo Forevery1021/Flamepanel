@@ -77,17 +77,33 @@ pub async fn create_backup(
     }))
 }
 
+/// 下载备份文件（流式）
+#[utoipa::path(
+    get,
+    path = "/api/backups/{filename}",
+    tag = "backups",
+    params(("filename" = String, Path, description = "备份文件名")),
+    responses(
+        (status = 200, description = "备份文件", content_type = "application/octet-stream"),
+        (status = 401, description = "未认证"),
+        (status = 404, description = "备份不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn download_backup(
     State(state): State<AppState>,
     Path(filename): Path<String>,
 ) -> Result<axum::response::Response, AppError> {
     let path = state.backup_service.get_backup_path(&filename).await?;
-    let bytes = std::fs::read(&path)?;
+    // S2：备份下载改为流式响应，避免将整个备份文件读入内存（无大小上限）。
+    let file = tokio::fs::File::open(&path)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to open backup: {}", e)))?;
+    let stream = tokio_util::io::ReaderStream::new(file);
     let disposition = format!("attachment; filename=\"{filename}\"")
         .parse::<axum::http::HeaderValue>()
         .map_err(|_| AppError::internal("Invalid content disposition header"))?;
-    // Axum 0.7+：`Full`/`boxed` 已移除，Body 直接由 bytes 构造
-    let body = axum::body::Body::from(bytes);
+    let body = axum::body::Body::from_stream(stream);
     let response = axum::response::Response::builder()
         .status(200)
         .header(
@@ -120,6 +136,23 @@ pub async fn delete_backup(
     Ok(Json(()))
 }
 
+/// 从备份恢复数据库：先把当前库另存为 `pre-restore-*.db`，再原子替换库文件。
+///
+/// 以请求体 `filename` 为准（路径段仅作路由）；运行中的连接仍指向旧文件，建议恢复后重启服务。
+#[utoipa::path(
+    post,
+    path = "/api/backups/{filename}/restore",
+    tag = "backups",
+    params(("filename" = String, Path, description = "备份文件名")),
+    request_body = RestoreBackupRequest,
+    responses(
+        (status = 200, description = "恢复完成（建议随后重启服务）"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "无权限"),
+        (status = 404, description = "备份不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn restore_backup(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<RestoreBackupRequest>,

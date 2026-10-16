@@ -16,9 +16,9 @@ import { FpButton, FpTable, FpModal, FpInput, useFpToast } from '@/components/ui
 |------|-------------------|------|
 | `FpButton` | 语义变体 `primary/secondary/danger/success/warning/ghost/link`、8 态样式、loading | openvue/button |
 | `FpButtonLink` | 文本链接按钮（原 `Button text`） | openvue/button |
-| `FpCard` | 品牌标题栏 + 卡片容器 | openvue/card |
+| `FpCard` | 品牌标题栏 + 卡片容器；默认插槽 = 正文（**转发至底层 `content` 命名插槽**，底层无默认插槽出口） | openvue/card |
 | `FpTable` | 统一空态/加载/分页/虚拟滚动/客户端排序；`rows/loading/virtual/sortable` | openvue/datatable |
-| `FpColumn` | 表格列；`field/header/body slot` 透传 | openvue/column |
+| `FpColumn` | 表格列；`field/header/body slot` 透传。**透明再导出**（非包装组件，VNode type 即 Column 本体）——DataTable 按 `type.name === 'Column'` 收集列，包装会导致全站表格静默空白 | openvue/column |
 | `FpPagination` | 分页条；`total/page-size/first` + `@update:first`；total<=pageSize 自动隐藏 | openvue/paginator |
 | `FpModal` | 重玻璃弹窗；`v-model` + `header/footer slot` | openvue/dialog |
 | `FpDrawer` | 侧边抽屉；`v-model` + `position` | openvue/drawer |
@@ -27,7 +27,7 @@ import { FpButton, FpTable, FpModal, FpInput, useFpToast } from '@/components/ui
 | `FpNumber` | 数字输入；`label/error` | openvue/inputnumber |
 | `FpTextarea` | 多行文本 | openvue/textarea |
 | `FpSwitch` | 布尔开关；`v-model` | openvue/toggleswitch |
-| `FpCheckbox` | 复选框；`v-model` + `change` | openvue/checkbox |
+| `FpCheckbox` | 复选框；`v-model` + `change`（载荷为本次交互后的新值，C-3 修复） | openvue/checkbox |
 | `FpSlider` | 滑块；`v-model` | openvue/slider |
 | `FpSelectButton` | 单选按钮组；`v-model` + `options` | openvue/selectbutton |
 | `FpRadioGroup` / `FpRadioOption` | 单选组（支持 options 或自定义插槽） | openvue/radiobuttongroup |
@@ -38,6 +38,7 @@ import { FpButton, FpTable, FpModal, FpInput, useFpToast } from '@/components/ui
 | `FpProgress` | 进度条 | openvue/progressbar |
 | `FpEmpty` | 空态（图标+标题+描述+操作） | — |
 | `FpStatePanel` | loading/error(可重试)/empty 三态容器 | — |
+| `FpErrorBoundary` | 渲染错误边界：捕获子树崩溃、保留导航骨架、文案自证（零第三方依赖） | — |
 | `FpBreadcrumb` | 面包屑 | openvue/breadcrumb |
 | `FpFileUpload` | 文件上传 | openvue/fileupload |
 | `FpChip` | 标签块 | openvue/chip |
@@ -55,7 +56,7 @@ import { FpButton, FpTable, FpModal, FpInput, useFpToast } from '@/components/ui
 每个 Fp 组件均有一份 **props/events/slots 文档**（Modernization 补齐，对应 OpenVue 现代化 §22.1）：
 
 - 索引：[`docs/README.md`](./docs/README.md)
-- 覆盖：`FpButton` `FpTable` `FpModal` `FpDrawer` `FpPagination` `FpTabs` `FpStatePanel` `FpInput` `FpSelect` `FpTextarea` `FpNumber` `FpFormField` `FpSwitch` `FpCheckbox` `FpSlider` `FpSelectButton` `FpRadioGroup` `FpTag` `FpEmpty` `FpSkeleton` `FpProgress` `FpBreadcrumb` `FpChip` `FpInlineMessage` `FpDivider` `FpCard` `FpButtonLink` `FpFileUpload` `FpColumn` + hooks `useFpToast` / `useFpConfirm`
+- 覆盖：`FpButton` `FpTable` `FpModal` `FpDrawer` `FpPagination` `FpTabs` `FpStatePanel` `FpErrorBoundary` `FpInput` `FpSelect` `FpTextarea` `FpNumber` `FpFormField` `FpSwitch` `FpCheckbox` `FpSlider` `FpSelectButton` `FpRadioGroup` `FpTag` `FpEmpty` `FpSkeleton` `FpProgress` `FpBreadcrumb` `FpChip` `FpInlineMessage` `FpDivider` `FpCard` `FpButtonLink` `FpFileUpload` `FpColumn` + hooks `useFpToast` / `useFpConfirm`
 
 > 维护约定：新增/修改 Fp 组件 props/events/slots 时，同步更新对应 `docs/*.md`。
 
@@ -63,6 +64,7 @@ import { FpButton, FpTable, FpModal, FpInput, useFpToast } from '@/components/ui
 
 1. **所有 Fp 组件只消费 CSS 变量/令牌**（`--fp-*`），禁止写死 `#rrggbb`。
 2. **views 禁止直接 import openvue**；确有 Fp 未覆盖的底层组件时，先补齐 Fp 封装并在本 README 登记。
+   - **例外：依赖 VNode 身份的组件**（如 `Column`）在 `components/ui/` 内只能做**透明再导出**（`export default Column`），不得加 template 包装——上层按 VNode type / `extends.props` 读取子组件元数据的机制与包装组件不兼容（详见 `docs/FpButtonLink-FpFileUpload-FpColumn.md` 与 `Doc/23` §7.1-7）。
 3. **FpTable 表格页范式**：`<LayoutContent><FpTable :rows :loading><FpColumn .../></FpTable><FpPagination/></LayoutContent>`。
 4. **FpTabs 写法**：
 

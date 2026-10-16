@@ -4,6 +4,11 @@ target/
 # Node / frontend
 frontend/node_modules/
 frontend/dist/
+frontend/coverage/
+# T1-2 E2E：运行期产物（真实内核的临时库/密钥/证书、报告、trace）
+.e2e-state/
+frontend/test-results/
+frontend/playwright-report/
 frontend/src/**/*.js
 frontend/src/**/*.js.map
 frontend/vite.config.js
@@ -11,7 +16,7 @@ frontend/vite.config.js.map
 *.tsbuildinfo
 
 # Accidental lockfiles (canonical: frontend/package-lock.json, npm per CI)
-package-lock.json
+/package-lock.json
 flame-kernel/package-lock.json
 frontend/pnpm-lock.yaml
 frontend/pnpm-workspace.yaml
@@ -48,3 +53,15 @@ plan.md
 
 # Logs
 *.log
+
+# scripts/ci-local.sh 门禁报告
+ci-local-report.txt
+.sync-manifest
+.ci-rev
+
+# 性能压测产物（scripts/perf/run.sh）
+perf-out/
+
+# Python 字节码
+__pycache__/
+*.pyc

@@ -3,9 +3,7 @@
     <label v-if="label" class="fp-form-field__label" :for="uid">{{ label }}</label>
     <slot />
     <small v-if="hint && !error" class="fp-form-field__hint">{{ hint }}</small>
-    <small v-if="error" :id="`${uid}-error`" class="fp-form-field__error">{{
-      error
-    }}</small>
+    <small v-if="error" :id="`${uid}-error`" class="fp-form-field__error">{{ error }}</small>
   </div>
 </template>
 

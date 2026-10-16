@@ -73,7 +73,10 @@ impl CommandOutput {
 }
 
 /// 待执行的特权命令（程序 + 参数，禁止任意 shell 拼接）。
-#[derive(Debug, Clone)]
+///
+/// `Debug` 手写：`env` 只打印键名、`stdin` 只打印长度——两者承载凭据 / 含密码的 SQL
+/// （Doc/33 P-2），不得经 `{:?}` 进入日志。
+#[derive(Clone)]
 pub struct PrivilegedCommand {
     pub program: String,
     pub args: Vec<String>,
@@ -81,6 +84,29 @@ pub struct PrivilegedCommand {
     pub prefer_root: bool,
     /// 超时秒数（None 用实现默认）
     pub timeout_secs: Option<u64>,
+    /// 附加环境变量（S7：敏感凭据经环境变量传递，避免落入 argv/`ps` 可见）。
+    pub env: Vec<(String, String)>,
+    /// 工作目录（M-C Stage B-2：源码编译类安装需在解压目录内执行
+    /// `./configure` / `make`；None = 继承面板进程 cwd）。
+    pub cwd: Option<String>,
+    /// 写入子进程标准输入的内容（Doc/33 P-2：含密码的 SQL 经 stdin 传递，
+    /// 不再出现在 `mysql -e <sql>` 的 argv 里被 `ps` / `/proc/<pid>/cmdline` 看到）。
+    pub stdin: Option<String>,
+}
+
+impl std::fmt::Debug for PrivilegedCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let env_keys: Vec<&str> = self.env.iter().map(|(k, _)| k.as_str()).collect();
+        f.debug_struct("PrivilegedCommand")
+            .field("program", &self.program)
+            .field("args", &self.args)
+            .field("prefer_root", &self.prefer_root)
+            .field("timeout_secs", &self.timeout_secs)
+            .field("env_keys", &env_keys)
+            .field("cwd", &self.cwd)
+            .field("stdin_bytes", &self.stdin.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 impl PrivilegedCommand {
@@ -90,6 +116,9 @@ impl PrivilegedCommand {
             args,
             prefer_root: false,
             timeout_secs: None,
+            env: Vec::new(),
+            cwd: None,
+            stdin: None,
         }
     }
 
@@ -100,6 +129,24 @@ impl PrivilegedCommand {
 
     pub fn timeout(mut self, secs: u64) -> Self {
         self.timeout_secs = Some(secs);
+        self
+    }
+
+    /// 注入一条环境变量（S7）。
+    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env.push((key.into(), value.into()));
+        self
+    }
+
+    /// 指定工作目录（M-C Stage B-2：源码编译类安装）。
+    pub fn cwd(mut self, dir: impl Into<String>) -> Self {
+        self.cwd = Some(dir.into());
+        self
+    }
+
+    /// 经标准输入传入内容（Doc/33 P-2）。
+    pub fn stdin(mut self, input: impl Into<String>) -> Self {
+        self.stdin = Some(input.into());
         self
     }
 }
@@ -156,6 +203,17 @@ mod tests {
         assert_eq!(cmd.args, vec!["status"]);
         assert!(cmd.prefer_root);
         assert_eq!(cmd.timeout_secs, Some(10));
+        assert!(cmd.env.is_empty());
+    }
+
+    #[test]
+    fn test_privileged_command_env() {
+        let cmd = PrivilegedCommand::new("mysql", vec!["-u".into(), "root".into()])
+            .env("MYSQL_PWD", "secret");
+        assert_eq!(
+            cmd.env,
+            vec![("MYSQL_PWD".to_string(), "secret".to_string())]
+        );
     }
 
     #[test]

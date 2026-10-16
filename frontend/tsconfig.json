@@ -4,6 +4,8 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "ignoreDeprecations": "6.0",
     "strict": true,
     "jsx": "preserve",
@@ -18,6 +20,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*", "vite.config.ts"],
+  "include": ["src/**/*", "scripts/csp.ts", "vite.config.ts", "playwright.config.ts", "e2e/**/*"],
   "exclude": ["node_modules", "dist"]
 }

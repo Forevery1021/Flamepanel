@@ -1,0 +1,5 @@
+#!/bin/sh
+# P0-2：commit-msg 钩子 — 用 commitlint 校验 Conventional Commits 提交信息
+# 前端工程位于 frontend/ 子目录，故先切换到该目录。
+cd "$(dirname "$0")/../frontend" || exit 1
+npx --no -- commitlint --edit "$1"

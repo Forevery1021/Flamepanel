@@ -1,11 +1,5 @@
 <template>
-  <Button
-    v-bind="$attrs"
-    :label="label"
-    :text="text"
-    :size="size"
-    class="fp-button-link"
-  >
+  <Button v-bind="$attrs" :label="label" :text="text" :size="size" class="fp-button-link">
     <slot />
   </Button>
 </template>

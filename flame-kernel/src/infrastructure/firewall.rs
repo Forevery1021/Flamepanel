@@ -3,6 +3,9 @@
 use crate::application::execution_mode::{CommandOutput, PrivilegedCommand, SharedCommandRunner};
 use crate::core::error::AppError;
 use crate::domain::entity::{FirewallBackend, FirewallRule};
+use crate::infrastructure::firewall_render::{
+    firewalld_rich_rules, iptables_command, ufw_args, RuleOp,
+};
 use std::sync::Arc;
 
 pub struct FirewallManager {
@@ -11,8 +14,13 @@ pub struct FirewallManager {
 
 impl FirewallManager {
     /// 构造：注入特权命令执行器（`execution_mode=embedded|agent`）。
+    ///
+    /// 非 root 且本机特权助手在线时，防火墙命令经助手以 root 执行（助手侧对规则命令做往返校验，
+    /// 见 `firewall_render::firewall_command_allowed`），面板不再依赖 sudoers 放行 ufw / iptables。
     pub fn new(runner: SharedCommandRunner) -> Self {
-        Self { runner }
+        Self {
+            runner: crate::webserver::helper::command_access(runner),
+        }
     }
 
     /// 便捷：默认嵌入式执行器（本地直接执行，行为与重构前一致）。
@@ -86,158 +94,86 @@ impl FirewallManager {
         }
     }
 
+    /// 把一条（已规范化的）规则写入系统防火墙。命令渲染见 `firewall_render`。
     pub async fn apply_rule(&self, rule: &FirewallRule) -> Result<(), AppError> {
-        let backend = self.detect_backend().await;
-        match backend {
+        match self.detect_backend().await {
             FirewallBackend::Ufw => {
-                let mut args = vec!["ufw".to_string()];
-                if !rule.enabled {
-                    args.push("delete".into());
-                }
-                args.push(match rule.action.as_str() {
-                    "allow" => "allow".into(),
-                    "deny" => "deny".into(),
-                    "reject" => "reject".into(),
-                    _ => "allow".into(),
-                });
-                if let Some(ref port) = rule.port {
-                    if rule.protocol != "any" && rule.protocol != "icmp" {
-                        args.push(format!("{}/{}", port, rule.protocol));
-                    } else {
-                        args.push(port.clone());
-                    }
-                }
-                if let Some(ref src) = rule.source {
-                    if src != "0.0.0.0/0" && src != "any" {
-                        args.push("from".into());
-                        args.push(src.clone());
-                    }
-                }
-                let out = self
-                    .run(PrivilegedCommand::new(args[0].clone(), args[1..].to_vec()))
-                    .await?;
-                if !out.success() {
-                    return Err(AppError::internal(format!(
-                        "ufw error: {}",
-                        out.stderr.trim()
-                    )));
-                }
-                Ok(())
+                let args = ufw_args(rule, RuleOp::Add)?;
+                self.run_checked("ufw", PrivilegedCommand::new("ufw", args))
+                    .await
             }
             FirewallBackend::Firewalld => {
-                let action = match rule.action.as_str() {
-                    "allow" => "add",
-                    "deny" | "reject" => "remove",
-                    _ => "add",
-                };
-                let proto = if rule.protocol == "any" {
-                    "tcp"
-                } else {
-                    &rule.protocol
-                };
-                if let Some(ref src) = rule.source {
-                    if src != "0.0.0.0/0" && src != "any" {
-                        let rich = format!("rule family=\"ipv4\" source address=\"{}\" port port=\"{}\" protocol=\"{}\" {}", 
-                            src, rule.port.as_deref().unwrap_or(""), proto, action);
-                        let out = self
-                            .run(PrivilegedCommand::new(
-                                "firewall-cmd",
-                                vec!["--permanent".into(), format!("--add-rich-rule={}", rich)],
-                            ))
-                            .await?;
-                        if !out.success() {
-                            let stderr = out.stderr.trim().to_string();
-                            return Err(AppError::internal(format!("firewalld error: {}", stderr)));
-                        }
-                        let _ = self
-                            .run(PrivilegedCommand::new(
-                                "firewall-cmd",
-                                vec!["--reload".into()],
-                            ))
-                            .await?;
-                        return Ok(());
-                    }
-                }
-                let out = self
-                    .run(PrivilegedCommand::new(
-                        "firewall-cmd",
-                        vec![
-                            "--permanent".into(),
-                            format!(
-                                "--{}-port={}/{}",
-                                action,
-                                rule.port.as_deref().unwrap_or(""),
-                                proto
-                            ),
-                        ],
-                    ))
-                    .await?;
-                if !out.success() {
-                    let out2 = self
-                        .run(PrivilegedCommand::new(
+                for rich in firewalld_rich_rules(rule)? {
+                    self.run_checked(
+                        "firewalld",
+                        PrivilegedCommand::new(
                             "firewall-cmd",
-                            vec![
-                                "--permanent".into(),
-                                format!("--{}-port={}", action, rule.port.as_deref().unwrap_or("")),
-                            ],
-                        ))
-                        .await?;
-                    if !out2.success() {
-                        let stderr = out2.stderr.trim().to_string();
-                        return Err(AppError::internal(format!("firewalld error: {}", stderr)));
-                    }
-                }
-                let _ = self
-                    .run(PrivilegedCommand::new(
-                        "firewall-cmd",
-                        vec!["--reload".into()],
-                    ))
+                            vec!["--permanent".into(), format!("--add-rich-rule={rich}")],
+                        ),
+                    )
                     .await?;
-                Ok(())
+                }
+                self.firewalld_reload().await
             }
             FirewallBackend::Iptables => {
-                let chain = if rule.direction == "in" {
-                    "INPUT"
-                } else {
-                    "OUTPUT"
-                };
-                let action = match rule.action.as_str() {
-                    "allow" => "ACCEPT",
-                    "deny" => "DROP",
-                    "reject" => "REJECT",
-                    _ => "ACCEPT",
-                };
-                let mut args = vec!["iptables".to_string(), "-A".into(), chain.into()];
-                if let Some(ref src) = rule.source {
-                    if src != "0.0.0.0/0" && src != "any" {
-                        args.push("-s".into());
-                        args.push(src.clone());
+                let (program, args) = iptables_command(rule, RuleOp::Add)?;
+                self.run_checked("iptables", PrivilegedCommand::new(program, args))
+                    .await
+            }
+            FirewallBackend::Unsupported(ref msg) => {
+                Err(AppError::internal(format!("Unsupported firewall: {}", msg)))
+            }
+        }
+    }
+
+    /// 从系统防火墙移除规则（与 `apply_rule` 对称渲染，保证删得掉自己加的规则）。
+    pub async fn remove_rule(&self, rule: &FirewallRule) -> Result<(), AppError> {
+        match self.detect_backend().await {
+            FirewallBackend::Ufw => {
+                let args = ufw_args(rule, RuleOp::Delete)?;
+                self.run_checked("ufw", PrivilegedCommand::new("ufw", args))
+                    .await
+            }
+            FirewallBackend::Firewalld => {
+                let mut failure = None;
+                for rich in firewalld_rich_rules(rule)? {
+                    let out = self
+                        .run(PrivilegedCommand::new(
+                            "firewall-cmd",
+                            vec!["--permanent".into(), format!("--remove-rich-rule={rich}")],
+                        ))
+                        .await?;
+                    if !out.success() {
+                        failure = Some(out.stderr.trim().to_string());
                     }
                 }
-                if rule.protocol != "any" {
-                    args.push("-p".into());
-                    args.push(rule.protocol.clone());
+                // S-13 之前的放行规则以 `--add-port` 写入：一并按旧形态移除（不存在时忽略）
+                if rule.action == "allow" && failure.is_some() {
+                    if let Some(port) = rule.port.as_deref() {
+                        let legacy = self
+                            .run(PrivilegedCommand::new(
+                                "firewall-cmd",
+                                vec![
+                                    "--permanent".into(),
+                                    format!("--remove-port={}/{}", port, rule.protocol),
+                                ],
+                            ))
+                            .await?;
+                        if legacy.success() {
+                            failure = None;
+                        }
+                    }
                 }
-                if let Some(ref port) = rule.port {
-                    args.push("--dport".into());
-                    args.push(port.clone());
+                self.firewalld_reload().await?;
+                match failure {
+                    Some(stderr) => Err(AppError::internal(format!("firewalld error: {stderr}"))),
+                    None => Ok(()),
                 }
-                if !rule.enabled {
-                    args.push("-m".into());
-                    args.push("comment".into());
-                    args.push("--comment".into());
-                    args.push(format!("disabled:{}", rule.name));
-                }
-                args.push("-j".into());
-                args.push(action.into());
-
-                let out = self
-                    .run(PrivilegedCommand::new(args[0].clone(), args[1..].to_vec()))
-                    .await?;
-                if !out.success() {
-                    let stderr = out.stderr.trim().to_string();
-                    return Err(AppError::internal(format!("iptables error: {}", stderr)));
-                }
+            }
+            FirewallBackend::Iptables => {
+                let (program, args) = iptables_command(rule, RuleOp::Delete)?;
+                // 规则可能已被手工删除：删除失败不阻塞（与既有行为一致）
+                let _ = self.run(PrivilegedCommand::new(program, args)).await?;
                 Ok(())
             }
             FirewallBackend::Unsupported(ref msg) => {
@@ -246,101 +182,27 @@ impl FirewallManager {
         }
     }
 
-    pub async fn remove_rule(&self, rule: &FirewallRule) -> Result<(), AppError> {
-        let backend = self.detect_backend().await;
-        match backend {
-            FirewallBackend::Ufw => {
-                let out = self
-                    .run(PrivilegedCommand::new(
-                        "ufw",
-                        vec![
-                            "delete".into(),
-                            rule.action.clone(),
-                            rule.port.clone().unwrap_or_default(),
-                        ],
-                    ))
-                    .await?;
-                if !out.success() {
-                    let stderr = out.stderr.trim().to_string();
-                    return Err(AppError::internal(format!("ufw error: {}", stderr)));
-                }
-                Ok(())
-            }
-            FirewallBackend::Firewalld => {
-                let action = match rule.action.as_str() {
-                    "allow" => "remove",
-                    "deny" | "reject" => "add",
-                    _ => "remove",
-                };
-                let proto = if rule.protocol == "any" {
-                    "tcp"
-                } else {
-                    &rule.protocol
-                };
-                let out = self
-                    .run(PrivilegedCommand::new(
-                        "firewall-cmd",
-                        vec![
-                            "--permanent".into(),
-                            format!(
-                                "--{}-port={}/{}",
-                                action,
-                                rule.port.as_deref().unwrap_or(""),
-                                proto
-                            ),
-                        ],
-                    ))
-                    .await?;
-                let _ = self
-                    .run(PrivilegedCommand::new(
-                        "firewall-cmd",
-                        vec!["--reload".into()],
-                    ))
-                    .await;
-                if !out.success() {
-                    let stderr = out.stderr.trim().to_string();
-                    return Err(AppError::internal(format!("firewalld error: {}", stderr)));
-                }
-                Ok(())
-            }
-            FirewallBackend::Iptables => {
-                let chain = if rule.direction == "in" {
-                    "INPUT"
-                } else {
-                    "OUTPUT"
-                };
-                let mut args = vec!["iptables".to_string(), "-D".into(), chain.into()];
-                if let Some(ref src) = rule.source {
-                    if src != "0.0.0.0/0" && src != "any" {
-                        args.push("-s".into());
-                        args.push(src.clone());
-                    }
-                }
-                if rule.protocol != "any" {
-                    args.push("-p".into());
-                    args.push(rule.protocol.clone());
-                }
-                if let Some(ref port) = rule.port {
-                    args.push("--dport".into());
-                    args.push(port.clone());
-                }
-                let action = match rule.action.as_str() {
-                    "allow" => "ACCEPT",
-                    "deny" => "DROP",
-                    "reject" => "REJECT",
-                    _ => "ACCEPT",
-                };
-                args.push("-j".into());
-                args.push(action.into());
-                let _ = self
-                    .run(PrivilegedCommand::new(args[0].clone(), args[1..].to_vec()))
-                    .await?;
-                Ok(())
-            }
-            FirewallBackend::Unsupported(ref msg) => {
-                Err(AppError::internal(format!("Unsupported firewall: {}", msg)))
-            }
+    /// 运行命令，非 0 退出码 → `"{label} error: stderr"` 内部错误。
+    async fn run_checked(&self, label: &str, cmd: PrivilegedCommand) -> Result<(), AppError> {
+        let out = self.run(cmd).await?;
+        if out.success() {
+            Ok(())
+        } else {
+            Err(AppError::internal(format!(
+                "{label} error: {}",
+                out.stderr.trim()
+            )))
         }
+    }
+
+    async fn firewalld_reload(&self) -> Result<(), AppError> {
+        let _ = self
+            .run(PrivilegedCommand::new(
+                "firewall-cmd",
+                vec!["--reload".into()],
+            ))
+            .await?;
+        Ok(())
     }
 
     pub async fn enable_firewall(&self) -> Result<(), AppError> {

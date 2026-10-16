@@ -1,4 +1,4 @@
-import api from './client'
+import api, { longApi } from './client'
 
 export interface BackupEntry {
   filename: string
@@ -27,7 +27,8 @@ export async function downloadBackup(filename: string) {
 }
 
 export function restoreBackup(filename: string) {
-  return api.post(`/backups/${encodeURIComponent(filename)}/restore`, { filename })
+  // F-33: 恢复备份可能耗时较长
+  return longApi.post(`/backups/${encodeURIComponent(filename)}/restore`, { filename })
 }
 
 export function deleteBackup(filename: string) {

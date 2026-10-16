@@ -5,20 +5,28 @@
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Ops Panel</title>
+
+  <!-- P0-5 / T0-5：内容安全策略基线。inline script 走 sha256 白名单（禁用 unsafe-inline/
+       unsafe-eval）。Doc/33 P-6：策略单一来源 scripts/csp.ts——构建 / 开发时占位符替换为实算
+       策略（哈希由下方首屏脚本自动计算，改脚本无需手改哈希），并产出 dist/csp.conf 供 nginx
+       include（追加 frame-ancestors，meta 形式会被浏览器忽略）。护栏见 src/config/__tests__/csp.spec.ts。 -->
+  <meta http-equiv="Content-Security-Policy" content="%FLAMEPANEL_CSP%" />
   <script>
-    // F2.3 首屏无闪烁：mount 前同步明暗模式 + 玻璃开关，避免闪白/闪黑
+    // F2.3 / W4-a 首屏无闪烁：mount 前同步明暗模式（含「跟随系统」）与材质档位，
+    // 规则与 stores/theme.ts 保持一致：未设置 → 深色；auto → prefers-color-scheme。
     ;(function () {
       try {
         var root = document.documentElement
-        var mode = localStorage.getItem('flamepanel.mode')
-        if (mode === 'light' || mode === 'dark') {
-          root.classList.toggle('dark', mode === 'dark')
-        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          root.classList.add('dark')
+        var ls = window.localStorage
+        var mode = ls.getItem('flamepanel.mode')
+        var dark = mode === 'light' ? false : mode === 'auto' ? !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) : true
+        root.classList.toggle('dark', dark)
+        var material = ls.getItem('flamepanel.material')
+        if (material !== 'solid' && material !== 'glass' && material !== 'acrylic') {
+          material = ls.getItem('flamepanel.glass') === 'false' ? 'solid' : 'glass'
         }
-        if (localStorage.getItem('flamepanel.glass') === 'false') {
-          root.classList.add('glass-disabled')
-        }
+        root.setAttribute('data-material', material)
+        root.classList.toggle('glass-disabled', material === 'solid')
       } catch (e) {
         /* ignore */
       }

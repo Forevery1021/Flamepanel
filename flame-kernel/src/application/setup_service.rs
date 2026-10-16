@@ -211,11 +211,8 @@ impl SetupService {
         if username.is_empty() {
             return Err(AppError::ValidationError("username is required".into()));
         }
-        if admin.password.len() < 8 {
-            return Err(AppError::ValidationError(
-                "password must be at least 8 characters".into(),
-            ));
-        }
+        // F-22: 密码强度校验（长度/复杂度/bcrypt 72 字节截断保护）
+        crate::utils::password::PasswordUtils::validate_strength(&admin.password, Some(username))?;
 
         let theme = req.theme.clone().unwrap_or_else(|| "flame".into());
         let language = req.language.clone().unwrap_or_else(|| "zh-CN".into());
@@ -286,7 +283,7 @@ impl SetupService {
                 vec![
                     format!("-h{host}"),
                     format!("-P{port}"),
-                    format!("-uroot"),
+                    "-uroot".to_string(),
                     format!("-p{}", db.mysql_root_password),
                     "-e".into(),
                     "SELECT 1".into(),
@@ -313,7 +310,7 @@ impl SetupService {
                 vec![
                     format!("-h{host}"),
                     format!("-P{port}"),
-                    format!("-uroot"),
+                    "-uroot".to_string(),
                     format!("-p{}", db.mysql_root_password),
                     "-e".into(),
                     sql,
@@ -382,7 +379,7 @@ impl SetupService {
 
 // ── DTO ──────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct SetupDatabaseInput {
     pub db_type: String,
     #[serde(default)]
@@ -403,13 +400,13 @@ fn default_mysql_port() -> u16 {
     3306
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct SetupAdminInput {
     pub username: String,
     pub password: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct SetupRequest {
     /// `database` | `admin`
     pub step: String,
@@ -423,7 +420,7 @@ pub struct SetupRequest {
     pub language: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct SetupStatusResponse {
     pub status: String,
     pub theme: String,
@@ -434,7 +431,7 @@ pub struct SetupStatusResponse {
     pub nginx: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct InitializeResponse {
     pub status: String,
     pub message: String,
@@ -492,7 +489,7 @@ mod tests {
             database: None,
             admin: Some(SetupAdminInput {
                 username: "admin".into(),
-                password: "Admin12345".into(),
+                password: "Str0ng@Passw0rd".into(),
             }),
             theme: Some("flame".into()),
             language: Some("zh-CN".into()),
@@ -521,7 +518,7 @@ mod tests {
             database: None,
             admin: Some(SetupAdminInput {
                 username: "admin".into(),
-                password: "Admin12345".into(),
+                password: "Str0ng@Passw0rd".into(),
             }),
             theme: None,
             language: None,
@@ -545,7 +542,7 @@ mod tests {
             database: None,
             admin: Some(SetupAdminInput {
                 username: "admin".into(),
-                password: "Admin12345".into(),
+                password: "Str0ng@Passw0rd".into(),
             }),
             theme: None,
             language: None,
@@ -565,7 +562,7 @@ mod tests {
             database: None,
             admin: Some(SetupAdminInput {
                 username: "admin".into(),
-                password: "Admin12345".into(),
+                password: "Str0ng@Passw0rd".into(),
             }),
             theme: None,
             language: None,

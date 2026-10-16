@@ -5,7 +5,7 @@
 #   默认输出目录: release-assets
 #   默认版本号:  从 Cargo.toml 自动读取（flame-kernel 的 package.version）
 # 生成:
-#   flamepanel-linux-<ARCH>.tar.gz      顶层为 flamepanel 二进制（本机架构）
+#   flamepanel-linux-<ARCH>.tar.gz      顶层为 flamepanel + fpctl 二进制（本机架构）
 #   flamepanel-frontend.tar.gz          顶层为 dist 内容
 #   flamepanel-<VERSION>-checksums.txt  SHA256 校验和
 set -euo pipefail
@@ -34,7 +34,8 @@ echo "==> 打包后端 (linux-${PKG_ARCH})..."
 rm -rf "$OUT/backend-stage"
 mkdir -p "$OUT/backend-stage"
 cp target/release/flame-kernel "$OUT/backend-stage/flamepanel"
-tar -czf "$OUT/flamepanel-linux-${PKG_ARCH}.tar.gz" -C "$OUT/backend-stage" flamepanel
+cp target/release/fpctl "$OUT/backend-stage/fpctl"
+tar -czf "$OUT/flamepanel-linux-${PKG_ARCH}.tar.gz" -C "$OUT/backend-stage" flamepanel fpctl
 rm -rf "$OUT/backend-stage"
 
 echo "==> 构建前端..."

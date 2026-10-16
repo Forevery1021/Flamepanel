@@ -1,5 +1,5 @@
 <template>
-  <LayoutContent :title="t('memo.memos')">
+  <LayoutContent :title="t('memo.memos')" :description="t('pageDesc.memos')">
     <div class="panel">
       <FpTabs v-model="tab" :items="tabItems">
 <template #memo>

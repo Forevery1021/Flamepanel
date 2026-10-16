@@ -4,6 +4,12 @@ import { connectWithRetry, type WSConnection } from '@/utils/ws'
 export interface UseWebSocketOptions {
   onMessage: (data: unknown) => void
   onStatus?: (connected: boolean) => void
+  /**
+   * 是否自动挂接组件生命周期（卸载 close、keep-alive 失活/激活 pause/resume），默认 true。
+   * 端点随响应式状态切换（如 `/ws/metrics?node_id=`）时由调用方在 setup 内统一挂接，
+   * 再在 watch 回调里重建实例——Vue 不允许在 setup 之外注册生命周期钩子。
+   */
+  manageLifecycle?: boolean
 }
 
 export interface UseWebSocket {
@@ -37,6 +43,11 @@ interface SharedSubscriber {
  * - 订阅者激活数量 > 0 时建立连接，归零时关闭（避免 Dashboard/Health 同开 /ws/metrics 双连接）
  * - 同一端点的多个页面各自持有 onMessage/onStatus 回调，连接建立后统一分发
  */
+/** 服务端背压控制帧：`{type:"resync"}`（见 flame-kernel `api/ws_backpressure.rs`） */
+export function isResyncFrame(data: unknown): boolean {
+  return typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'resync'
+}
+
 class SharedConnectionRegistry {
   private static instance: SharedConnectionRegistry | null = null
   static get() {
@@ -89,6 +100,13 @@ class SharedConnectionRegistry {
     if (this.conns.has(url)) return
     const conn = connectWithRetry(url, {
       onMessage: (data) => {
+        // S-08：服务端判定本连接为慢消费者（连续 lag）时发 {type:"resync"} 并随即关闭。
+        // 立即重连（不等 1 s 起步的退避），重连后的 init 帧带完整历史窗口即可补齐曲线；
+        // 该控制帧不下发给订阅者（它不是数据）。
+        if (isResyncFrame(data)) {
+          this.conns.get(url)?.reconnectNow()
+          return
+        }
         for (const sub of this.subscribers.get(url) ?? []) {
           if (sub.active) sub.onMessage(data)
         }
@@ -97,6 +115,10 @@ class SharedConnectionRegistry {
         for (const sub of this.subscribers.get(url) ?? []) {
           if (sub.active) sub.onStatus?.(connected)
         }
+      },
+      // 4003：连接已停止重连；移出注册表，页面重新激活（如权限恢复后再进入）时可重建
+      onDenied: () => {
+        this.conns.delete(url)
       },
     })
     this.conns.set(url, conn)
@@ -174,9 +196,11 @@ export function useSharedWebSocket(url: string, options: UseWebSocketOptions): U
     return sub.active
   }
 
-  onActivated(() => resume())
-  onDeactivated(() => pause())
-  onBeforeUnmount(() => close())
+  if (options.manageLifecycle !== false) {
+    onActivated(() => resume())
+    onDeactivated(() => pause())
+    onBeforeUnmount(() => close())
+  }
 
   return { connect, close, pause, resume, send, reconnectNow, isActive }
 }

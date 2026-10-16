@@ -27,6 +27,22 @@ body {
   background: var(--fp-bg-app);
 }
 
+/* ── 表单控件字号跟随正文（OpenVue 默认 1rem = 16px，比 14px 正文大一号）──
+ * 触屏设备保留 16px：iOS Safari 对 <16px 的输入框聚焦时会自动放大页面。 */
+@media (pointer: fine) {
+  /* :root 前缀提高优先级：OpenVue 的主题样式在运行时注入到 style.css 之后 */
+  :root .p-inputtext,
+  :root .p-textarea,
+  :root .p-select-label,
+  :root .p-multiselect-label,
+  :root .p-select-option,
+  :root .p-multiselect-option,
+  :root .p-togglebutton,
+  :root .p-autocomplete-input {
+    font-size: var(--fp-font-base);
+  }
+}
+
 ::selection {
   background: var(--fp-brand-soft);
 }
@@ -124,4 +140,54 @@ body {
   background: var(--fp-text-muted);
   background-clip: content-box;
   border: 2px solid transparent;
+}
+
+/* ===== 表单排版原语（Doc/04 §表单；替代各视图 scoped 重复定义） ===== */
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fp-space-4);
+}
+.field-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+/* 水平排布（开关 / 短控件 + 标签） */
+.field-row,
+.field-inline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--fp-space-3);
+}
+.field-inline {
+  gap: var(--fp-space-2);
+}
+.field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fp-text-secondary);
+}
+.field-hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--fp-text-muted);
+}
+.field-error {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--fp-danger);
+}
+/* 两列栅格：短字段并排（端口 / 数量 等） */
+.field-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--fp-space-3) var(--fp-space-4);
+}
+@media (max-width: 640px) {
+  .field-grid-2 {
+    grid-template-columns: 1fr;
+  }
 }

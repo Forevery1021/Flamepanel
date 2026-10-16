@@ -1,6 +1,7 @@
 use crate::core::error::AppError;
 use crate::domain::entity::*;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 
 #[async_trait]
 pub trait UserRepository: Send + Sync {
@@ -16,6 +17,10 @@ pub trait UserRepository: Send + Sync {
     async fn list(&self) -> Result<Vec<User>, AppError>;
     async fn update_password(&self, id: i64, new_password_hash: &str) -> Result<(), AppError>;
     async fn delete(&self, id: i64) -> Result<(), AppError>;
+    /// F-04: 读取用户最近一次改密时间（Unix 秒）
+    async fn get_password_changed_at(&self, id: i64) -> Result<Option<i64>, AppError>;
+    /// F-04: 更新用户最近一次改密时间（Unix 秒）
+    async fn update_password_changed_at(&self, id: i64, ts: i64) -> Result<(), AppError>;
 
     // ── 分页下沉（Stage1）：数据库层直接 LIMIT/OFFSET，避免全表加载 + 内存切片 ──
     /// 分页查询用户（按 id 倒序）。`limit` 会被 clamp 到 `1..=200`。
@@ -118,6 +123,11 @@ pub trait ImageRepository: Send + Sync {
     async fn pull_image(&self, image: &str) -> Result<String, AppError>;
     async fn tag_image(&self, image_id: &str, repo: &str, tag: &str) -> Result<(), AppError>;
     async fn prune_images(&self) -> Result<serde_json::Value, AppError>;
+    /// `docker image inspect`：用于「容器收编」时剔除镜像自带的默认配置。
+    /// 默认返回 Null（内存实现 / 不支持时退化为「保留全部并提示」）。
+    async fn inspect_image(&self, _image: &str) -> Result<serde_json::Value, AppError> {
+        Ok(serde_json::Value::Null)
+    }
 }
 
 #[async_trait]
@@ -132,6 +142,18 @@ pub trait ComposeRepository: Send + Sync {
         project_name: &str,
         compose_yaml: &str,
     ) -> Result<serde_json::Value, AppError>;
+    /// 在指定项目目录部署：compose 文件落盘为 `project_dir/docker-compose.yml`，
+    /// 相对挂载（`./data:/data`，1Panel 包惯例）以该目录为基准，且目录在部署后保留，
+    /// 之后 `compose_up` 可凭 compose 记录的配置文件重新拉起。缺省实现退化为 `compose_deploy`。
+    async fn compose_deploy_at(
+        &self,
+        project_name: &str,
+        compose_yaml: &str,
+        project_dir: &std::path::Path,
+    ) -> Result<serde_json::Value, AppError> {
+        let _ = project_dir;
+        self.compose_deploy(project_name, compose_yaml).await
+    }
     async fn compose_up(&self, project_name: &str) -> Result<(), AppError>;
     async fn compose_down(&self, project_name: &str) -> Result<(), AppError>;
     async fn compose_ls(&self) -> Result<Vec<serde_json::Value>, AppError>;
@@ -178,6 +200,9 @@ pub trait OperationLogRepository: Send + Sync {
     ) -> Result<Vec<OperationLog>, AppError>;
     /// 操作日志总数（支持 action 前缀过滤）。
     async fn count(&self, action_prefix: Option<&str>) -> Result<i64, AppError>;
+
+    /// F-12: 删除早于指定天数的操作日志（保留策略）。
+    async fn delete_older_than(&self, days: i64) -> Result<u64, AppError>;
 }
 
 /// 事件落库（Outbox）端口：把领域事件持久化存档，保证审计不丢（Stage6）。
@@ -199,6 +224,9 @@ pub trait OutboxRepository: Send + Sync {
     ) -> Result<Vec<OutboxEvent>, AppError>;
     /// 事件落库总数（支持事件类型过滤）。
     async fn count(&self, event_type: Option<&str>) -> Result<i64, AppError>;
+
+    /// F-12: 删除早于指定天数的 outbox 事件（保留策略，仅删除已发布且超期的）。
+    async fn delete_older_than(&self, days: i64) -> Result<u64, AppError>;
 }
 
 #[async_trait]
@@ -221,6 +249,9 @@ pub trait LogRepository: Send + Sync {
     async fn list_page(&self, limit: i64, offset: i64) -> Result<Vec<LogEntry>, AppError>;
     /// 系统日志总数。
     async fn count(&self) -> Result<i64, AppError>;
+
+    /// F-12: 删除早于指定天数的系统日志（保留策略）。
+    async fn delete_older_than(&self, days: i64) -> Result<u64, AppError>;
 }
 
 #[async_trait]
@@ -344,6 +375,23 @@ pub trait AppPackageRepository: Send + Sync {
     async fn delete(&self, id: i64) -> Result<(), AppError>;
     /// 批量写入应用包（Phase A2 扩展：统一接入 `set_many` 事务语义，要么全部成功要么全部回滚）。
     async fn create_many(&self, pkgs: &[AppPackage]) -> Result<usize, AppError>;
+    /// 回写包体本地缓存路径（M-A Issue 1.4：http 源懒加载拉取后落库）。
+    async fn update_source_path(&self, id: i64, source_path: &str) -> Result<(), AppError>;
+}
+
+/// 远程应用源仓储（M-A Issue 1.1，Doc/20 §4.1）
+#[async_trait]
+pub trait AppSourceRepository: Send + Sync {
+    async fn list_all(&self) -> Result<Vec<AppSource>, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<AppSource>, AppError>;
+    async fn find_by_url(&self, url: &str) -> Result<Option<AppSource>, AppError>;
+    /// 新建源，返回自增 id。url 重复时返回错误（UNIQUE 约束）。
+    async fn create(&self, source: &AppSource) -> Result<i64, AppError>;
+    /// 更新可编辑字段（name/url/enabled/public_key）与 updated_at。
+    async fn update(&self, source: &AppSource) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+    /// 记录一次成功同步（写 last_synced_at = now）。
+    async fn touch_synced(&self, id: i64) -> Result<(), AppError>;
 }
 
 #[async_trait]
@@ -370,4 +418,268 @@ pub trait MemoRepository: Send + Sync {
     async fn create(&self, content: &str, kind: &str) -> Result<i64, AppError>;
     async fn update(&self, memo: &Memo) -> Result<(), AppError>;
     async fn delete(&self, id: i64) -> Result<(), AppError>;
+}
+
+/// F-04: 已吊销 refresh token 的持久化黑名单仓储（SQLite 落库，重启不丢失）。
+#[async_trait]
+pub trait RevokedTokenRepository: Send + Sync {
+    /// 将 token 哈希加入黑名单（带过期时间，Unix 秒）
+    async fn insert(&self, token_hash: &str, expires_at: i64) -> Result<(), AppError>;
+    /// 检查 token 哈希是否在黑名单中
+    async fn contains(&self, token_hash: &str) -> Result<bool, AppError>;
+    /// 清理已过期条目
+    async fn cleanup_expired(&self) -> Result<(), AppError>;
+}
+
+/// 监控历史仓储（S-07）：按分辨率存放降采样点，`(resolution, bucket_start)` 唯一。
+#[async_trait]
+pub trait MetricsHistoryRepository: Send + Sync {
+    /// 写入 / 覆盖一个桶（同一桶重复写入取最新值）
+    async fn upsert(
+        &self,
+        resolution: MetricsResolution,
+        point: &MetricsHistoryPoint,
+    ) -> Result<(), AppError>;
+    /// 查询 `[from, to)` 区间内的点，按 `bucket_start` 升序，最多 `limit` 条
+    async fn query(
+        &self,
+        resolution: MetricsResolution,
+        from: i64,
+        to: i64,
+        limit: usize,
+    ) -> Result<Vec<MetricsHistoryPoint>, AppError>;
+    /// 删除 `bucket_start < before` 的点，返回删除行数
+    async fn prune(&self, resolution: MetricsResolution, before: i64) -> Result<u64, AppError>;
+}
+
+/// 备份账号仓储（M-A 收尾 · Doc/20 §6.5 备份账号体系 Stage 1 数据层）
+#[async_trait]
+pub trait BackupAccountRepository: Send + Sync {
+    async fn list_all(&self) -> Result<Vec<BackupAccount>, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<BackupAccount>, AppError>;
+    /// 新建账号，返回自增 id。
+    async fn create(&self, account: &BackupAccount) -> Result<i64, AppError>;
+    /// 更新可编辑字段（name/account_type/config_json/enabled）与 updated_at。
+    async fn update(&self, account: &BackupAccount) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+    /// 记录一次连通性测试结果（写 last_test_status / last_test_at / updated_at）。
+    async fn record_test(&self, id: i64, ok: bool) -> Result<(), AppError>;
+}
+
+/// 备份任务仓储（M-A 收尾 Stage 3 · Doc/20 §6.5）
+#[async_trait]
+pub trait BackupJobRepository: Send + Sync {
+    async fn list_all(&self) -> Result<Vec<BackupJob>, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<BackupJob>, AppError>;
+    /// 新建任务，返回自增 id。
+    async fn create(&self, job: &BackupJob) -> Result<i64, AppError>;
+    /// 更新可编辑字段（name/scope/scope_key/schedule/target_account_id/retention/enabled
+    /// /next_run_at）与 updated_at，执行历史字段不在此更新。
+    async fn update(&self, job: &BackupJob) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+    /// 记录一次执行结果（写 last_status/last_message/last_remote_key/last_run_at
+    /// /next_run_at/updated_at）。
+    async fn record_run(
+        &self,
+        id: i64,
+        ok: bool,
+        message: Option<String>,
+        remote_key: Option<String>,
+        next_run_at: Option<DateTime<Utc>>,
+    ) -> Result<(), AppError>;
+}
+
+/// 运行时仓储（M-B 主线二 Stage A-1 · Doc/20 §5.2）
+#[async_trait]
+pub trait RuntimeRepository: Send + Sync {
+    async fn list_all(&self) -> Result<Vec<Runtime>, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<Runtime>, AppError>;
+    /// 同 kind + version 唯一（UNIQUE 约束），返回自增 id。
+    async fn create(&self, runtime: &Runtime) -> Result<i64, AppError>;
+    /// 更新可编辑字段（install_path/status/is_default/metadata_json）与 updated_at。
+    async fn update(&self, runtime: &Runtime) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+    /// 将指定运行时设为同 kind 唯一默认（事务内先清后设）。
+    async fn set_default(&self, id: i64) -> Result<(), AppError>;
+}
+
+/// 用户项目仓储（M-B 主线二 Stage A-1 · Doc/20 §5.2）
+#[async_trait]
+pub trait ProjectRepository: Send + Sync {
+    async fn list_all(&self) -> Result<Vec<Project>, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<Project>, AppError>;
+    /// 项目名唯一（UNIQUE 约束），返回自增 id。
+    async fn create(&self, project: &Project) -> Result<i64, AppError>;
+    /// 更新可编辑字段（runtime_id/source/source_url/deploy_path/run_command
+    /// /port/domain/status/process_unit）与 updated_at。
+    async fn update(&self, project: &Project) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+}
+
+/// 项目数据库联链仓储（M-B 主线二 Stage A-10 · Doc/20 §5.8 ⑤）
+#[async_trait]
+pub trait ProjectDbLinkRepository: Send + Sync {
+    /// 项目的全部联链（按 id 升序）。
+    async fn list_by_project(&self, project_id: i64) -> Result<Vec<ProjectDbLink>, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<ProjectDbLink>, AppError>;
+    /// 新建联链，返回自增 id。
+    async fn create(&self, link: &ProjectDbLink) -> Result<i64, AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+    /// 删除项目的全部联链（项目删除时级联清理，幂等）。
+    async fn delete_by_project(&self, project_id: i64) -> Result<(), AppError>;
+}
+
+/// SSL 证书记录仓储（M-B 主线三 §6.1 · Stage 1 数据层）
+#[async_trait]
+pub trait CertificateRepository: Send + Sync {
+    async fn list_all(&self) -> Result<Vec<Certificate>, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<Certificate>, AppError>;
+    /// 按 SAN 列表原文（JSON 字符串）查找——同域名集合视为同一证书。
+    async fn find_by_domains(&self, domains: &str) -> Result<Option<Certificate>, AppError>;
+    /// 列出关联网站的证书。
+    async fn find_by_website(&self, website_id: i64) -> Result<Option<Certificate>, AppError>;
+    /// 新建，返回自增 id。
+    async fn create(&self, cert: &Certificate) -> Result<i64, AppError>;
+    /// 更新可编辑/签发回写字段（cert_path/key_path/expires_at/last_renewed_at
+    /// /auto_renew/website_id/dns_provider）与 updated_at。
+    async fn update(&self, cert: &Certificate) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+}
+
+/// DNS 厂商账号仓储（主线三 §6.1 · Stage 4 · DNS-01 泛域名续签前置）
+#[async_trait]
+pub trait DnsProviderAccountRepository: Send + Sync {
+    async fn list_all(&self) -> Result<Vec<DnsProviderAccount>, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<DnsProviderAccount>, AppError>;
+    /// 新建账号，返回自增 id。
+    async fn create(&self, account: &DnsProviderAccount) -> Result<i64, AppError>;
+    /// 更新可编辑字段（name/provider_type/credentials_json/enabled）与 updated_at。
+    async fn update(&self, account: &DnsProviderAccount) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+    /// 记录一次连通性测试结果（写 last_test_status / last_test_at / updated_at）。
+    async fn record_test(&self, id: i64, ok: bool) -> Result<(), AppError>;
+}
+
+/// WAF 规则仓储（主线三 §6.2 · WAF 基础防护）
+#[async_trait]
+pub trait WafRuleRepository: Send + Sync {
+    /// 规则列表（`website_id = Some(id)` 过滤站点维度，`None` 返回全部含全局规则）。
+    async fn list_all(&self, website_id: Option<i64>) -> Result<Vec<WafRule>, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<WafRule>, AppError>;
+    /// 新建规则，返回自增 id。
+    async fn create(&self, rule: &WafRule) -> Result<i64, AppError>;
+    /// 更新可编辑字段（name/rule_type/website_id/pattern/config_json/action/enabled）。
+    async fn update(&self, rule: &WafRule) -> Result<(), AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+    /// 所有启用规则（引擎每次请求评估用，禁止返回停用规则）。
+    async fn list_enabled(&self) -> Result<Vec<WafRule>, AppError>;
+}
+
+/// WAF 拦截日志仓储（§6.2：复用 operation_logs 查询/分页/保留清理模式）。
+#[async_trait]
+pub trait WafLogRepository: Send + Sync {
+    async fn create(&self, log: &WafLog) -> Result<i64, AppError>;
+    async fn find_by_id(&self, id: i64) -> Result<Option<WafLog>, AppError>;
+    /// 分页查询（按 id 倒序）；`website_id` 可选过滤（0 值不过滤）。
+    async fn list_page(
+        &self,
+        limit: i64,
+        offset: i64,
+        website_id: Option<i64>,
+    ) -> Result<Vec<WafLog>, AppError>;
+    /// 总数（`website_id` 可选过滤，0 值不过滤）。
+    async fn count(&self, website_id: Option<i64>) -> Result<i64, AppError>;
+    async fn delete(&self, id: i64) -> Result<(), AppError>;
+    /// 清空指定网站（0 = 全部）的拦截日志。
+    async fn clear(&self, website_id: Option<i64>) -> Result<u64, AppError>;
+    /// F-12 对齐：删除早于 N 天的拦截日志（保留策略，后台每日清理）。
+    async fn delete_older_than(&self, days: i64) -> Result<u64, AppError>;
+}
+
+/// M-AI-1：AI 接入凭证 / MCP 会话 / 工具调用审计仓储（三表同属一个聚合，统一仓储）。
+#[async_trait]
+pub trait McpRepository: Send + Sync {
+    async fn create_principal(
+        &self,
+        p: &crate::domain::mcp::AgentPrincipal,
+    ) -> Result<i64, AppError>;
+    async fn list_principals(&self) -> Result<Vec<crate::domain::mcp::AgentPrincipal>, AppError>;
+    async fn find_principal(
+        &self,
+        id: i64,
+    ) -> Result<Option<crate::domain::mcp::AgentPrincipal>, AppError>;
+    async fn find_principal_by_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<crate::domain::mcp::AgentPrincipal>, AppError>;
+    async fn touch_principal(&self, id: i64, at: DateTime<Utc>) -> Result<(), AppError>;
+    async fn revoke_principal(&self, id: i64, at: DateTime<Utc>) -> Result<(), AppError>;
+
+    async fn create_session(&self, s: &crate::domain::mcp::AgentSession) -> Result<(), AppError>;
+    async fn find_session(
+        &self,
+        id: &str,
+    ) -> Result<Option<crate::domain::mcp::AgentSession>, AppError>;
+    async fn touch_session(&self, id: &str, at: DateTime<Utc>) -> Result<(), AppError>;
+    async fn close_session(&self, id: &str, at: DateTime<Utc>) -> Result<(), AppError>;
+    /// 按最近活跃倒序；`principal_id` 可选过滤。
+    async fn list_sessions(
+        &self,
+        principal_id: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<crate::domain::mcp::AgentSession>, AppError>;
+
+    async fn record_call(&self, c: &crate::domain::mcp::ToolCallRecord) -> Result<i64, AppError>;
+    /// 按 id 倒序分页。
+    async fn list_calls(
+        &self,
+        filter: &crate::domain::mcp::ToolCallFilter,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<crate::domain::mcp::ToolCallRecord>, AppError>;
+    async fn count_calls(
+        &self,
+        filter: &crate::domain::mcp::ToolCallFilter,
+    ) -> Result<i64, AppError>;
+    /// 保留策略：只保留最近 `keep` 条调用记录，返回删除条数。
+    async fn prune_calls(&self, keep: i64) -> Result<u64, AppError>;
+
+    // ── M-AI-2 审批单 ──
+    async fn create_approval(&self, a: &crate::domain::mcp::ToolApproval) -> Result<i64, AppError>;
+    async fn find_approval(
+        &self,
+        id: i64,
+    ) -> Result<Option<crate::domain::mcp::ToolApproval>, AppError>;
+    /// 按 id 倒序分页。
+    async fn list_approvals(
+        &self,
+        filter: &crate::domain::mcp::ApprovalFilter,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<crate::domain::mcp::ToolApproval>, AppError>;
+    async fn count_approvals(
+        &self,
+        filter: &crate::domain::mcp::ApprovalFilter,
+    ) -> Result<i64, AppError>;
+    /// 比较并设置：仅当当前状态为 `from` 时改为 `to` 并记录决定人 / 时间 / 理由；返回是否成功。
+    /// 保证同一审批单不会被并发批准两次。
+    async fn transition_approval(
+        &self,
+        id: i64,
+        from: crate::domain::mcp::ApprovalStatus,
+        to: crate::domain::mcp::ApprovalStatus,
+        decided_by: Option<i64>,
+        at: DateTime<Utc>,
+        reason: &str,
+    ) -> Result<bool, AppError>;
+    /// 执行结束：`executing` → `succeeded` / `failed`，写入结果。
+    async fn finish_approval(
+        &self,
+        id: i64,
+        status: crate::domain::mcp::ApprovalStatus,
+        result: &str,
+        at: DateTime<Utc>,
+    ) -> Result<(), AppError>;
+    /// 把 `expires_at < now` 的待审批单标为过期，返回条数。
+    async fn expire_approvals(&self, now: DateTime<Utc>) -> Result<u64, AppError>;
 }

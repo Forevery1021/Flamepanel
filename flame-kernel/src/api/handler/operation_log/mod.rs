@@ -11,9 +11,11 @@ use axum::{
 use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, IntoParams)]
 pub struct LogListQuery {
+    /// 页码（从 1 开始）
     pub page: Option<i64>,
+    /// 每页条数（1~200）
     pub page_size: Option<i64>,
     /// 按 action 前缀过滤（如 `action=LOGIN` 匹配 LOGIN_SUCCESS/LOGIN_FAILED）
     pub action: Option<String>,
@@ -49,6 +51,19 @@ impl From<&OperationLog> for ExportRow {
     }
 }
 
+/// 操作审计日志列表
+#[utoipa::path(
+    get,
+    path = "/api/operation-logs",
+    tag = "operation-logs",
+    params(LogListQuery),
+    responses(
+        (status = 200, description = "操作审计日志（分页，新在前）", body = PaginatedResponse<OperationLog>),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "无权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<LogListQuery>,
@@ -64,6 +79,20 @@ pub async fn list(
     Ok(Json(result))
 }
 
+/// 删除一条审计日志
+#[utoipa::path(
+    delete,
+    path = "/api/operation-logs/{id}",
+    tag = "operation-logs",
+    params(("id" = i64, Path, description = "ID")),
+    responses(
+        (status = 200, description = "删除成功", body = String),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "无权限"),
+        (status = 404, description = "日志不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<i64>,

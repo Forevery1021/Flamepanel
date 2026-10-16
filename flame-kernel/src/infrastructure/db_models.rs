@@ -77,6 +77,12 @@ pub struct WebsiteRow {
     pub ssl_enabled: bool,
     pub proxy_enabled: bool,
     pub proxy_pass: Option<String>,
+    /// 站点类型（Doc/20 §5.5 绑定闭环；旧库迁移默认 static）
+    pub site_type: String,
+    pub runtime_id: Option<i64>,
+    pub project_id: Option<i64>,
+    /// 已套用的伪静态模板名（Doc/20 §5.5；旧库迁移默认 NULL = 未套用）
+    pub rewrite_preset: Option<String>,
     pub created_at: DateTime<Utc>,
     pub resource_version: i64,
 }
@@ -94,6 +100,10 @@ impl From<WebsiteRow> for Website {
             ssl_enabled: r.ssl_enabled,
             proxy_enabled: r.proxy_enabled,
             proxy_pass: r.proxy_pass,
+            site_type: r.site_type,
+            runtime_id: r.runtime_id,
+            project_id: r.project_id,
+            rewrite_preset: r.rewrite_preset,
             created_at: r.created_at,
             resource_version: r.resource_version,
         }
@@ -336,6 +346,9 @@ pub struct AppPackageRow {
     pub logo: Option<String>,
     pub metadata_json: String,
     pub source_path: Option<String>,
+    pub source: String,
+    pub source_url: Option<String>,
+    pub synced_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -352,6 +365,39 @@ impl From<AppPackageRow> for AppPackage {
             logo: r.logo,
             metadata_json: r.metadata_json,
             source_path: r.source_path,
+            source: r.source,
+            source_url: r.source_url,
+            synced_at: r.synced_at,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }
+    }
+}
+
+/// 远程应用源行（M-A Issue 1.1）
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct AppSourceRow {
+    pub id: i64,
+    pub name: String,
+    pub source_type: String,
+    pub url: String,
+    pub enabled: bool,
+    pub public_key: Option<String>,
+    pub last_synced_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<AppSourceRow> for AppSource {
+    fn from(r: AppSourceRow) -> Self {
+        AppSource {
+            id: r.id,
+            name: r.name,
+            source_type: r.source_type,
+            url: r.url,
+            enabled: r.enabled,
+            public_key: r.public_key,
+            last_synced_at: r.last_synced_at,
             created_at: r.created_at,
             updated_at: r.updated_at,
         }
@@ -449,6 +495,256 @@ impl From<ScheduledTaskRow> for ScheduledTask {
             next_run_at: r.next_run_at,
             created_at: r.created_at,
             updated_at: r.updated_at,
+        }
+    }
+}
+
+/// 备份账号行（M-A 收尾 Stage 1 · Doc/20 §6.5）
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BackupAccountRow {
+    pub id: i64,
+    pub name: String,
+    pub account_type: String,
+    pub config_json: String,
+    pub enabled: bool,
+    pub last_test_status: Option<String>,
+    pub last_test_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<BackupAccountRow> for BackupAccount {
+    fn from(r: BackupAccountRow) -> Self {
+        BackupAccount {
+            id: r.id,
+            name: r.name,
+            account_type: r.account_type,
+            config_json: r.config_json,
+            enabled: r.enabled,
+            last_test_status: r.last_test_status,
+            last_test_at: r.last_test_at,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }
+    }
+}
+
+/// 备份任务行（M-A 收尾 Stage 3 · Doc/20 §6.5）
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BackupJobRow {
+    pub id: i64,
+    pub name: String,
+    pub scope: String,
+    pub scope_key: Option<String>,
+    pub schedule: String,
+    pub target_account_id: i64,
+    pub retention: i64,
+    pub enabled: bool,
+    pub last_status: String,
+    pub last_message: Option<String>,
+    pub last_remote_key: Option<String>,
+    pub last_run_at: Option<DateTime<Utc>>,
+    pub next_run_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<BackupJobRow> for BackupJob {
+    fn from(r: BackupJobRow) -> Self {
+        BackupJob {
+            id: r.id,
+            name: r.name,
+            scope: r.scope,
+            scope_key: r.scope_key,
+            schedule: r.schedule,
+            target_account_id: r.target_account_id,
+            retention: r.retention,
+            enabled: r.enabled,
+            last_status: r.last_status,
+            last_message: r.last_message,
+            last_remote_key: r.last_remote_key,
+            last_run_at: r.last_run_at,
+            next_run_at: r.next_run_at,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }
+    }
+}
+
+/// 运行时行（M-B 主线二 Stage A-1 · Doc/20 §5.2）
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct RuntimeRow {
+    pub id: i64,
+    pub kind: String,
+    pub version: String,
+    pub install_path: String,
+    pub status: String,
+    pub is_default: bool,
+    pub metadata_json: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<RuntimeRow> for Runtime {
+    fn from(r: RuntimeRow) -> Self {
+        Runtime {
+            id: r.id,
+            kind: r.kind,
+            version: r.version,
+            install_path: r.install_path,
+            status: r.status,
+            is_default: r.is_default,
+            metadata_json: r.metadata_json,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }
+    }
+}
+
+/// 用户项目行（M-B 主线二 Stage A-1 · Doc/20 §5.2）
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ProjectRow {
+    pub id: i64,
+    pub name: String,
+    pub runtime_id: Option<i64>,
+    pub kind: String,
+    pub source: String,
+    pub source_url: Option<String>,
+    pub deploy_path: String,
+    pub run_command: Option<String>,
+    pub port: Option<i64>,
+    pub domain: Option<String>,
+    pub status: String,
+    pub process_unit: Option<String>,
+    pub deploy_type: String,
+    pub auto_deploy: bool,
+    pub webhook_token: String,
+    pub procfile_json: Option<String>,
+    pub build_type: String,
+    pub health_check_path: String,
+    pub deploy_strategy: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<ProjectRow> for Project {
+    fn from(r: ProjectRow) -> Self {
+        Project {
+            id: r.id,
+            name: r.name,
+            runtime_id: r.runtime_id,
+            kind: r.kind,
+            source: r.source,
+            source_url: r.source_url,
+            deploy_path: r.deploy_path,
+            run_command: r.run_command,
+            port: r.port,
+            domain: r.domain,
+            status: r.status,
+            process_unit: r.process_unit,
+            deploy_type: r.deploy_type,
+            auto_deploy: r.auto_deploy,
+            webhook_token: r.webhook_token,
+            procfile_json: r.procfile_json,
+            build_type: r.build_type,
+            health_check_path: r.health_check_path,
+            deploy_strategy: r.deploy_strategy,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }
+    }
+}
+
+/// DNS 厂商账号行（主线三 §6.1 · Stage 4）
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DnsProviderAccountRow {
+    pub id: i64,
+    pub name: String,
+    pub provider_type: String,
+    pub credentials_json: String,
+    pub enabled: bool,
+    pub last_test_status: Option<String>,
+    pub last_test_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<DnsProviderAccountRow> for DnsProviderAccount {
+    fn from(r: DnsProviderAccountRow) -> Self {
+        DnsProviderAccount {
+            id: r.id,
+            name: r.name,
+            provider_type: r.provider_type,
+            credentials_json: r.credentials_json,
+            enabled: r.enabled,
+            last_test_status: r.last_test_status,
+            last_test_at: r.last_test_at,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }
+    }
+}
+
+/// WAF 规则行（主线三 §6.2）
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct WafRuleRow {
+    pub id: i64,
+    pub name: String,
+    pub rule_type: String,
+    pub website_id: i64,
+    pub pattern: String,
+    pub config_json: String,
+    pub action: String,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<WafRuleRow> for WafRule {
+    fn from(r: WafRuleRow) -> Self {
+        WafRule {
+            id: r.id,
+            name: r.name,
+            rule_type: r.rule_type,
+            website_id: r.website_id,
+            pattern: r.pattern,
+            config_json: r.config_json,
+            action: r.action,
+            enabled: r.enabled,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }
+    }
+}
+
+/// WAF 拦截日志行（主线三 §6.2）
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct WafLogRow {
+    pub id: i64,
+    pub website_id: i64,
+    pub rule_id: i64,
+    pub rule_name: String,
+    pub rule_type: String,
+    pub action: String,
+    pub client_ip: String,
+    pub request_summary: String,
+    pub user_agent: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<WafLogRow> for WafLog {
+    fn from(r: WafLogRow) -> Self {
+        WafLog {
+            id: r.id,
+            website_id: r.website_id,
+            rule_id: r.rule_id,
+            rule_name: r.rule_name,
+            rule_type: r.rule_type,
+            action: r.action,
+            client_ip: r.client_ip,
+            request_summary: r.request_summary,
+            user_agent: r.user_agent,
+            created_at: r.created_at,
         }
     }
 }

@@ -35,6 +35,19 @@ fn start_time() -> std::time::SystemTime {
     *START.get_or_init(std::time::SystemTime::now)
 }
 
+/// 存活探针：进程能响应即返回纯文本 `OK`（负载均衡 / 容器健康检查用；详细检查见 `/api/health`）
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "health",
+    responses(
+        (status = 200, description = "OK", body = String, content_type = "text/plain"),
+    )
+)]
+pub async fn liveness() -> &'static str {
+    "OK"
+}
+
 /// `GET /api/health` — 详细健康检查（免认证）
 #[utoipa::path(
     get,

@@ -8,6 +8,8 @@ services:
     volumes:
       - flamepanel-data:/app/data
       - flamepanel-workspace:/app/workspace
+      # 内核日志（JSON Lines，按天切分，默认保留 14 天；面板「日志中心 → 内核日志」可查看）
+      - flamepanel-logs:/app/logs
     restart: unless-stopped
     environment:
       - OP_PORT=8080
@@ -70,8 +72,8 @@ services:
   # 可选：同机部署节点 Agent（取消注释并配置）
   # agent:
   #   build:
-  #     context: ./agent
-  #     dockerfile: Dockerfile
+  #     context: .
+  #     dockerfile: agent/Dockerfile
   #   environment:
   #     - PANEL_URL=http://flamepanel:80
   #     - NODE_NAME=panel-host
@@ -85,3 +87,4 @@ services:
 volumes:
   flamepanel-data:
   flamepanel-workspace:
+  flamepanel-logs:

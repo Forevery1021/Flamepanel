@@ -17,12 +17,20 @@ pub const DEFAULT_REFRESH_TTL_HOURS: u64 = 24;
 pub enum TokenType {
     Access,
     Refresh,
+    /// 两步验证挑战令牌：密码已通过、等待第二因子（只能用于 `/api/auth/login/2fa`）
+    Mfa,
 }
+
+/// 两步验证挑战令牌有效期（秒）
+pub const MFA_CHALLENGE_TTL_SECS: u64 = 300;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,
     pub exp: usize,
+    /// 签发时间（Unix 秒）。M4：用于改密/删除后吊销旧 refresh token 的比对基准。
+    #[serde(default)]
+    pub iat: usize,
     /// 令牌类型（access / refresh）
     pub typ: TokenType,
 }
@@ -80,8 +88,33 @@ impl JwtUtils {
         self.sign_token(user_id, TokenType::Refresh, self.refresh_ttl_hours * 3600)
     }
 
+    /// 签发指定有效期（秒）的 refresh token——会话时长取面板设置（W4-a）。
+    pub fn sign_refresh_with_ttl(&self, user_id: i64, ttl_secs: u64) -> Result<String, AppError> {
+        self.sign_token(user_id, TokenType::Refresh, ttl_secs.max(60))
+    }
+
+    /// 签发指定有效期（秒）的 access token——供 `fpctl api` 现签短期令牌（Doc/32 §3）。
+    pub fn sign_access_with_ttl(&self, user_id: i64, ttl_secs: u64) -> Result<String, AppError> {
+        self.sign_token(user_id, TokenType::Access, ttl_secs)
+    }
+
+    /// 签发两步验证挑战令牌（5 分钟）
+    pub fn sign_mfa_challenge(&self, user_id: i64) -> Result<String, AppError> {
+        self.sign_token(user_id, TokenType::Mfa, MFA_CHALLENGE_TTL_SECS)
+    }
+
+    /// 校验两步验证挑战令牌
+    pub fn verify_mfa_challenge(&self, token: &str) -> Result<Claims, AppError> {
+        self.verify_token(token, Some(TokenType::Mfa))
+    }
+
     fn sign_token(&self, user_id: i64, typ: TokenType, ttl_secs: u64) -> Result<String, AppError> {
-        let expiration = SystemTime::now()
+        let now = SystemTime::now();
+        let iat = now
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| AppError::internal(format!("Time error: {}", e)))?
+            .as_secs() as usize;
+        let expiration = now
             .checked_add(std::time::Duration::from_secs(ttl_secs))
             .ok_or_else(|| AppError::internal("Invalid expiration time".to_string()))?
             .duration_since(UNIX_EPOCH)
@@ -91,6 +124,7 @@ impl JwtUtils {
         let claims = Claims {
             sub: user_id.to_string(),
             exp: expiration,
+            iat,
             typ,
         };
 
@@ -150,6 +184,21 @@ impl JwtUtils {
     }
 }
 
+/// F-03: 将轮换后的 JWT 密钥持久化到 `data/jwt_secret.key` 文件，
+/// 确保重启后 `AppConfig::load()` 能复用新密钥，不回退到旧值。
+pub fn persist_rotated_jwt_secret(secret: &str) -> Result<(), std::io::Error> {
+    let data_dir = std::path::Path::new("./data");
+    std::fs::create_dir_all(data_dir)?;
+    let secret_path = data_dir.join("jwt_secret.key");
+    std::fs::write(&secret_path, secret)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&secret_path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,6 +212,16 @@ mod tests {
         assert_eq!(v.algorithms, vec![Algorithm::HS256]);
         assert!(v.validate_exp);
         assert_eq!(v.leeway, 30);
+    }
+
+    #[test]
+    fn access_token_with_custom_ttl_verifies_as_access() {
+        let j = JwtUtils::new_pair(TEST_SECRET);
+        let t = j.sign_access_with_ttl(7, 60).unwrap();
+        let c = j.verify_access(&t).unwrap();
+        assert_eq!(c.sub, "7");
+        assert!(c.exp >= c.iat + 59 && c.exp <= c.iat + 61);
+        assert!(j.verify_refresh(&t).is_err());
     }
 
     #[test]
@@ -214,5 +273,16 @@ mod tests {
         let verifier = JwtUtils::new_pair("a-different-secret-that-is-32-bytes-long!!");
         let token = signer.sign_access(1).unwrap();
         assert!(verifier.verify_access(&token).is_err());
+    }
+
+    #[test]
+    fn mfa_challenge_token_is_not_interchangeable_with_access_or_refresh() {
+        let jwt = JwtUtils::new_pair(TEST_SECRET);
+        let mfa = jwt.sign_mfa_challenge(7).unwrap();
+        assert_eq!(jwt.verify_mfa_challenge(&mfa).unwrap().sub, "7");
+        assert!(jwt.verify_access(&mfa).is_err());
+        assert!(jwt.verify_refresh(&mfa).is_err());
+        let access = jwt.sign_access(7).unwrap();
+        assert!(jwt.verify_mfa_challenge(&access).is_err());
     }
 }

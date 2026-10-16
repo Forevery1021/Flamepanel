@@ -1,7 +1,9 @@
 import api from './client'
 import type {
+  ComposeConversion,
   ComposeProject,
   DockerContainer,
+  DockerImage,
   DockerNetwork,
   DockerVolume,
   PruneResult,
@@ -65,7 +67,7 @@ export function containerStats(id: string) {
 }
 
 export function listImages() {
-  return api.get('/docker/images')
+  return api.get<DockerImage[]>('/docker/images')
 }
 
 export function removeImage(id: string) {
@@ -144,4 +146,14 @@ export function composeUp(project_name: string) {
 
 export function composeDown(project_name: string) {
   return api.post(`/docker/compose/${project_name}/down`)
+}
+
+/** `docker run` 命令 → Compose YAML（纯转换，不执行命令） */
+export function composeConvertRun(command: string) {
+  return api.post<ComposeConversion>('/docker/compose/convert-run', { command })
+}
+
+/** 既有容器 → Compose YAML（收编；不改动原容器） */
+export function containerToCompose(id: string) {
+  return api.get<ComposeConversion>(`/docker/containers/${encodeURIComponent(id)}/compose`)
 }

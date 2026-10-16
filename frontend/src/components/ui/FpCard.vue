@@ -10,7 +10,16 @@
           </span>
         </div>
       </template>
-      <slot />
+      <!--
+        默认插槽内容必须落到 Card 的命名插槽 `content`。
+        底层 `openvue/card` 的模板只渲染 `content` 命名插槽进 `p-card-content`，
+        没有默认插槽出口——`<slot />` 会落进 Card 的默认插槽，**无处渲染**，
+        内容被静默丢弃且不报错（T1-1 发现的真实缺陷，曾致 RuntimeView 卡片主体
+        整体不可见）。此处显式转发到 `content`，为调用方保留默认插槽写法。
+      -->
+      <template #content>
+        <slot />
+      </template>
       <template v-if="$slots.footer" #footer>
         <slot name="footer" />
       </template>
@@ -28,7 +37,9 @@ defineProps<{ title?: string }>()
 .fp-card__inner {
   height: 100%;
   border-radius: var(--fp-radius-md);
-  background: var(--fp-bg-elevated);
+  background: var(--fp-bg-surface);
+  backdrop-filter: var(--fp-surface-filter);
+  -webkit-backdrop-filter: var(--fp-surface-filter);
   border-color: var(--fp-border);
 }
 .fp-card__body {

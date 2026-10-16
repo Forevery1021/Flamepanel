@@ -159,6 +159,20 @@ pub async fn run_task(
     Ok(Json(state.scheduled_task_service.run_now(id).await?))
 }
 
+/// 启用 / 停用定时任务
+#[utoipa::path(
+    post,
+    path = "/api/scheduled-tasks/{id}/toggle",
+    tag = "scheduled_tasks",
+    params(("id" = i64, Path, description = "任务 ID")),
+    request_body = ToggleTaskRequest,
+    responses(
+        (status = 200, description = "更新后的任务", body = ScheduledTask),
+        (status = 401, description = "未认证"),
+        (status = 404, description = "任务不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn toggle_task(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -191,7 +205,20 @@ pub fn routes() -> Router<AppState> {
         )
 }
 
-async fn get_task(
+/// 定时任务详情
+#[utoipa::path(
+    get,
+    path = "/api/scheduled-tasks/{id}",
+    tag = "scheduled_tasks",
+    params(("id" = i64, Path, description = "任务 ID")),
+    responses(
+        (status = 200, description = "任务详情", body = ScheduledTask),
+        (status = 401, description = "未认证"),
+        (status = 404, description = "任务不存在"),
+    ),
+    security(("BearerAuth" = []))
+)]
+pub async fn get_task(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<ScheduledTask>, AppError> {

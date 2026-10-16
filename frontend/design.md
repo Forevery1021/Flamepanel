@@ -7,7 +7,7 @@
 
 ## 1. 背景与目标
 
-FlamePanel 是 Rust 后端 + Vue 3 前端的服务器运维面板（类似 1Panel），现有 20 个视图、3 语言（zh/en/ja）、约 8000 行前端代码。当前 UI 为 Element Plus 默认风格 + 少量手写令牌，视觉平庸、组件交互单一（无 loading/error/empty 全态覆盖）、无主题定制能力。
+FlamePanel 是 Rust 后端 + Vue 3 前端的服务器运维面板（类似 1Panel），现有 23 个视图 + 6 步 Setup 向导、3 语言（zh/en/ja）。当前 UI 为 Element Plus 默认风格 + 少量手写令牌，视觉平庸、组件交互单一（无 loading/error/empty 全态覆盖）、无主题定制能力。
 
 **重构目标**：
 - 全面视觉重塑，形成有辨识度的「火焰运维面板」设计语言
@@ -83,16 +83,18 @@ src/
 - 内置 4 主题：**Flame**（默认，暗色优先）、**Aurora**（浅色）、**Infinity**（高对比暗色）、**Brand Custom**（用户定制）
 - 主题状态：Pinia store（`stores/theme.ts`）持久化到 `localStorage`
 - 定制能力（设置页 Theme 页签）：
-  - 品牌色 HSL 三滑块（色相 0-360 / 饱和度 / 亮度）→ 实时生成 OKLCH 覆写
+  - 品牌色三滑块（色相 0-360 / 彩度 / 亮度）→ JS 只发布 **OKLCH 种子** `--fp-brand-l/c/h`，色阶（`--fp-brand-50…900`）、`--fp-brand-strong/soft` 与自动对比前景 `--fp-brand-fg` 全部由 CSS `oklch(from …)` 相对色语法派生（不支持的浏览器回退到 JS 写死的三档）
   - 玻璃模糊度滑块（0-24px）、圆角大小（锐/中/圆三档）、密度模式（舒适/标准/紧凑）
   - **Export JSON** 导出定制配置，Import 可还原
 - 切换机制：`[data-theme="flame|aurora|infinity"]` + `.dark` 类；OpenVue 预设 `darkModeSelector: '.dark'`
 
 ## 5. 材质与造型规则
 
+- **三档材质**（第三轮起）：`solid`（纯色）/ `glass`（默认，轻玻璃）/ `acrylic`（重模糊 + 高饱和 + 内嵌噪点）。由 `stores/theme.ts` 写入 `<html data-material="…">`，持久化 `flamepanel.material`（自动迁移旧的 `flamepanel.glass` 布尔）。
+- **组件只消费 5 个 `--fp-surface-*` 令牌**（`bg / bg-heavy / border / blur / highlight`），材质切换不改任何组件样式；`glass.css` 是这些令牌的唯一消费者。
 - **玻璃/亚克力仅用于浮动层**：顶栏（轻玻璃）、Modal/Drawer（重玻璃）、Popover/Tooltip、⌘K 命令面板（重玻璃）
 - 侧边栏实色 + 细边框（不透明，保证长列表滚动性能）
-- `prefers-reduced-transparency` 媒体查询下玻璃回退为纯色
+- `prefers-reduced-transparency` 媒体查询下强制 `solid`（优先级高于用户选择）
 - 圆角体系：控件 8px、卡片 12px、浮动层 16px，全站统一
 - 阴影：品牌色相微染（`oklch` 带 alpha），禁止纯黑投影
 
@@ -162,19 +164,20 @@ src/
 │  AppSidebar  │  AppHeader（轻玻璃 56px）     │
 │  实色+细边框   ├─────────────────────────────┤
 │  FlamePanel  │  router-view（页面切换过渡）   │
-│  分组菜单     │  （Dashboard/…20 视图）       │
+│  分组菜单     │  （Dashboard/…23 视图）       │
 │  220px/64px  │                             │
 ├──────────────┴─────────────────────────────┤
 │  AppFooter（版本号 + 服务器状态，可选）        │
 └────────────────────────────────────────────┘
 ```
 
-- **AppHeader**：折叠按钮、面包屑、WS 连接状态徽标、语言切换、主题切换（明/暗）、用户下拉
-- **AppSidebar**：品牌 Logo（火焰标记 + FlamePanel）、分组菜单（沿用现有 5 组：网站/应用/容器与存储/安全与运维/系统）、折叠态 64px、移动端转 Drawer
+- **AppHeader**：折叠按钮、面包屑、WS 连接状态徽标、语言切换、主题切换（明/暗）、用户下拉（含「重新播放引导」）
+- **AppSidebar**：品牌 Logo（火焰标记 + FlamePanel）、分组菜单（沿用现有 5 组：网站/应用/容器与存储/安全与运维/系统）、**底部固定「面板设置」一级入口**（`pinned: 'bottom'`，快捷键 `,`）、折叠态 64px、移动端转 Drawer
+- **无多页签栏**（第三轮移除）：keep-alive 白名单直接来自路由 `meta.viewName`，路由即状态，减少一层"页面栈"心智
 - **CommandPalette（⌘K）**：全局命令面板，支持菜单跳转 + 页面内操作（重启/部署等注册的快捷命令），重玻璃材质，`/` 或 `Ctrl+K` 唤起
 - 移动端：`< 768px` 侧边栏收起为抽屉，表格横向滚动，卡片单列
 
-## 10. 页面迁移清单（20 视图）
+## 10. 页面迁移清单（23 视图 + Setup）
 
 | 页面 | 迁移重点 |
 |---|---|
@@ -240,3 +243,91 @@ src/
 - [x] `npx vue-tsc --noEmit` 0 错误；`npm run lint` 0 警告；`npm run build` 成功
 - [x] element-plus / @element-plus/icons-vue 依赖已移除
 - [x] 首屏 JS gzip：151 KB（预算 < 200 KB）
+
+---
+
+## 16. UI 交互重构 · 第二轮（2026-09-16，feat/frontend-ui-refresh）
+
+> 依据：全站 24 页真实截图诊断（`shots/before/`）。第一轮迁移完成了「换库」，本轮解决「像产品」。
+> OpenVue 理念延续：**组件库负责行为与可达性，设计系统负责外观**——所有改动落在 `--fp-*` 令牌、Fp* 封装层与页面骨架，业务视图只换范式不换逻辑。
+
+### 16.1 诊断结论（修什么）
+
+| # | 现象 | 根因 | 处置 |
+|---|---|---|---|
+| D1 | 列表页「创建 xx」主按钮被压成竖排单字 | `FpButton` 无 `white-space:nowrap / flex-shrink:0`，toolbar 用 `space-between + wrap` | FpButton 基线修复（全站生效） |
+| D2 | 进入 `/terminal` 后被登出 | `utils/ws.ts` 在 `onopen` **无条件** `getRefreshedToken()`，refresh 失败 → `clearAuth()` | WS 侧只在 access token 剩余 < 60s 时刷新；刷新失败不清凭证，交由 HTTP 401 链路裁决 |
+| D3 | 网络 IO 图 X 轴标签重叠 | 默认 `axisLabel` 无 `hideOverlap` + 时间格式过长 | 图表 option 统一 `hideOverlap: true`、`HH:mm:ss` |
+| D4 | 趋势面板 500px 高、下 2/3 空白 | 固定高度 | 图表容器改为 `aspect-ratio` + `min-height`，右栏两卡对齐 |
+| D5 | 空态整屏无引导 | `FpStatePanel` 空态无 action 直通 | 空态支持 `empty-action` 插槽 + 页面传入「创建」主操作 |
+
+### 16.2 设计语言微调（三拨盘不变，执行升级）
+
+- **层级**：应用底 `--fp-bg-app` → 页面区块 `--fp-bg-elevated` → 卡内分区 `--fp-bg-subtle`（新增令牌）。取消"卡片套卡片"。
+- **页头**：标题 20px/700 + 一行 `description`（新增 prop）+ 右侧主操作固定不换行；标题下方可选 **摘要条**（`#summary` 插槽：总数 / 运行中 / 异常 的 KPI pill）。
+- **品牌橙**：暗色主按钮改用 `--fp-brand` 底 + `--fp-text-invert`，hover 提亮 6%、active 压暗 6% + `translateY(1px)`；大面积橙仅出现在主按钮与当前导航项。
+- **导航**：默认展开当前路由所在分组；分组标题小型大写字母风格（11px/600/0.04em）；当前项左侧 2px 品牌色指示条替代整块填充。
+- **顶栏**：保留 折叠 · 面包屑 · ⌘K · 状态徽标组 · 用户；语言/主题合并进用户菜单（减少 2 个图标）。多页签栏保留（可在外观设置关闭）。
+- **数据卡片**：标签在上（12px muted）、数值 28px/700 等宽数字 `font-variant-numeric: tabular-nums`、右上角迷你趋势（sparkline，取 history 末 30 点）、底部 3 段色阶进度（<60 绿 / <85 黄 / ≥85 红）。
+- **表格页范式**（`LayoutContent` + `PageToolbar` + `FpStatePanel` + `FpTable`）：
+  - 工具栏：左搜索（带 ⌕ 图标、`/` 快捷聚焦）+ 筛选；右主操作 + 次操作 + 刷新
+  - 行操作：≤2 个直接显示 link 按钮，≥3 个收进「⋯」菜单
+  - 空态：图标 + 标题 + 一句说明 + 主操作按钮
+  - 骨架：表格 loading 显示 5 行骨架而非 spinner
+- **动效**：页面切换 160ms 淡入 + 6px 上移；卡片 hover 仅 `border-color` + `translateY(-1px)`；全部受 `prefers-reduced-motion` 约束。
+
+### 16.3 实施顺序
+
+P0 缺陷（D1–D5）→ 令牌/FpButton/LayoutContent/PageToolbar/FpStatePanel 基线 → AppSidebar/AppHeader → Dashboard → 列表页（按范式逐页）→ 复杂页 → 门禁 + 截图回归。
+
+## 17. 第三轮 · 性能与开屏体验（2026-09-24，feat/ux-round3）
+
+> 目标：开屏更快、更"像一个面板"；去掉多页签；材质与 OKLCH 语言落到令牌层；安装向导与新手引导补齐"第一次使用"的体验闭环；面板设置升为一级菜单。
+> 后端同步重构指标采集/推送链路（记录见 `CHANGELOG.md`，链路说明见 `Doc/01-架构设计.md` §3.4）。
+
+### 17.1 开屏（Dashboard）
+
+| 手段 | 结果 |
+|---|---|
+| 三个图表面板改为 `defineAsyncComponent` + `ChartSkeleton` 占位，echarts 按需注册收敛到 `echartsSetup.ts`（既有 `manualChunks` 的 `echarts` chunk 因此脱离首屏关键路径） | 首屏不再等 176KB(gz) 的图表库；统计卡先出、图表后到 |
+| WS `init` 帧回填历史后立刻渲染；未到数据前统计卡显示 **骨架**（`.stat-skeleton`）而非误导性的 `0.0%` | 无"闪 0" |
+| `useMetricsStream`：history 用 `shallowRef` + 定长环形写入；sparkline path 记忆化（仅末 30 点变化时重算） | 每 tick 只有 4 张卡 + 3 张图的最小重绘 |
+| 图表更新经 `useChartThrottle` 合帧（rAF） | 高频 tick 不抖 |
+| 首屏 gzip 预算 200KB：**178.2KB**（`npm run bundle:check`） | 通过 |
+
+### 17.2 多页签移除（UX-1）
+
+- 删除 `AppTabs.vue` / `stores/tabs.ts` 与 `tabs.*`、`settingsAppearance.menuTabs*` i18n 键（三语）。
+- `Layout.vue` 的 `<KeepAlive :include>` 改为从 `useRouter().getRoutes()` 读取 `meta.viewName`（不 import 路由单例，方便测试注入内存路由）。
+- 后端 `open_menu_tabs` 设置项已随 Doc/30 S-04 删除（默认设置移除 + 幂等迁移清理旧库）。
+
+### 17.3 材质与 OKLCH（见 §4.3 / §4.4 / §5）
+
+- `data-material="solid|glass|acrylic"` + `--fp-surface-*` 令牌；主题页新增材质选择卡；导出/导入 JSON 含 `material`。
+- 品牌色只发种子 `--fp-brand-l/c/h`；`--fp-brand-hover/active`（ΔL ±0.04/−0.06，OKLCH 下不偏色）、`--fp-brand-50…900` 色阶（色相锁定、彩度两端收敛）、`--fp-brand-fg`（`oklch(from …)` 按 L 自动选深/浅前景）、`--fp-focus-ring`、`--fp-brand-gradient` 全部由 CSS 派生；暗色种子 L 高一档、`strong` 变为提亮。
+
+### 17.4 面板设置一级化（UX-3）
+
+- 路由 `settings` 归 `main` 组、`pinned: 'bottom'`，侧栏底部常驻；`,` 快捷键直达。
+- `SettingsView` 左侧竖向 `role=tablist` 六分区（general / security / backup / dns / theme / appearance），URL hash 深链（`/settings#security`），`router.replace` 同步、↑↓ Home End 键盘导航。
+- **脏状态**：逐分区标记未保存圆点；保存只发送 **变更键**，走原子 `PATCH /settings/batch`；离开页面有未保存改动时确认；重置回服务端快照。
+- 分区内提供「重新播放新手引导」。
+
+### 17.5 新手引导（UX-2）
+
+- `stores/onboarding.ts`：按用户名持久化 `{version, outcome}`；`ONBOARDING_VERSION` 升级后自动重新触发；`autoStart(username)` 在 `Layout` 挂载时调用。
+- `OnboardingTour.vue`：`Teleport` 到 body、SVG evenodd 聚光灯遮罩、`data-tour="…"` 锚点（sidebar / header / stats / trend / command / settings / done）。**锚点缺失自动跳步**（页面精简也不会卡死），`stats` 步自动跳转到 `/dashboard`。
+- 可跳过：Esc / 「跳过」；← → / Enter 翻页；`prefers-reduced-motion` 去动效；**非阻塞**（遮罩 `pointer-events:none`，只有卡片可交互）。
+
+### 17.6 安装向导（UX-4）
+
+- 顶部进度条 + 可点击回退到已完成步骤；Enter 前进；每步自动聚焦首个输入。
+- 管理员密码 4 段强度计（`utils/password.ts` 启发式 0–4 分，含常见弱口令/键盘序列惩罚）。
+- `sessionStorage` 草稿（**不含密码**）：刷新后恢复到管理员步骤并提示"从上次继续 / 重新开始"。
+- 完成页摘要新增面板端口与访问地址。
+
+### 17.7 门禁（本轮本地执行情况）
+
+- 前端：`typecheck` ✓ · `lint` ✓ · `vitest`（136 文件 / 1390 用例）✓ · `locale:check` ✓ · `build` ✓ · `bundle:check` 178.2KB/200KB ✓
+- 后端：`cargo fmt --check` ✓ · `cargo check`（lib 与 `--all-targets`）0 warning ✓ · `cargo test`/`clippy` 视 CI（本地 2GB 沙箱无法完成全量编译，见 CHANGELOG）
+- E2E（Playwright）：沙箱无浏览器，未运行；已按 `e2e/helpers/flow.ts` 约定**不新增 `data-testid`**，选择器全部走 role / id / 语义 class。

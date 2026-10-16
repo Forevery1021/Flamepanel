@@ -1,0 +1,25 @@
+# `-c` 调用点登记（scripts/check-shell-exec.py · Doc/05 §9.4.1）
+# 格式：<路径> <次数>  # 理由。次数只减不增；新增调用点须在 PR 描述说明并在此登记。
+# 目标：真正的 `sh -c` 只剩「用户明确提交的脚本」与「常量脚本 + 位置参数」两类。
+
+# —— 用户 / 管理员明确提交的脚本（语义上就是执行一段 shell）——
+flame-kernel/src/application/scheduled_task_service.rs 1  # 计划任务：管理员自定义的 shell 命令（task:create 权限）
+agent/src/executor.rs 1  # 远程 Agent `run`：白名单前缀命令
+agent/src/main.rs 1  # 单测：结构化 exec 拒绝 sh -c
+flame-kernel/src/application/app_store_service/hooks.rs 1  # 应用包生命周期钩子：经签名 + 扫描器后执行的包内脚本
+flame-kernel/src/application/app_store_service/install.rs 1  # 应用包 native_scripts：经签名 + 扫描器且用户确认后执行
+
+# —— 常量脚本 + 位置参数（用户值只经 $1/$2 传入，不做字符串拼接）——
+flame-kernel/src/database/mod.rs 1  # append_line_command：printf '%s\n' "$1" >> "$2"
+flame-kernel/src/database/postgres.rs 1  # 非默认端口改配置：常量脚本，端口与数据目录走位置参数
+flame-kernel/src/database/mysql.rs 1  # 测试：断言 append_line_command 的 argv 形状
+flame-kernel/src/infrastructure/supervisor/systemd.rs 1  # 写 unit 文件：常量脚本 printf '%s' "$1" > "$2"，内容 / 路径走位置参数（Agent install_policy 逐行校验）
+agent/src/install_policy.rs 9  # Agent 白名单校验器：只判定 `sh -c <内核常量脚本>`（逐字节比对，自身不起 shell）；1 处匹配 + 6 处测试；unit 写入策略单测 +2
+
+# —— 非 shell 的 `-c` 参数 ——
+flame-kernel/src/infrastructure/runtime/python.rs 2  # python3 -c "import ssl, …" 常量自检；另 1 处为测试断言
+flame-kernel/src/webserver/manager.rs 1  # nginx/httpd -t -c <配置路径>
+flame-kernel/src/webserver/waf_nginx.rs 1  # 测试：nginx -t -c 校验生成的配置
+flame-kernel/src/webserver/helper/mod.rs 1  # 测试：助手拒绝非白名单 bash -c
+flame-kernel/src/webserver/helper/policy.rs 1  # 助手白名单匹配 `<prog> -c <path>`（配置测试）
+flame-kernel/src/application/project_service.rs 1  # python -m venv 后 `python -c "import ensurepip"` 常量探测

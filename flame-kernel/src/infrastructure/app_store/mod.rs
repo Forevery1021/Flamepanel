@@ -1,5 +1,7 @@
 pub mod adapter;
+pub mod remote_source;
 pub mod security_scanner;
+pub mod signature;
 pub mod variable_mapper;
 
 pub use adapter::{select_adapter, AppPackageAdapter, DefaultAdapterProvider};

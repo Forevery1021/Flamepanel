@@ -4,7 +4,7 @@
 //! 确保既有 `use crate::api::types::*` 及精确引用零改动继续可用。
 
 // ── AppState / 服务聚合 / 请求上下文 ─────────────────────
-pub use crate::api::app_state::{AppState, Services, UserId, Username};
+pub use crate::api::app_state::{AppState, Services, UserId, UserRole, Username};
 
 // ── 请求 / 响应 DTO ──────────────────────────────────────
 pub use crate::api::dto::{

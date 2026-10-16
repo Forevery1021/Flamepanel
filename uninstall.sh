@@ -12,6 +12,7 @@ NC='\033[0m'
 INSTALL_DIR="/opt/flamepanel"
 SERVICE_NAME="flamepanel"
 BINARY_PATH="/usr/local/bin/flamepanel"
+CTL_PATH="/usr/local/bin/fpctl"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 NGINX_CONF="/etc/nginx/conf.d/flamepanel.conf"
 RUN_USER="flamepanel"
@@ -24,21 +25,24 @@ Flamepanel 卸载脚本
 用法: $0 [选项]
 
 选项:
-  -f, --force     跳过确认提示
-  -p, --purge     同时删除数据目录（数据库将丢失）
-  -h, --help      显示帮助信息
+  -f, --force      跳过确认提示
+  -p, --purge      同时删除数据目录（数据库将丢失）
+  -k, --keep-apps  卸载面板但保留全部应用数据（data/apps，零锁定纪律）
+  -h, --help       显示帮助信息
 
 示例:
-  $0               # 交互式卸载（保留数据）
-  $0 -f            # 静默卸载（保留数据）
-  $0 -p            # 交互式卸载并删除数据
-  $0 -f -p         # 完全卸载（删除所有数据）
+  $0                # 交互式卸载（保留数据）
+  $0 -f             # 静默卸载（保留数据）
+  $0 -p             # 交互式卸载并删除数据
+  $0 -f -p          # 完全卸载（删除所有数据）
+  $0 -f --keep-apps # 卸载面板，应用数据（data/apps）保留可迁移
 EOF
     exit 0
 }
 
 FORCE=false
 PURGE=false
+KEEP_APPS=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -50,6 +54,10 @@ while [[ $# -gt 0 ]]; do
             PURGE=true
             shift
             ;;
+        -k|--keep-apps)
+            KEEP_APPS=true
+            shift
+            ;;
         -h|--help)
             usage
             ;;
@@ -59,6 +67,12 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# M-M1 零锁定纪律：--keep-apps 与 --purge 互斥（keep-apps 语义即保留应用数据）
+if [[ "$KEEP_APPS" == true && "$PURGE" == true ]]; then
+    echo -e "${RED}--keep-apps 与 --purge 不能同时使用${NC}"
+    exit 1
+fi
 
 # ─── 检查 root ─────────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
@@ -79,11 +93,14 @@ echo -e "${CYAN}═════════════════════�
 echo ""
 echo -e "  将执行以下操作:"
 echo -e "    ${YELLOW}•${NC} 停止并禁用 systemd 服务"
-echo -e "    ${YELLOW}•${NC} 删除二进制文件: $BINARY_PATH"
+echo -e "    ${YELLOW}•${NC} 删除二进制文件: $BINARY_PATH、$CTL_PATH"
 echo -e "    ${YELLOW}•${NC} 删除 nginx 反向代理配置"
 echo -e "    ${YELLOW}•${NC} 删除 systemd 服务文件"
 if [[ "$PURGE" == true ]]; then
     echo -e "    ${RED}•${NC} 删除数据目录: $INSTALL_DIR"
+elif [[ "$KEEP_APPS" == true ]]; then
+    echo -e "    ${GREEN}•${NC} 保留应用数据: $INSTALL_DIR/data/apps、data/compose（可迁移/重装恢复）"
+    echo -e "    ${YELLOW}•${NC} 保留其余数据: $INSTALL_DIR"
 else
     echo -e "    ${YELLOW}•${NC} 保留数据目录: $INSTALL_DIR"
 fi
@@ -112,24 +129,62 @@ if systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
     systemctl disable "$SERVICE_NAME" 2>/dev/null || true
     echo -e "${GREEN}  -> 服务已禁用${NC}"
 fi
+# 特权助手（Doc/32 W3-b）
+if [[ -f /etc/systemd/system/flamepanel-helper.service ]]; then
+    systemctl disable --now flamepanel-helper 2>/dev/null || true
+    rm -f /etc/systemd/system/flamepanel-helper.service
+    echo -e "${GREEN}  -> 特权助手已停止并移除${NC}"
+fi
 
 # ─── 删除二进制 ────────────────────────────────────────────────────────────────
 echo -e "${CYAN}[2/5] 删除二进制文件...${NC}"
-if [[ -f "$BINARY_PATH" ]]; then
+if [[ -f "$BINARY_PATH" || -L "$BINARY_PATH" ]]; then
     rm -f "$BINARY_PATH"
     echo -e "${GREEN}  -> 已删除: $BINARY_PATH${NC}"
 else
     echo -e "${YELLOW}  -> 未找到二进制文件，跳过${NC}"
 fi
+if [[ -f "$CTL_PATH" || -L "$CTL_PATH" ]]; then
+    rm -f "$CTL_PATH"
+    echo -e "${GREEN}  -> 已删除: $CTL_PATH${NC}"
+fi
 
 # ─── 删除 nginx 反向代理配置 ──────────────────────────────────────────────────
 echo -e "${CYAN}[3/5] 删除 nginx 反向代理配置...${NC}"
-if [[ -f "$NGINX_CONF" ]] || [[ -f "$NGINX_CONF.bak" ]]; then
-    rm -f "$NGINX_CONF" "$NGINX_CONF.bak"
+# 读取 install.sh 写入的安装状态（仅解析已知键，不 source 任意内容）
+state_get() {
+    local f="$INSTALL_DIR/.install-state"
+    [[ -f "$f" ]] && sed -n "s/^$1=//p" "$f" | head -n1
+}
+STATE_CONF=$(state_get NGINX_CONF_PATH || true)
+STATE_ROOT=$(state_get NGINX_ROOT || true)
+STATE_ROOT="${STATE_ROOT:-/etc/nginx}"
+NGINX_TOUCHED=false
+for conf in "${STATE_CONF:-}" "$NGINX_CONF" "/etc/nginx/http.d/flamepanel.conf"; do
+    [[ -z "$conf" ]] && continue
+    if [[ -f "$conf" ]] || [[ -f "$conf.bak" ]]; then
+        rm -f "$conf" "$conf.bak"
+        echo -e "${GREEN}  -> 已删除: $conf${NC}"
+        NGINX_TOUCHED=true
+    fi
+done
+# 回滚：Debian/Ubuntu 默认站点
+if [[ "$(state_get NGINX_DEFAULT_SITE_DISABLED || true)" == "1" ]] \
+    && [[ -f "$STATE_ROOT/sites-available/default" ]] && [[ ! -e "$STATE_ROOT/sites-enabled/default" ]]; then
+    ln -s "$STATE_ROOT/sites-available/default" "$STATE_ROOT/sites-enabled/default"
+    echo -e "${GREEN}  -> 已恢复发行版默认站点 sites-enabled/default${NC}"
+    NGINX_TOUCHED=true
+fi
+# 回滚：Arch 等补充的 conf.d include（仅删除带标记的那一行）
+if [[ "$(state_get NGINX_INCLUDE_ADDED || true)" == "1" ]] && [[ -f "$STATE_ROOT/nginx.conf" ]]; then
+    sed -i '/conf\.d\/\*\.conf;[[:space:]]*# flamepanel$/d' "$STATE_ROOT/nginx.conf"
+    echo -e "${GREEN}  -> 已移除 nginx.conf 中由安装脚本补充的 include${NC}"
+    NGINX_TOUCHED=true
+fi
+if [[ "$NGINX_TOUCHED" == true ]]; then
     if command -v nginx &>/dev/null; then
         nginx -t 2>/dev/null && systemctl restart nginx 2>/dev/null || true
     fi
-    echo -e "${GREEN}  -> 已删除: $NGINX_CONF${NC}"
 else
     echo -e "${YELLOW}  -> 未找到 nginx 配置，跳过${NC}"
 fi
@@ -159,6 +214,11 @@ if [[ -d "$INSTALL_DIR" ]]; then
             groupdel "$RUN_GROUP" 2>/dev/null || true
             echo -e "${GREEN}  -> 已删除系统组 $RUN_GROUP${NC}"
         fi
+    elif [[ "$KEEP_APPS" == true ]]; then
+        # 零锁定纪律（Doc/20 §7.1）：面板可弃，应用数据保留
+        echo -e "${GREEN}  -> 保留应用数据: $INSTALL_DIR/data/apps、$INSTALL_DIR/data/compose${NC}"
+        echo -e "     （容器与 compose 已落盘，重装面板后可恢复管理）"
+        echo -e "${YELLOW}  -> 其余面板数据已随目录保留: $INSTALL_DIR${NC}"
     else
         echo -e "${YELLOW}  -> 保留: $INSTALL_DIR${NC}"
         echo -e "${YELLOW}  -> 如需删除请手动运行: rm -rf $INSTALL_DIR${NC}"

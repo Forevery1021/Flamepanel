@@ -5,21 +5,25 @@
 ARG NPM_REGISTRY=https://registry.npmjs.org
 ARG CRATES_RSYNC=
 
-FROM node:20-alpine AS frontend-builder
+FROM node:24.20.0-bookworm-slim AS frontend-builder
 ARG NPM_REGISTRY
 WORKDIR /app/frontend
-COPY frontend/package*.json ./
+COPY .node-version /app/.node-version
+COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
+COPY frontend/scripts/check-toolchain.mjs ./scripts/check-toolchain.mjs
 RUN npm config set registry "${NPM_REGISTRY}" \
-    && npm ci
+    && npm install --global "$(node -p "require('./package.json').packageManager")" \
+    && npm run check:toolchain \
+    && HUSKY=0 npm ci
 COPY frontend/ .
 RUN npm run build
 
-FROM rust:1.97-slim AS backend-builder
+FROM rust:1.98.1-slim AS backend-builder
 ARG CRATES_RSYNC
 WORKDIR /app
 # OpenSSL / pkg-config 构建依赖（openssl-sys / sqlx 需要）
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY flame-kernel ./flame-kernel
 COPY agent ./agent
 WORKDIR /app/flame-kernel
@@ -30,7 +34,7 @@ RUN if [ -n "${CRATES_RSYNC}" ]; then \
     fi
 # 指定 target 目录，产物路径确定（workspace 根 /app）
 ENV CARGO_TARGET_DIR=/app/target
-RUN cargo build --release --package flame-kernel
+RUN cargo build --locked --release --package flame-kernel
 
 FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y ca-certificates nginx curl && rm -rf /var/lib/apt/lists/* \
@@ -38,6 +42,8 @@ RUN apt-get update && apt-get install -y ca-certificates nginx curl && rm -rf /v
 
 # 复制 Rust 二进制（CARGO_TARGET_DIR=/app/target）
 COPY --from=backend-builder /app/target/release/flame-kernel /usr/local/bin/flamepanel
+# 面板命令行：docker exec <容器> fpctl status
+COPY --from=backend-builder /app/target/release/fpctl /usr/local/bin/fpctl
 
 # 前端静态资源（由 nginx.conf 中 root /app/frontend/dist 提供服务）
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
@@ -55,9 +61,11 @@ RUN mkdir -p /app/data /app/logs /app/workspace \
     && chmod 750 /app/data /app/logs /app/workspace
 
 EXPOSE 80 8080
-VOLUME ["/app/data", "/app/workspace"]
+VOLUME ["/app/data", "/app/workspace", "/app/logs"]
 
 WORKDIR /app
 ENV OP_FILE_ROOT=/app/workspace \
-    OP_TERMINAL_CWD=/app/workspace
+    OP_TERMINAL_CWD=/app/workspace \
+    OP_LOG_DIR=/app/logs \
+    FP_HOME=/app
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

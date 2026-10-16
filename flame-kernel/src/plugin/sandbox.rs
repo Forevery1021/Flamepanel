@@ -11,6 +11,8 @@ pub struct PluginConfig {
     pub timeout_ms: u64,
     pub max_stack_size: usize,
     pub settings: HashMap<String, String>,
+    /// 已授予的宿主能力（`plugin::capability`，授予时已校验）
+    pub capabilities: Vec<String>,
 }
 
 impl Default for PluginConfig {
@@ -20,6 +22,7 @@ impl Default for PluginConfig {
             timeout_ms: 30_000,
             max_stack_size: 1024 * 1024,
             settings: HashMap::new(),
+            capabilities: Vec::new(),
         }
     }
 }
@@ -101,12 +104,14 @@ pub struct WasmSandbox {
     engine: wasmtime::Engine,
     /// 每个插件执行的内存上限（字节）
     memory_limit_bytes: usize,
+    /// 墙钟超时（epoch interruption 强制；fuel 只限指令数，挡不住宿主调用等待）
+    timeout_ms: u64,
 }
 
 /// 资源限制器：限制每个 WASM 实例的线性内存大小（memory.grow 上限）
 #[cfg(feature = "wasm")]
 #[derive(Debug, Clone)]
-struct MemoryLimiter {
+pub(crate) struct MemoryLimiter {
     max_memory_bytes: usize,
 }
 
@@ -132,11 +137,26 @@ impl wasmtime::ResourceLimiter for MemoryLimiter {
     }
 }
 
+/// 把 wasmtime 错误映射为稳定的业务错误（超时 / fuel 耗尽单独提示）。
+#[cfg(feature = "wasm")]
+fn map_trap(e: wasmtime::Error, timeout_ms: u64, stage: &str) -> AppError {
+    match e.downcast_ref::<wasmtime::Trap>() {
+        Some(wasmtime::Trap::Interrupt) => {
+            AppError::internal(format!("WASM execution timed out after {timeout_ms} ms"))
+        }
+        Some(wasmtime::Trap::OutOfFuel) => {
+            AppError::internal("WASM execution exceeded its fuel budget".to_string())
+        }
+        _ => AppError::internal(format!("{stage}: {e}")),
+    }
+}
+
 #[cfg(feature = "wasm")]
 impl WasmSandbox {
     pub fn new(config: &PluginConfig) -> Result<Self, AppError> {
         let mut config_builder = wasmtime::Config::new();
         config_builder.consume_fuel(true);
+        config_builder.epoch_interruption(true);
         // 限制 WASM 栈大小，防止栈溢出耗尽宿主内存
         config_builder.max_wasm_stack(config.max_stack_size);
         let engine = wasmtime::Engine::new(&config_builder)
@@ -144,43 +164,88 @@ impl WasmSandbox {
         Ok(Self {
             engine,
             memory_limit_bytes: config.memory_limit_bytes,
+            timeout_ms: config.timeout_ms.max(1),
         })
     }
 
+    /// 不带宿主上下文的执行（生命周期钩子 / 兼容旧调用）：返回值字节。
     pub fn execute(
         &self,
         wasm_bytes: &[u8],
         function: &str,
         fuel_limit: u64,
     ) -> Result<Vec<u8>, AppError> {
+        self.execute_with(
+            wasm_bytes,
+            function,
+            fuel_limit,
+            super::host::Invocation::default(),
+        )
+        .map(|(out, _)| out)
+    }
+
+    /// 带宿主 API 的执行：`flame.*` 导入按 `inv.capabilities` 授权；墙钟超时由看门狗线程
+    /// 递增 epoch 打断。返回 (返回值字节, 宿主产物)。
+    pub fn execute_with(
+        &self,
+        wasm_bytes: &[u8],
+        function: &str,
+        fuel_limit: u64,
+        inv: super::host::Invocation,
+    ) -> Result<(Vec<u8>, super::host::HostOutcome), AppError> {
         let module = wasmtime::Module::new(&self.engine, wasm_bytes)
             .map_err(|e| AppError::internal(format!("Failed to compile WASM module: {}", e)))?;
-        // 将资源限制器作为 store 数据，限制每个实例的线性内存/表格大小
+        let mut linker = wasmtime::Linker::new(&self.engine);
+        super::host::add_to_linker(&mut linker)
+            .map_err(|e| AppError::internal(format!("Failed to link host API: {}", e)))?;
         let limiter = MemoryLimiter {
             max_memory_bytes: self.memory_limit_bytes,
         };
-        let mut store = wasmtime::Store::new(&self.engine, limiter);
+        let mut store =
+            wasmtime::Store::new(&self.engine, super::host::HostState::new(limiter, inv));
         store
             .set_fuel(fuel_limit)
             .map_err(|e| AppError::internal(format!("Failed to set fuel: {}", e)))?;
-        store.limiter(|data| data);
-        let instance = wasmtime::Instance::new(&mut store, &module, &[])
-            .map_err(|e| AppError::internal(format!("Failed to instantiate WASM module: {}", e)))?;
-        if let Ok(func) = instance.get_typed_func::<(), i32>(&mut store, function) {
-            let result = func
-                .call(&mut store, ())
-                .map_err(|e| AppError::internal(format!("WASM execution failed: {}", e)))?;
+        store.limiter(|data| &mut data.limiter);
+        store.set_epoch_deadline(1);
+
+        // 看门狗：执行结束时 drop(tx) 立即唤醒退出；超时则递增 epoch 打断执行
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let engine = self.engine.clone();
+        let timeout = std::time::Duration::from_millis(self.timeout_ms);
+        let watchdog = std::thread::spawn(move || {
+            if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(timeout) {
+                engine.increment_epoch();
+            }
+        });
+        let result = Self::run(&mut store, &linker, &module, function, self.timeout_ms);
+        drop(tx);
+        let _ = watchdog.join();
+        let out = result?;
+        Ok((out, store.into_data().into_outcome()))
+    }
+
+    fn run(
+        store: &mut wasmtime::Store<super::host::HostState>,
+        linker: &wasmtime::Linker<super::host::HostState>,
+        module: &wasmtime::Module,
+        function: &str,
+        timeout_ms: u64,
+    ) -> Result<Vec<u8>, AppError> {
+        let instance = linker
+            .instantiate(&mut *store, module)
+            .map_err(|e| map_trap(e, timeout_ms, "Failed to instantiate WASM module"))?;
+        let exec = |e| map_trap(e, timeout_ms, "WASM execution failed");
+        if let Ok(func) = instance.get_typed_func::<(), i32>(&mut *store, function) {
+            let result = func.call(&mut *store, ()).map_err(exec)?;
             return Ok(result.to_le_bytes().to_vec());
         }
-        if let Ok(func) = instance.get_typed_func::<(), ()>(&mut store, function) {
-            func.call(&mut store, ())
-                .map_err(|e| AppError::internal(format!("WASM execution failed: {}", e)))?;
+        if let Ok(func) = instance.get_typed_func::<(), ()>(&mut *store, function) {
+            func.call(&mut *store, ()).map_err(exec)?;
             return Ok(vec![]);
         }
-        if let Ok(func) = instance.get_typed_func::<(i32, i32), i32>(&mut store, function) {
-            let result = func
-                .call(&mut store, (0, 0))
-                .map_err(|e| AppError::internal(format!("WASM execution failed: {}", e)))?;
+        if let Ok(func) = instance.get_typed_func::<(i32, i32), i32>(&mut *store, function) {
+            let result = func.call(&mut *store, (0, 0)).map_err(exec)?;
             return Ok(result.to_le_bytes().to_vec());
         }
         Err(AppError::internal(format!(
@@ -202,35 +267,70 @@ impl WasmSandbox {
 #[derive(Clone)]
 pub struct PluginSandbox {
     plugins: Arc<Mutex<Vec<SandboxedPlugin>>>,
+    /// 宿主数据来源（启动时注入指标等；未注入时 `flame.metrics` 返回 ERR_UNAVAILABLE）
+    host_ctx: Arc<std::sync::RwLock<Option<Arc<dyn super::host::HostContext>>>>,
 }
 
 impl PluginSandbox {
     pub fn new() -> Self {
         Self {
             plugins: Arc::new(Mutex::new(Vec::new())),
+            host_ctx: Arc::new(std::sync::RwLock::new(None)),
         }
     }
 
-    async fn call_lifecycle_hook(&self, wasm_bytes: &[u8], config: &PluginConfig, hook: &str) {
+    /// 注入宿主数据来源（内核启动时调用一次）。
+    pub fn set_host_context(&self, ctx: Arc<dyn super::host::HostContext>) {
+        *self.host_ctx.write().unwrap_or_else(|p| p.into_inner()) = Some(ctx);
+    }
+
+    #[cfg(feature = "wasm")]
+    fn invocation(
+        &self,
+        id: &str,
+        config: &PluginConfig,
+        input: Vec<u8>,
+    ) -> super::host::Invocation {
+        super::host::Invocation {
+            plugin_id: id.to_string(),
+            capabilities: super::capability::Capabilities::from_stored(&config.capabilities),
+            settings: config.settings.clone(),
+            input,
+            ctx: self
+                .host_ctx
+                .read()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone(),
+        }
+    }
+
+    async fn call_lifecycle_hook(
+        &self,
+        id: &str,
+        wasm_bytes: &[u8],
+        config: &PluginConfig,
+        hook: &str,
+    ) {
         #[cfg(feature = "wasm")]
         {
             let wasm_owned = wasm_bytes.to_vec();
-            let config_owned = config.clone();
             let hook_owned = hook.to_string();
-            let sandbox = match WasmSandbox::new(&config_owned) {
+            let sandbox = match WasmSandbox::new(config) {
                 Ok(s) => s,
                 Err(_) => return,
             };
             if sandbox.has_function(&wasm_owned, &hook_owned) {
+                // 钩子同样走宿主 API 与能力授权；钩子内的设置修改不持久化
+                let inv = self.invocation(id, config, Vec::new());
                 let _ = tokio::task::spawn_blocking(move || {
-                    sandbox.execute(&wasm_owned, &hook_owned, 100_000)
+                    sandbox.execute_with(&wasm_owned, &hook_owned, 100_000, inv)
                 })
                 .await;
             }
         }
         #[cfg(not(feature = "wasm"))]
         {
-            let _ = (wasm_bytes, config, hook); // 无 WASM 引擎：生命周期钩子为空操作
+            let _ = (id, wasm_bytes, config, hook); // 无 WASM 引擎：生命周期钩子为空操作
         }
     }
 
@@ -269,7 +369,8 @@ impl PluginSandbox {
         plugins.push(plugin.clone());
         drop(plugins);
 
-        self.call_lifecycle_hook(&wasm_bytes, &cfg, "on_load").await;
+        self.call_lifecycle_hook(id, &wasm_bytes, &cfg, "on_load")
+            .await;
 
         Ok(plugin)
     }
@@ -299,6 +400,10 @@ impl PluginSandbox {
 
         let old_bytes = plugin.wasm_bytes.clone();
         let old_config = plugin.config.clone();
+        // 重载只替换字节码与资源限制；能力授予与设置沿用（变更能力须走显式授予流程）
+        let mut cfg = cfg;
+        cfg.capabilities = old_config.capabilities.clone();
+        cfg.settings = old_config.settings.clone();
 
         plugin.wasm_bytes = new_wasm_bytes.clone();
         plugin.config = cfg.clone();
@@ -327,15 +432,15 @@ impl PluginSandbox {
         &self,
         id: &str,
         function: &str,
-        _args: Option<Vec<i32>>,
+        input: Option<Vec<u8>>,
     ) -> Result<ExecutionResult, AppError> {
         // feature `wasm` 关闭时无法执行字节码，返回稳定错误
         #[cfg(not(feature = "wasm"))]
         {
-            let _ = (id, function);
-            return Err(AppError::ServiceUnavailable(
+            let _ = (id, function, input);
+            Err(AppError::ServiceUnavailable(
                 "WASM execution disabled (feature `wasm` is off)".to_string(),
-            ));
+            ))
         }
         #[cfg(feature = "wasm")]
         {
@@ -354,10 +459,11 @@ impl PluginSandbox {
             drop(plugins);
 
             let sandbox = WasmSandbox::new(&config)?;
+            let inv = self.invocation(id, &config, input.unwrap_or_default());
             let fuel_limit = 1_000_000;
             let start = std::time::Instant::now();
             let result = tokio::task::spawn_blocking(move || {
-                sandbox.execute(&wasm_bytes, &function_name, fuel_limit)
+                sandbox.execute_with(&wasm_bytes, &function_name, fuel_limit, inv)
             })
             .await
             .map_err(|e| AppError::internal(format!("WASM task failed: {}", e)))?;
@@ -402,10 +508,19 @@ impl PluginSandbox {
             }
 
             match result {
-                Ok(output) => Ok(ExecutionResult {
-                    output,
-                    execution_ms: elapsed_ms,
-                }),
+                Ok((ret, outcome)) => {
+                    if let Some(new_settings) = &outcome.settings {
+                        if let Some(p) = plugins.iter_mut().find(|p| p.id == id) {
+                            p.config.settings = new_settings.clone();
+                        }
+                    }
+                    Ok(ExecutionResult {
+                        output: outcome.output.unwrap_or(ret),
+                        execution_ms: elapsed_ms,
+                        logs: outcome.logs,
+                        settings_changed: outcome.settings,
+                    })
+                }
                 Err(e) => Err(e),
             }
         }
@@ -471,6 +586,21 @@ impl PluginSandbox {
         Ok(plugin.config.settings.clone())
     }
 
+    /// 替换插件的宿主能力授予（下次执行生效）。调用方负责校验（`Capabilities::parse_all`）。
+    pub async fn set_plugin_capabilities(
+        &self,
+        id: &str,
+        capabilities: Vec<String>,
+    ) -> Result<(), AppError> {
+        let mut plugins = self.plugins.lock().await;
+        let plugin = plugins
+            .iter_mut()
+            .find(|p| p.id == id)
+            .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))?;
+        plugin.config.capabilities = capabilities;
+        Ok(())
+    }
+
     pub async fn reset_plugin_metrics(&self, id: &str) -> Result<(), AppError> {
         let mut plugins = self.plugins.lock().await;
         let plugin = plugins
@@ -494,7 +624,7 @@ impl PluginSandbox {
             config = plugin.config.clone();
         }
 
-        self.call_lifecycle_hook(&wasm_bytes, &config, "on_unload")
+        self.call_lifecycle_hook(id, &wasm_bytes, &config, "on_unload")
             .await;
 
         let mut plugins = self.plugins.lock().await;
@@ -519,10 +649,14 @@ impl PluginSandbox {
             plugin.status = PluginStatus::Loaded;
         }
         drop(plugins);
-        self.call_lifecycle_hook(&was_bytes, &config, "on_enable")
+        self.call_lifecycle_hook(id, &was_bytes, &config, "on_enable")
             .await;
         let plugins = self.plugins.lock().await;
-        Ok(plugins.iter().find(|p| p.id == id).cloned().unwrap())
+        plugins
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
+            .ok_or_else(|| AppError::NotFound(format!("Plugin {} not found", id)))
     }
 
     pub async fn disable_plugin(&self, id: &str) -> Result<SandboxedPlugin, AppError> {
@@ -538,7 +672,7 @@ impl PluginSandbox {
             config = plugin.config.clone();
         }
 
-        self.call_lifecycle_hook(&wasm_bytes, &config, "on_disable")
+        self.call_lifecycle_hook(id, &wasm_bytes, &config, "on_disable")
             .await;
 
         let mut plugins = self.plugins.lock().await;
@@ -567,8 +701,13 @@ impl PluginSandbox {
 
 #[derive(Debug, Clone)]
 pub struct ExecutionResult {
+    /// 显式输出（`flame.output`）；未调用时为函数返回值字节（i32 LE）
     pub output: Vec<u8>,
     pub execution_ms: u64,
+    /// `flame.log` 收集的日志（≤100 条）
+    pub logs: Vec<String>,
+    /// 执行期间 `flame.setting_set` 修改后的完整设置（调用方负责持久化）
+    pub settings_changed: Option<HashMap<String, String>>,
 }
 
 impl ExecutionResult {

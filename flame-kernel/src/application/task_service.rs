@@ -42,7 +42,7 @@ impl TaskService {
 
     /// 取消任务：`Pending → Cancelled` 或 `Running → Cancelled`。
     /// 已处于终态（Success/Failed/Cancelled）返回 409；不存在返回 404。
-    pub fn cancel_task(&self, id: u64) -> Result<TaskRecord, AppError> {
+    pub async fn cancel_task(&self, id: u64) -> Result<TaskRecord, AppError> {
         let current = self
             .tracker
             .get(id)
@@ -55,13 +55,17 @@ impl TaskService {
         }
         self.tracker
             .transition(id, TaskState::Cancelled)
+            .await
             .map_err(|e| AppError::internal(e.to_string()))?
             .ok_or_else(|| AppError::NotFound(format!("Task {id} not found")))
     }
 
     /// 清理全部终态任务，返回清理数量。
-    pub fn prune_terminal(&self) -> usize {
-        self.tracker.prune_terminal()
+    pub async fn prune_terminal(&self) -> Result<usize, AppError> {
+        self.tracker
+            .prune_terminal()
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))
     }
 }
 
@@ -69,40 +73,56 @@ impl TaskService {
 mod tests {
     use super::*;
 
-    #[test]
-    fn list_and_get_tasks() {
+    #[tokio::test]
+    async fn list_and_get_tasks() {
         let tracker = TaskTracker::new();
         let svc = TaskService::new(tracker);
-        let r = svc.tracker.create(
-            crate::runtime::task_state::TaskKind::BatchNode,
-            "restart all",
-        );
+        let r = svc
+            .tracker
+            .create(
+                crate::runtime::task_state::TaskKind::BatchNode,
+                "restart all",
+            )
+            .await
+            .unwrap();
         assert_eq!(svc.list_tasks().len(), 1);
         assert_eq!(svc.get_task(r.id).unwrap().id, r.id);
         assert!(svc.get_task(999).is_err());
     }
 
-    #[test]
-    fn cancel_running_task() {
+    #[tokio::test]
+    async fn cancel_running_task() {
         let tracker = TaskTracker::new();
         let svc = TaskService::new(tracker.clone());
-        let r = tracker.create(crate::runtime::task_state::TaskKind::Install, "install x");
-        tracker.transition(r.id, TaskState::Running).unwrap();
-        let cancelled = svc.cancel_task(r.id).unwrap();
+        let r = tracker
+            .create(crate::runtime::task_state::TaskKind::Install, "install x")
+            .await
+            .unwrap();
+        tracker.transition(r.id, TaskState::Running).await.unwrap();
+        let cancelled = svc.cancel_task(r.id).await.unwrap();
         assert_eq!(cancelled.state, TaskState::Cancelled);
         // 再取消已终态任务 → 409
-        assert!(matches!(svc.cancel_task(r.id), Err(AppError::Conflict(_))));
+        assert!(matches!(
+            svc.cancel_task(r.id).await,
+            Err(AppError::Conflict(_))
+        ));
     }
 
-    #[test]
-    fn prune_removes_terminal() {
+    #[tokio::test]
+    async fn prune_removes_terminal() {
         let tracker = TaskTracker::new();
         let svc = TaskService::new(tracker.clone());
-        let t1 = tracker.create(crate::runtime::task_state::TaskKind::Generic, "a");
-        let t2 = tracker.create(crate::runtime::task_state::TaskKind::Generic, "b");
-        tracker.transition(t1.id, TaskState::Running).unwrap();
-        tracker.transition(t2.id, TaskState::Running).unwrap();
-        tracker.transition(t1.id, TaskState::Success).unwrap();
-        assert_eq!(svc.prune_terminal(), 1);
+        let t1 = tracker
+            .create(crate::runtime::task_state::TaskKind::Generic, "a")
+            .await
+            .unwrap();
+        let t2 = tracker
+            .create(crate::runtime::task_state::TaskKind::Generic, "b")
+            .await
+            .unwrap();
+        tracker.transition(t1.id, TaskState::Running).await.unwrap();
+        tracker.transition(t2.id, TaskState::Running).await.unwrap();
+        tracker.transition(t1.id, TaskState::Success).await.unwrap();
+        assert_eq!(svc.prune_terminal().await.unwrap(), 1);
     }
 }

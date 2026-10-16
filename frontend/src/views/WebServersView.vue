@@ -1,174 +1,98 @@
 <template>
-  <div class="view-container">
+  <LayoutContent :title="t('nav.webServers')" :description="t('pageDesc.webServers')">
     <FpTabs v-model="activeTab" class="servers-tabs" :items="tabItems">
-<template #instances>
-<div class="page-toolbar">
-            <FpButton v-permission="{ perm: 'web_server:create', mode: 'view' }" variant="primary" icon="oi oi-plus" @click="showInstall = true">
+      <template #instances>
+        <PageToolbar :searchable="false">
+          <template #actions>
+            <FpButton
+              v-permission="{ perm: 'web_server:create', mode: 'view' }"
+              variant="primary"
+              icon="oi oi-plus"
+              @click="showInstall = true"
+            >
               {{ t('webServer.install') }}
             </FpButton>
-          </div>
+          </template>
+        </PageToolbar>
 
-          <div class="panel">
-            <FpTable
-              :rows="instances"
-              :loading="loading"
-              :empty-text="t('common.noData')"
-              :first="(currentPage - 1) * pageSize"
-              striped-rows
-            >
-              <FpColumn field="id" :header="t('webServer.id')" style="width: 60px" />
-              <FpColumn field="engine" :header="t('webServer.engine')" style="width: 120px" />
-              <FpColumn :header="t('webServer.version')" style="width: 100px">
-                <template #body="{ data }">{{ data.version || '—' }}</template>
-              </FpColumn>
-              <FpColumn field="port" :header="t('webServer.port')" style="width: 80px" />
-              <FpColumn :header="t('webServer.status')" style="width: 110px">
-                <template #body="{ data }">
-                  <FpTag
-                    :severity="data.status === 'running' ? 'success' : 'info'"
-                    :dot="data.status === 'running'"
+        <div class="panel">
+          <FpTable
+            :rows="instances"
+            :loading="loading"
+            :empty-text="t('common.noData')"
+            :first="first"
+            striped-rows
+          >
+            <FpColumn field="id" :header="t('webServer.id')" style="width: 60px" />
+            <FpColumn field="engine" :header="t('webServer.engine')" style="width: 120px" />
+            <FpColumn :header="t('webServer.version')" style="width: 100px">
+              <template #body="{ data }">{{ data.version || '—' }}</template>
+            </FpColumn>
+            <FpColumn field="port" :header="t('webServer.port')" style="width: 80px" />
+            <FpColumn :header="t('webServer.status')" style="width: 110px">
+              <template #body="{ data }">
+                <FpTag
+                  :severity="data.status === 'running' ? 'success' : 'info'"
+                  :dot="data.status === 'running'"
+                >
+                  {{ data.status === 'running' ? t('webServer.running') : t('webServer.stopped') }}
+                </FpTag>
+              </template>
+            </FpColumn>
+            <FpColumn :header="t('webServer.configPath')" style="min-width: 160px">
+              <template #body="{ data }">
+                <span v-tooltip="data.config_path" class="cell-truncate">{{
+                  data.config_path
+                }}</span>
+              </template>
+            </FpColumn>
+            <FpColumn :header="t('webServer.actions')" style="width: 240px" frozen>
+              <template #body="{ data }">
+                <div class="row-actions">
+                  <FpButton
+                    v-if="data.status !== 'running'"
+                    v-permission="{ perm: 'web_server:start', mode: 'view' }"
+                    variant="ghost"
+                    icon="oi oi-play-circle"
+                    @click="handleStart(data.id)"
+                    >{{ t('webServer.start') }}</FpButton
                   >
-                    {{ data.status === 'running' ? t('webServer.running') : t('webServer.stopped') }}
-                  </FpTag>
-                </template>
-              </FpColumn>
-              <FpColumn :header="t('webServer.configPath')" style="min-width: 160px">
-                <template #body="{ data }">
-                  <span v-tooltip="data.config_path" class="cell-truncate">{{ data.config_path }}</span>
-                </template>
-              </FpColumn>
-              <FpColumn :header="t('webServer.actions')" style="width: 460px" frozen>
-                <template #body="{ data }">
-                  <div class="row-actions">
-                    <FpButton
-                      variant="ghost"
-                      :disabled="data.status === 'running'"
-                      @click="handleStart(data.id)"
-                      >{{ t('webServer.start') }}</FpButton
-                    >
-                    <FpButton
-                      variant="ghost"
-                      :disabled="data.status !== 'running'"
-                      @click="handleStop(data.id)"
-                      >{{ t('webServer.stop') }}</FpButton
-                    >
-                    <FpButton v-permission="{ perm: 'web_server:start', mode: 'view' }" variant="ghost" @click="handleRestart(data.id)">{{
-                      t('webServer.restart')
-                    }}</FpButton>
-                    <FpButton v-permission="{ perm: 'web_server:reload', mode: 'view' }" variant="ghost" @click="handleReload(data.id)">{{
-                      t('webServer.reload')
-                    }}</FpButton>
-                    <FpButton v-permission="{ perm: 'web_server:configtest', mode: 'view' }" variant="ghost" @click="handleConfigtest(data.id)">{{
-                      t('webServer.configtest')
-                    }}</FpButton>
-                    <FpButton v-permission="{ perm: 'web_server:update', mode: 'view' }" variant="ghost" @click="openPreset(data)">{{
-                      t('webServer.preset')
-                    }}</FpButton>
-                    <FpButton v-permission="{ perm: 'web_server:update', mode: 'view' }" variant="ghost" @click="openSwitch(data)">{{
-                      t('webServer.switchEngine')
-                    }}</FpButton>
-                    <FpButton variant="danger" @click="confirmDelete(data)">{{
-                      t('webServer.uninstall')
-                    }}</FpButton>
-                  </div>
-                </template>
-              </FpColumn>
-            </FpTable>
-            <FpPagination
-              v-if="total > pageSize"
-              :first="(currentPage - 1) * pageSize"
-              :rows="pageSize"
-              :total="total"
-              :rows-per-page-options="[20, 50, 100]"
-              @update:first="(f) => goPage(f)"
-            />
-          </div>
-</template>
-<template #native>
-<div class="panel">
-            <div class="native-toolbar">
-              <FpButton variant="primary" icon="oi oi-refresh" :loading="detecting" @click="fetchNative">
-                {{ t('webServer.nativeDetect') }}
-              </FpButton>
-              <FpInlineMessage severity="info" class="native-hint">
-                {{ t('webServer.nativeHint') }}
-              </FpInlineMessage>
-            </div>
-            <FpTable
-              :rows="nativeList"
-              :loading="detecting"
-              :empty-text="t('common.noData')"
-              striped-rows
-              class="mt-2"
-            >
-              <FpColumn field="engine" :header="t('webServer.engine')" style="width: 130px" />
-              <FpColumn :header="t('webServer.status')" style="width: 110px">
-                <template #body="{ data }">
-                  <FpTag :severity="data.installed ? 'success' : 'info'">
-                    {{
-                      data.installed
-                        ? t('webServer.nativeInstalled')
-                        : t('webServer.nativeNotInstalled')
-                    }}
-                  </FpTag>
-                </template>
-              </FpColumn>
-              <FpColumn :header="t('webServer.nativeVersion')" style="width: 100px">
-                <template #body="{ data }">{{ data.version || '—' }}</template>
-              </FpColumn>
-              <FpColumn :header="t('webServer.nativeRunning')" style="width: 90px">
-                <template #body="{ data }">
-                  <FpTag :severity="data.running ? 'success' : 'info'">
-                    {{ data.running ? t('webServer.nativeRunning') : t('webServer.nativeStopped') }}
-                  </FpTag>
-                </template>
-              </FpColumn>
-              <FpColumn :header="t('webServer.nativeAutostart')" style="width: 110px">
-                <template #body="{ data }">
-                  <FpSwitch
-                    :model-value="data.enabled"
-                    :disabled="!data.installed"
-                    @update:model-value="(v) => handleNativeAutostart(data, Boolean(v))"
-                  />
-                </template>
-              </FpColumn>
-              <FpColumn :header="t('webServer.nativeListenPorts')" style="width: 140px">
-                <template #body="{ data }">
-                  <template v-if="data.listening_ports && data.listening_ports.length">
-                    <FpTag v-for="p in data.listening_ports" :key="p" class="mr-1">{{ p }}</FpTag>
-                  </template>
-                  <span v-else>—</span>
-                </template>
-              </FpColumn>
-              <FpColumn :header="t('webServer.nativePath')" style="min-width: 160px">
-                <template #body="{ data }">
-                  <span v-if="data.binary_path" v-tooltip="data.binary_path" class="cell-truncate">{{
-                    data.binary_path
-                  }}</span>
-                  <span v-else>—</span>
-                </template>
-              </FpColumn>
-              <FpColumn :header="t('webServer.actions')" style="width: 180px" frozen>
-                <template #body="{ data }">
-                  <div class="row-actions">
-                    <FpButton
-                      v-if="!data.installed"
-                      variant="primary"
-                      @click="confirmNativeInstall(data)"
-                      >{{ t('webServer.nativeInstallBtn') }}</FpButton
-                    >
-                    <FpButton v-else variant="danger" @click="confirmNativeUninstall(data)">{{
-                      t('webServer.nativeUninstallBtn')
-                    }}</FpButton>
-                  </div>
-                </template>
-              </FpColumn>
-            </FpTable>
-          </div>
-</template>
-</FpTabs>
+                  <FpButton
+                    v-else
+                    v-permission="{ perm: 'web_server:start', mode: 'view' }"
+                    variant="ghost"
+                    icon="oi oi-stop-circle"
+                    @click="handleStop(data.id)"
+                    >{{ t('webServer.stop') }}</FpButton
+                  >
+                  <FpButton
+                    v-permission="{ perm: 'web_server:reload', mode: 'view' }"
+                    variant="ghost"
+                    icon="oi oi-refresh"
+                    @click="handleReload(data.id)"
+                    >{{ t('webServer.reload') }}</FpButton
+                  >
+                  <FpActionMenu :items="rowActions(data)" />
+                </div>
+              </template>
+            </FpColumn>
+          </FpTable>
+          <FpPagination
+            v-if="total > pageSize"
+            :first="first"
+            :rows="pageSize"
+            :total="total"
+            :rows-per-page-options="[20, 50, 100]"
+            @update:first="onFirst"
+          />
+        </div>
+      </template>
+      <template #native>
+        <WebServerNativeTab @changed="invalidate" />
+      </template>
+    </FpTabs>
 
-    <FpModal v-model="showInstall" :header="t('webServer.installTitle')" style="width: 500px">
+    <FpModal v-model="showInstall" :header="t('webServer.installTitle')" size="md">
       <div class="modal-form">
         <FpSelect
           v-model="form.engine"
@@ -206,15 +130,17 @@
       </template>
     </FpModal>
 
-    <FpModal v-model="showPreset" :header="t('webServer.preset')" style="width: 520px">
+    <FpModal v-model="showPreset" :header="t('webServer.preset')" size="md">
       <div class="modal-form">
-        <FpInlineMessage severity="info" class="preset-alert">{{ t('webServer.presetRecommend') }}</FpInlineMessage>
+        <FpInlineMessage severity="info" class="preset-alert">{{
+          t('webServer.presetRecommend')
+        }}</FpInlineMessage>
         <FpRadioGroup v-model="selectedPreset" class="preset-group">
           <div v-for="p in presets" :key="p.name" class="preset-radio">
             <FpRadioOption :value="p.name" :input-id="`preset-${p.name}`" />
             <label :for="`preset-${p.name}`" class="preset-label">
               {{ p.description }}
-              <FpTag v-if="p.recommended" severity="success" value="推荐" />
+              <FpTag v-if="p.recommended" severity="success" :value="t('common.recommended')" />
             </label>
           </div>
         </FpRadioGroup>
@@ -227,7 +153,7 @@
       </template>
     </FpModal>
 
-    <FpModal v-model="showSwitch" :header="t('webServer.switchEngine')" style="width: 480px">
+    <FpModal v-model="showSwitch" :header="t('webServer.switchEngine')" size="md">
       <div class="modal-form">
         <FpSelect
           v-model="switchEngine"
@@ -245,23 +171,12 @@
         </FpButton>
       </template>
     </FpModal>
-  </div>
+  </LayoutContent>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-
-
-
-
-
-
-
-
-
-
-
 
 import {
   listEngines,
@@ -276,22 +191,16 @@ import {
   switchWebServerEngine,
   applyWebServerPreset,
   listPresets,
-  detectNativeWebServers,
-  nativeInstallWebServer,
-  nativeUninstallWebServer,
-  nativeAutostartWebServer,
 } from '@/api/webServers'
-import type {
-  EngineInfo,
-  WebServerResponse,
-  PerformancePresetInfo,
-  NativeWebServerInfo,
-} from '@/types'
+import type { EngineInfo, WebServerResponse, PerformancePresetInfo } from '@/types'
+import LayoutContent from '@/components/ui/LayoutContent.vue'
+import PageToolbar from '@/components/ui/PageToolbar.vue'
 import FpTable from '@/components/ui/FpTable.vue'
 import FpModal from '@/components/ui/FpModal.vue'
 import FpInput from '@/components/ui/FpInput.vue'
 import FpSelect from '@/components/ui/FpSelect.vue'
 import FpButton from '@/components/ui/FpButton.vue'
+import FpActionMenu, { type FpActionItem } from '@/components/ui/FpActionMenu.vue'
 import FpTag from '@/components/ui/FpTag.vue'
 import { useFpToast } from '@/components/ui/FpToast'
 import { useFpConfirm } from '@/components/ui/FpConfirm'
@@ -301,11 +210,12 @@ import FpNumber from '@/components/ui/FpNumber.vue'
 import FpPagination from '@/components/ui/FpPagination.vue'
 import FpRadioGroup from '@/components/ui/FpRadioGroup.vue'
 import FpRadioOption from '@/components/ui/FpRadioOption.vue'
-import FpSwitch from '@/components/ui/FpSwitch.vue'
 import FpTabs from '@/components/ui/FpTabs.vue'
 import type { FpTabItem } from '@/components/ui/FpTabs.vue'
 import { useApiQuery, useQueryCacheClient } from '@/composables/useApiQuery'
+import { useCrudPage } from '@/composables/useCrudPage'
 import { queryKeys } from '@/api/queryKeys'
+import WebServerNativeTab from '@/components/webserver/WebServerNativeTab.vue'
 
 const { t } = useI18n()
 
@@ -318,24 +228,25 @@ const { confirmAction } = useFpConfirm()
 
 const queryClient = useQueryCacheClient()
 const activeTab = ref('instances')
-const currentPage = ref(1)
-const pageSize = ref(20)
+// Y9：分页状态收敛到 useCrudPage
+const crud = useCrudPage({ pageSize: 20 })
+const { total, first, pageSize, onFirst } = crud
 const submitting = ref(false)
 const showInstall = ref(false)
 const form = ref({ engine: '', version: '', config_path: '', binary_path: '', port: 80 })
 
 // P3-A：Web 服务器实例与引擎列表分别走统一数据获取层 useApiQuery
 const instancesQuery = useApiQuery<{ data: WebServerResponse[]; total: number }>(
-  () => queryKeys.webServers.list(currentPage.value, pageSize.value),
+  () => queryKeys.webServers.list(crud.currentPage.value, crud.pageSize.value),
   async () => {
-    const res = await listWebServers(currentPage.value, pageSize.value)
+    const res = await listWebServers(crud.currentPage.value, crud.pageSize.value)
+    crud.total.value = res.data.total
     return { data: { data: res.data.data, total: res.data.total } }
   },
   { keepPrevious: true },
 )
 const instances = computed<WebServerResponse[]>(() => instancesQuery.data.value?.data ?? [])
 const loading = instancesQuery.loading
-const total = computed(() => instancesQuery.data.value?.total ?? 0)
 
 const enginesQuery = useApiQuery<EngineInfo[]>(
   () => queryKeys.engines.list(),
@@ -349,10 +260,6 @@ const engines = computed<EngineInfo[]>(() => enginesQuery.data.value ?? [])
 function invalidate() {
   queryClient.invalidateQueries({ queryKey: queryKeys.webServers.all })
   queryClient.invalidateQueries({ queryKey: queryKeys.engines.all })
-}
-
-function goPage(first: number) {
-  currentPage.value = first / pageSize.value + 1
 }
 
 async function handleInstall() {
@@ -383,6 +290,48 @@ async function handleInstall() {
   } finally {
     submitting.value = false
   }
+}
+
+/** 行操作：启停 / 重载为按钮，其余收进「更多」 */
+function rowActions(row: WebServerResponse): FpActionItem[] {
+  return [
+    {
+      key: 'restart',
+      label: t('webServer.restart'),
+      icon: 'oi oi-sync',
+      perm: 'web_server:start',
+      command: () => handleRestart(row.id),
+    },
+    {
+      key: 'configtest',
+      label: t('webServer.configtest'),
+      icon: 'oi oi-check-circle',
+      perm: 'web_server:configtest',
+      command: () => handleConfigtest(row.id),
+    },
+    {
+      key: 'preset',
+      label: t('webServer.preset'),
+      icon: 'oi oi-sliders',
+      perm: 'web_server:update',
+      command: () => openPreset(row),
+    },
+    {
+      key: 'switch',
+      label: t('webServer.switchEngine'),
+      icon: 'oi oi-random',
+      perm: 'web_server:update',
+      command: () => openSwitch(row),
+    },
+    {
+      key: 'uninstall',
+      label: t('webServer.uninstall'),
+      icon: 'oi oi-trash',
+      perm: 'web_server:delete',
+      danger: true,
+      command: () => confirmDelete(row),
+    },
+  ]
 }
 
 async function handleStart(id: number) {
@@ -501,122 +450,19 @@ async function handleSwitchEngine() {
     submitting.value = false
   }
 }
-
-// ── 原生控制 ──
-const nativeList = ref<NativeWebServerInfo[]>([])
-const detecting = ref(false)
-const nativeBusy = ref(false)
-
-async function fetchNative() {
-  detecting.value = true
-  try {
-    const res = await detectNativeWebServers()
-    nativeList.value = res.data
-  } catch {
-    toast.error(t('common.failed'))
-  } finally {
-    detecting.value = false
-  }
-}
-
-function confirmNativeInstall(row: NativeWebServerInfo) {
-  confirmAction({
-    message: t('webServer.nativeInstallConfirm', { name: row.engine }),
-    header: t('common.confirmAction'),
-    accept: async () => {
-      if (nativeBusy.value) return
-      nativeBusy.value = true
-      try {
-        await nativeInstallWebServer(row.engine)
-        toast.success(t('common.success'))
-        await fetchNative()
-        invalidate()
-      } catch {
-        toast.error(t('common.failed'))
-      } finally {
-        nativeBusy.value = false
-      }
-    },
-  })
-}
-
-function confirmNativeUninstall(row: NativeWebServerInfo) {
-  confirmAction({
-    message: t('webServer.nativeUninstallConfirm', { name: row.engine }),
-    header: t('common.confirmAction'),
-    accept: async () => {
-      if (nativeBusy.value) return
-      nativeBusy.value = true
-      try {
-        await nativeUninstallWebServer(row.engine)
-        toast.success(t('common.success'))
-        await fetchNative()
-        invalidate()
-      } catch {
-        toast.error(t('common.failed'))
-      } finally {
-        nativeBusy.value = false
-      }
-    },
-  })
-}
-
-async function handleNativeAutostart(row: NativeWebServerInfo, enabled: boolean) {
-  try {
-    await nativeAutostartWebServer(row.engine, enabled)
-    toast.success(t('common.success'))
-    await fetchNative()
-  } catch {
-    toast.error(t('common.failed'))
-  }
-}
-
-onMounted(() => {
-  fetchNative()
-})
 </script>
 
 <style scoped>
 .servers-tabs {
-  background: var(--fp-bg-elevated);
+  background: var(--fp-bg-surface);
   border: 1px solid var(--fp-border);
   border-radius: var(--fp-radius-md);
   padding: var(--fp-space-4);
-}
-.page-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: var(--fp-space-4);
-}
-.native-toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--fp-space-3);
-  flex-wrap: wrap;
-  margin-bottom: var(--fp-space-4);
-}
-.native-hint {
-  flex: 1;
-  min-width: 260px;
 }
 .row-actions {
   display: flex;
   gap: var(--fp-space-1);
   flex-wrap: wrap;
-}
-.modal-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--fp-space-4);
-}
-.field-col {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.field-label {
-  font-size: 13px;
-  color: var(--fp-text-secondary);
 }
 .cell-truncate {
   display: inline-block;
@@ -624,9 +470,6 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.mr-1 {
-  margin-right: 4px;
 }
 .preset-alert {
   width: 100%;

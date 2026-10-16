@@ -9,8 +9,10 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Serialize)]
+/// 防火墙规则（面板侧定义；`POST /api/firewall/apply` 才下发到系统防火墙）
+#[derive(Serialize, ToSchema)]
 pub struct FirewallRuleResponse {
     pub id: i64,
     pub name: String,
@@ -27,9 +29,10 @@ pub struct FirewallRuleResponse {
     pub updated_at: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct CreateFirewallRuleRequest {
     pub name: String,
+    /// 缺省 `tcp`；`tcp` / `udp` / `both` / `icmp`
     pub description: Option<String>,
     pub protocol: Option<String>,
     pub port: Option<String>,
@@ -41,7 +44,7 @@ pub struct CreateFirewallRuleRequest {
     pub direction: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct UpdateFirewallRuleRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -55,13 +58,14 @@ pub struct UpdateFirewallRuleRequest {
     pub direction: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct ToggleRequest {
     pub enabled: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct ReorderRequest {
+    /// 规则 ID，按顺序赋优先级 10、20、30…（单事务）；未列出的规则保持原优先级，不存在的 ID 忽略
     pub ids: Vec<i64>,
 }
 
@@ -83,6 +87,19 @@ fn to_response(rule: FirewallRule) -> FirewallRuleResponse {
     }
 }
 
+/// 防火墙规则列表（分页，按优先级）
+#[utoipa::path(
+    get,
+    path = "/api/firewall/rules",
+    tag = "firewall",
+    params(PaginationParams),
+    responses(
+        (status = 200, description = "规则分页", body = PaginatedResponse<FirewallRuleResponse>),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 firewall:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn list(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
@@ -92,6 +109,20 @@ pub async fn list(
     Ok(Json(PaginatedResponse::new(data, result.total, &params)))
 }
 
+/// 单条防火墙规则
+#[utoipa::path(
+    get,
+    path = "/api/firewall/rules/{id}",
+    tag = "firewall",
+    params(("id" = i64, Path, description = "规则 ID")),
+    responses(
+        (status = 200, description = "规则", body = FirewallRuleResponse),
+        (status = 404, description = "规则不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 firewall:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn get(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -100,6 +131,20 @@ pub async fn get(
     Ok(Json(to_response(rule)))
 }
 
+/// 新建防火墙规则（仅落库，需 apply 才生效）
+#[utoipa::path(
+    post,
+    path = "/api/firewall/rules",
+    tag = "firewall",
+    request_body = CreateFirewallRuleRequest,
+    responses(
+        (status = 200, description = "已创建", body = FirewallRuleResponse),
+        (status = 400, description = "端口 / 地址 / 协议 / 方向校验失败"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 firewall:create 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn create(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<CreateFirewallRuleRequest>,
@@ -123,6 +168,22 @@ pub async fn create(
     Ok(Json(to_response(created)))
 }
 
+/// 更新防火墙规则（字段缺省即保持不变）
+#[utoipa::path(
+    put,
+    path = "/api/firewall/rules/{id}",
+    tag = "firewall",
+    params(("id" = i64, Path, description = "规则 ID")),
+    request_body = UpdateFirewallRuleRequest,
+    responses(
+        (status = 200, description = "已更新", body = FirewallRuleResponse),
+        (status = 400, description = "端口 / 地址 / 协议 / 方向校验失败"),
+        (status = 404, description = "规则不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 firewall:update 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -164,6 +225,20 @@ pub async fn update(
     Ok(Json(to_response(updated)))
 }
 
+/// 删除防火墙规则
+#[utoipa::path(
+    delete,
+    path = "/api/firewall/rules/{id}",
+    tag = "firewall",
+    params(("id" = i64, Path, description = "规则 ID")),
+    responses(
+        (status = 200, description = "`\"deleted\"`", body = String),
+        (status = 404, description = "规则不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 firewall:delete 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -172,6 +247,21 @@ pub async fn delete(
     Ok(Json("deleted"))
 }
 
+/// 启用 / 停用单条规则
+#[utoipa::path(
+    post,
+    path = "/api/firewall/rules/{id}/toggle",
+    tag = "firewall",
+    params(("id" = i64, Path, description = "规则 ID")),
+    request_body = ToggleRequest,
+    responses(
+        (status = 200, description = "切换后的规则", body = FirewallRuleResponse),
+        (status = 404, description = "规则不存在"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 firewall:enable 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn toggle(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -181,6 +271,19 @@ pub async fn toggle(
     Ok(Json(to_response(rule)))
 }
 
+/// 把全部已启用规则下发到系统防火墙（ufw / firewalld / iptables；面板非 root 时经特权助手）
+#[utoipa::path(
+    post,
+    path = "/api/firewall/apply",
+    tag = "firewall",
+    responses(
+        (status = 200, description = "`\"applied\"`", body = String),
+        (status = 500, description = "防火墙后端执行失败"),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 firewall:apply 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn apply_all(State(state): State<AppState>) -> Result<Json<&'static str>, AppError> {
     let rules = state.firewall_service.list_rules().await?;
     let rule_count = rules.len();
@@ -192,6 +295,18 @@ pub async fn apply_all(State(state): State<AppState>) -> Result<Json<&'static st
     Ok(Json("applied"))
 }
 
+/// 防火墙后端状态（检测到的后端、是否启用等键值）
+#[utoipa::path(
+    get,
+    path = "/api/firewall/status",
+    tag = "firewall",
+    responses(
+        (status = 200, description = "状态键值", body = std::collections::HashMap<String, String>),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 firewall:read 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn get_status(
     State(state): State<AppState>,
 ) -> Result<Json<std::collections::HashMap<String, String>>, AppError> {
@@ -199,16 +314,53 @@ pub async fn get_status(
     Ok(Json(status))
 }
 
+/// 启用系统防火墙
+#[utoipa::path(
+    post,
+    path = "/api/firewall/enable",
+    tag = "firewall",
+    responses(
+        (status = 200, description = "`\"enabled\"`", body = String),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 firewall:enable 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn enable(State(state): State<AppState>) -> Result<Json<&'static str>, AppError> {
     state.firewall_service.enable_firewall().await?;
     Ok(Json("enabled"))
 }
 
+/// 停用系统防火墙
+#[utoipa::path(
+    post,
+    path = "/api/firewall/disable",
+    tag = "firewall",
+    responses(
+        (status = 200, description = "`\"disabled\"`", body = String),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 firewall:enable 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn disable(State(state): State<AppState>) -> Result<Json<&'static str>, AppError> {
     state.firewall_service.disable_firewall().await?;
     Ok(Json("disabled"))
 }
 
+/// 按给定顺序重排规则优先级
+#[utoipa::path(
+    post,
+    path = "/api/firewall/reorder",
+    tag = "firewall",
+    request_body = ReorderRequest,
+    responses(
+        (status = 200, description = "`\"reordered\"`", body = String),
+        (status = 401, description = "未认证"),
+        (status = 403, description = "缺少 firewall:update 权限"),
+    ),
+    security(("BearerAuth" = []))
+)]
 pub async fn reorder(
     State(state): State<AppState>,
     ApiJson(req): ApiJson<ReorderRequest>,

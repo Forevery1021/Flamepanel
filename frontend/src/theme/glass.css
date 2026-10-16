@@ -3,47 +3,43 @@
  *     表格/表单密集区使用 dense 低 blur（--fp-glass-blur-dense）保证对比度。
  */
 
-/* 轻玻璃：顶栏/卡片悬浮 */
+/* 轻玻璃：顶栏/卡片悬浮 —— 全部参数来自 --fp-surface-*（材质档位切换见 tokens.css「Material」） */
 .glass {
-  background: var(--fp-glass-bg);
-  backdrop-filter: blur(var(--fp-glass-blur)) saturate(1.4);
-  -webkit-backdrop-filter: blur(var(--fp-glass-blur)) saturate(1.4);
-  border: 1px solid oklch(1 0 0 / 0.5);
-  box-shadow: 0 1px 0 0 oklch(1 0 0 / 0.4) inset;
+  background: var(--fp-surface-bg);
+  background-image: var(--fp-surface-noise);
+  backdrop-filter: blur(var(--fp-surface-blur)) saturate(var(--fp-surface-saturate));
+  -webkit-backdrop-filter: blur(var(--fp-surface-blur)) saturate(var(--fp-surface-saturate));
+  border: 1px solid var(--fp-surface-border);
+  box-shadow: var(--fp-surface-highlight);
 }
 
-/* 重玻璃：Modal / Command Palette */
+/* 重玻璃：Modal / Command Palette / 引导卡片 */
 .glass-heavy {
-  background: var(--fp-glass-bg-heavy);
-  backdrop-filter: blur(calc(var(--fp-glass-blur) * 2)) saturate(1.5);
-  -webkit-backdrop-filter: blur(calc(var(--fp-glass-blur) * 2)) saturate(1.5);
-  border: 1px solid oklch(1 0 0 / 0.6);
+  background: var(--fp-surface-bg-heavy);
+  background-image: var(--fp-surface-noise);
+  backdrop-filter: blur(calc(var(--fp-surface-blur) * 1.6))
+    saturate(calc(var(--fp-surface-saturate) + 0.1));
+  -webkit-backdrop-filter: blur(calc(var(--fp-surface-blur) * 1.6))
+    saturate(calc(var(--fp-surface-saturate) + 0.1));
+  border: 1px solid var(--fp-surface-border);
   box-shadow:
-    0 1px 0 0 oklch(1 0 0 / 0.5) inset,
-    0 20px 40px -12px rgb(0 0 0 / 0.25);
-}
-
-.dark .glass {
-  background: var(--fp-glass-bg);
-  border-color: oklch(1 0 0 / 0.08);
-  box-shadow: 0 1px 0 0 oklch(1 0 0 / 0.06) inset;
+    var(--fp-surface-highlight),
+    0 20px 40px -12px oklch(0 0 0 / 0.25);
 }
 
 .dark .glass-heavy {
-  background: var(--fp-glass-bg-heavy);
-  border-color: oklch(1 0 0 / 0.1);
   box-shadow:
-    0 1px 0 0 oklch(1 0 0 / 0.08) inset,
-    0 20px 40px -12px rgb(0 0 0 / 0.6);
+    var(--fp-surface-highlight),
+    0 20px 40px -12px oklch(0 0 0 / 0.6);
 }
 
 /* ── 玻璃总开关：关闭 → 全部回退实色（低端设备 / 用户偏好）── */
+/* 两个类都挂在 <html> 上：旧版写成后代选择器 `.glass-disabled .app-bg-enabled`，从未命中 */
 .glass-disabled .glass,
 .glass-disabled .glass-heavy,
-.glass-disabled .app-bg-enabled .app-header,
-.glass-disabled .app-bg-enabled .app-tabs,
-.glass-disabled .app-bg-enabled .panel,
-.glass-disabled .app-bg-enabled .fp-table .p-datatable-header {
+.glass-disabled.app-bg-enabled .app-header,
+.glass-disabled.app-bg-enabled .panel,
+.glass-disabled.app-bg-enabled .fp-table .p-datatable-header {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   background: var(--fp-bg-elevated) !important;
@@ -63,13 +59,17 @@
 
 /* ═══════════ 自定义背景联动：面板转半透明玻璃 ═══════════ */
 .app-bg-enabled .app-header,
-.app-bg-enabled .app-tabs,
 .app-bg-enabled .panel,
 .app-bg-enabled .fp-table .p-datatable-header,
 .app-bg-enabled .p-paginator {
-  background: color-mix(in srgb, var(--fp-bg-elevated) 78%, transparent);
-  backdrop-filter: blur(var(--fp-glass-blur)) saturate(1.3);
-  -webkit-backdrop-filter: blur(var(--fp-glass-blur)) saturate(1.3);
+  background: color-mix(
+    in oklch,
+    var(--fp-bg-elevated) calc(var(--fp-surface-alpha) * 100% + 16%),
+    transparent
+  );
+  background-image: var(--fp-surface-noise);
+  backdrop-filter: blur(var(--fp-surface-blur)) saturate(var(--fp-surface-saturate));
+  -webkit-backdrop-filter: blur(var(--fp-surface-blur)) saturate(var(--fp-surface-saturate));
 }
 /* 表格/表单密集区降低 blur，保证对比度 */
 .app-bg-enabled .fp-table .p-datatable-header,
@@ -82,4 +82,14 @@
 }
 .app-bg-enabled .app-header {
   border-bottom-color: color-mix(in srgb, var(--fp-border) 70%, transparent);
+}
+
+/* ═══════════ 内容表面（W4-a）═══════════
+ * `.fp-surface`：卡片 / 面板 / 设置分组共用——背景与模糊全部来自材质令牌，
+ * solid 下自动退化为不透明 elevated、无 backdrop-filter（零额外合成开销）。 */
+.fp-surface {
+  background: var(--fp-bg-surface);
+  background-image: var(--fp-surface-noise);
+  backdrop-filter: var(--fp-surface-filter);
+  -webkit-backdrop-filter: var(--fp-surface-filter);
 }

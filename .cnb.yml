@@ -1,0 +1,243 @@
+# ── FlamePanel CNB 流水线 ─────────────────────────────────────────────
+# 1. NPC 事件（本仓库定义的 deepseek-v4.1-flash 角色被 @ 时）：使用预装 Rust 工具链的
+#    自定义镜像，NPC 会话可直接执行后端门禁（cargo fmt/clippy/test），
+#    无需每次现场安装 rustup（约省 2-3 分钟启动耗时）。
+#    事件须挂在 $ 兜底分支下；本仓库仅此一个角色，等价于角色专属流水线。
+# 2. main.push：构建并推送 NPC 运行镜像（.cnb/npc/Dockerfile → npc-env:latest），
+#    仅 Dockerfile 变更时重建（CNB 自动缓存）。
+# 3. 云原生开发（vscode 事件）：本机仅做轻量修改，真正的开发/门禁在 CNB 云端环境执行。
+#    镜像由 .ide/Dockerfile 构建（npc-env + 固定 Node/npm + openssh-server + code-server），
+#    支持 WebIDE / VSCode / Cursor Remote-SSH 及 OpenAPI（POST /{repo}/-/workspace/start）远程唤起。
+# 4. 质量门禁（Doc/31 §5，与 .github/workflows/ci-cd.yml 同口径；本地/云开发入口 scripts/ci-local.sh）：
+#    - installer-regression：安装脚本离线回归 + API 文档一致性（1C，≈0 核时）
+#    - backend-gates：fmt / clippy -D warnings / cargo test --locked --all（含 OpenAPI 快照漂移单测）
+#    - frontend-gates：typecheck / lint / vitest+coverage（一次） / build / bundle / i18n / audit
+#    - e2e-playwright：真后端 + 真产物黄金路径
+# 5. 构建额度策略（云原生构建 160 核时/月，一次全量 ≈ 1.4–2.3 核时）：
+#    - 日常 push / PR / 合并 main：只跑 installer-regression；
+#    - 重门禁在云原生开发环境（1600 核时/月，另计）执行：bash scripts/ci-local.sh all；
+#    - 云端全量门禁只在 tag v* 推送（大版本发布）或手动 api_trigger_full_gates 时运行；
+#    - sqlite 单特性子集已并入 ci-local.sh（backend-features 组），tag 构建不重复跑。
+
+# ── 公共锚点 ──────────────────────────────────────────────────────────
+.npc-pipeline: &npc-pipeline
+  docker:
+    image: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc-env:latest
+  stages:
+    - name: run with npc
+      type: npc:go
+      options:
+        model: ${CNB_NPC_NAME}
+        contextWindow: 1m
+        thinkingLevel: max
+
+# 安装回归为独立轻量门禁：不使用 Docker 服务，不安装依赖，不执行真实安装。
+.installer-regression: &installer-regression
+  name: installer-regression
+  docker:
+    image: python:3.11.14-slim-bookworm
+  runner:
+    cpus: 1
+  stages:
+    - name: installer syntax and offline regression
+      script: timeout --signal=TERM --kill-after=10s 120s bash scripts/check-install.sh
+    - name: api docs up to date
+      # Doc/32 §6：Doc/api/ 必须与 frontend/openapi.json 一致，且快照中不得有代码里不存在的幽灵路由
+      script: python3 scripts/gen-api-docs.py --check
+    - name: shell exec gate
+      # Doc/33 §5-3：新增 "-c" 调用点须在 scripts/shell-exec-allowlist.txt 登记理由（只减不增）
+      script: python3 scripts/check-shell-exec.py
+    - name: release assets and migration invariants
+      script: |
+        python3 -m unittest discover -s scripts/tests -p test_release_assets.py
+        python3 -m unittest discover -s scripts/tests -p test_migration_docs.py
+
+# 后端门禁：npc-env 已含固定 Rust 工具链 + clippy + rustfmt + 编译依赖（CARGO_HOME=/usr/local/cargo）。
+# 8 核 = 16 GB 内存，足够 cargo test --locked --all 并行链接；target 放到缓存卷避免与工作区 CoW 克隆冲突。
+.backend-gates: &backend-gates
+  name: backend-gates
+  runner:
+    cpus: 8
+  docker:
+    image: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc-env:latest
+    volumes:
+      - main:/usr/local/cargo/registry:copy-on-write
+      - main:/usr/local/cargo/git:copy-on-write
+      - main:/cache/cargo-target:copy-on-write
+  env:
+    CARGO_TERM_COLOR: always
+    CARGO_INCREMENTAL: "0"
+    CARGO_TARGET_DIR: /cache/cargo-target
+    RUST_BACKTRACE: "1"
+  stages:
+    - name: toolchain
+      script: rustc --version && cargo --version && cargo clippy --locked --version
+    - name: rustfmt
+      script: cargo fmt --all -- --check
+    - name: clippy (-D warnings)
+      script: cargo clippy --locked --all-targets -- -D warnings
+    - name: cargo test --locked --all
+      # --no-fail-fast：一个测试可执行体失败也继续跑完其余，单次运行暴露全部问题。
+      # OpenAPI 快照漂移已并入单测 openapi::tests::frontend_snapshot_is_up_to_date
+      # （原独立 stage 要多做一次完整 dev 构建）；sqlite 单特性子集移到每周定时流水线。
+      script: cargo test --locked --all --no-fail-fast
+
+# 前端门禁：官方 Node 镜像标签与 .node-version 一致；npm 版本按 package.json#packageManager 固定。
+.frontend-gates: &frontend-gates
+  name: frontend-gates
+  runner:
+    cpus: 4
+  docker:
+    image: node:24.20.0-bookworm-slim
+    volumes:
+      - main:/root/.npm:copy-on-write
+  env:
+    CI: "true"
+    HUSKY: "0"
+  stages:
+    - name: pin npm & verify toolchain
+      script: |
+        set -eu
+        npm install --global "$(node -p "require('./frontend/package.json').packageManager")"
+        npm --prefix frontend run check:toolchain
+    - name: npm ci (locked)
+      script: cd frontend && timeout --signal=TERM --kill-after=15s 10m npm ci --no-audit --no-fund
+    - name: typecheck
+      script: cd frontend && npm run typecheck
+    - name: lint
+      script: cd frontend && npm run lint
+    - name: unit tests + coverage gate
+      # 覆盖率运行即完整单测，不再单独 vitest run 一遍（省约一半测试时长）
+      script: cd frontend && npm run test:coverage
+    - name: build
+      script: cd frontend && npm run build
+    - name: bundle size gate (200 KB gzip)
+      script: cd frontend && npm run bundle:check
+    - name: i18n key gate
+      script: cd frontend && npm run locale:check
+    - name: npm audit (high)
+      script: cd frontend && npm audit --audit-level=high
+
+# E2E：Playwright + 真实 flame-kernel（SQLite）+ 真实构建产物。镜像复用云开发镜像（Rust + Node）。
+# 耗时与单元门禁不同量级，单独成条；只在 pull_request 与 main.push 触发。
+.e2e-playwright: &e2e-playwright
+  name: e2e-playwright
+  runner:
+    cpus: 4
+  docker:
+    build:
+      dockerfile: .ide/Dockerfile
+      by:
+        - rust-toolchain.toml
+        - .ide/10-flamepanel-rust.conf
+        - .node-version
+        - frontend/package.json
+    volumes:
+      - main:/usr/local/cargo/registry:copy-on-write
+      - main:/usr/local/cargo/git:copy-on-write
+      - main:/cache/cargo-target:copy-on-write
+      - main:/root/.npm:copy-on-write
+      - main:/root/.cache/ms-playwright:copy-on-write
+  env:
+    CI: "true"
+    HUSKY: "0"
+    CARGO_TERM_COLOR: always
+    CARGO_INCREMENTAL: "0"
+    CARGO_TARGET_DIR: /cache/cargo-target
+    E2E_BACKEND_BIN: /cache/cargo-target/debug/flame-kernel
+  stages:
+    - name: build backend (debug)
+      script: cargo build --locked -p flame-kernel
+    - name: frontend deps (locked)
+      script: |
+        set -eu
+        cd frontend
+        npm run check:toolchain
+        timeout --signal=TERM --kill-after=15s 10m npm ci --no-audit --no-fund
+    - name: playwright chromium
+      script: cd frontend && npx playwright install --with-deps chromium
+    - name: e2e (build + preview + real backend)
+      script: cd frontend && npm run e2e
+  failStages:
+    - name: e2e failure summary
+      script: |
+        ls -la frontend/test-results 2>/dev/null || true
+        find frontend/test-results -name "*.txt" -maxdepth 3 -exec sh -c 'echo "== $1"; head -50 "$1"' _ {} \; 2>/dev/null || true
+
+"$":
+  # 开发期（Doc/31 §5.3）：push / PR 只跑 1C 安装回归（≈0 核时）。重门禁在云原生开发环境里用
+  # scripts/ci-local.sh 执行（开发额度），结果贴在 PR 描述；大版本 tag 才跑云端全量门禁。
+  push:
+    - *installer-regression
+  pull_request:
+    - *installer-regression
+  # 按需手动触发云端全量门禁（OpenAPI：POST /{repo}/-/build/start，event=api_trigger_full_gates）。
+  api_trigger_full_gates:
+    - *installer-regression
+    - *backend-gates
+    - *frontend-gates
+    - *e2e-playwright
+  vscode:
+    - name: flamepanel-dev
+      runner:
+        cpus: 8
+      docker:
+        build:
+          dockerfile: .ide/Dockerfile
+          # CNB 只将 by 列出的文件加入上下文及缓存计算；COPY 的输入必须逐项声明。
+          by:
+            - rust-toolchain.toml
+            - .ide/10-flamepanel-rust.conf
+            - .node-version
+            - frontend/package.json
+        volumes:
+          # 复用门禁流水线的 cargo 注册表缓存与 npm 缓存，减少云开发环境首次编译/安装耗时
+          - main:/usr/local/cargo/registry:copy-on-write
+          - main:/usr/local/cargo/git:copy-on-write
+          - main:/root/.npm:copy-on-write
+      services:
+        - vscode
+        - docker
+      env:
+        CARGO_TERM_COLOR: always
+      stages:
+        - name: toolchain versions
+          script: |
+            bash scripts/check-rust-toolchain.sh && node --version && npm --version
+        - name: frontend deps (locked)
+          script: |
+            set -eu
+            cd frontend
+            npm run check:toolchain
+            timeout --signal=TERM --kill-after=15s 10m npm ci --no-audit --no-fund
+        - name: cargo fetch (background)
+          script: (cargo fetch > /tmp/cargo-fetch.log 2>&1 &)
+  issue.comment@npc:
+    - *npc-pipeline
+  pull_request.comment@npc:
+    - *npc-pipeline
+
+# ── 大版本发布：tag v* 推送时跑云端全量门禁（唯一自动消耗构建额度的入口） ──────────────
+"v*":
+  tag_push:
+    - *installer-regression
+    - *backend-gates
+    - *frontend-gates
+    - *e2e-playwright
+
+# ── main 分支：合并后只跑安装回归 + 按需构建 NPC 运行镜像 ──────────────────────────────
+main:
+  pull_request:
+    - *installer-regression
+  push:
+    - *installer-regression
+    - name: build-npc-image
+      ifModify:
+        - .cnb/npc/**
+      services:
+        - docker
+      stages:
+        - name: build npc image
+          script: docker build -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc-env:latest .cnb/npc
+        - name: push npc image
+          script: docker push ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc-env:latest

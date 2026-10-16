@@ -33,7 +33,43 @@
       </div>
 
       <div class="login-form-panel">
-        <form class="login-form" @submit.prevent="handleLogin">
+        <!-- 第二步：两步验证（TOTP / 恢复码） -->
+        <form v-if="challenge" class="login-form" @submit.prevent="handleTwoFactor">
+          <h2 class="login-form__title">{{ t('twoFactor.loginTitle') }}</h2>
+          <p class="login-form__sub">
+            {{ useRecovery ? t('twoFactor.loginRecoveryHint') : t('twoFactor.loginHint') }}
+          </p>
+          <FpInput
+            :key="useRecovery ? 'recovery' : 'totp'"
+            v-model="code"
+            :label="useRecovery ? t('twoFactor.codeOrRecovery') : t('twoFactor.code')"
+            :placeholder="
+              useRecovery ? t('twoFactor.recoveryPlaceholder') : t('twoFactor.codePlaceholder')
+            "
+            :inputmode="useRecovery ? 'text' : 'numeric'"
+            autocomplete="one-time-code"
+            autofocus
+            :error="codeError"
+            @update:model-value="codeError = ''"
+          />
+          <FpButton
+            type="submit"
+            variant="primary"
+            :loading="loading"
+            :disabled="!code.trim()"
+            class="login-btn"
+            size="large"
+          >
+            {{ t('twoFactor.verify') }}
+          </FpButton>
+          <div class="login-2fa-links">
+            <FpButton variant="link" @click="toggleRecovery">
+              {{ useRecovery ? t('twoFactor.loginUseTotp') : t('twoFactor.loginUseRecovery') }}
+            </FpButton>
+            <FpButton variant="link" @click="resetTwoFactor">{{ t('twoFactor.back') }}</FpButton>
+          </div>
+        </form>
+        <form v-else class="login-form" @submit.prevent="handleLogin">
           <h2 class="login-form__title">{{ t('login.title') }}</h2>
           <p class="login-form__sub">{{ t('login.welcome') }}</p>
           <FpInput
@@ -104,7 +140,7 @@
 
 <script setup lang="ts">
 import { reactive, ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { changePassword } from '@/api/auth'
@@ -112,15 +148,29 @@ import FpInput from '@/components/ui/FpInput.vue'
 import FpButton from '@/components/ui/FpButton.vue'
 import FpModal from '@/components/ui/FpModal.vue'
 import { useFpToast } from '@/components/ui/FpToast'
+import type { LoginResponse } from '@/api/generated'
 
 const { t } = useI18n()
-const form = reactive({ username: 'admin', password: 'admin123' })
+// R1：禁止在源码/构建产物中预填出厂口令。仅开发环境（本地演示）预填 admin，生产默认留空。
+const form = reactive({
+  username: import.meta.env.DEV ? 'admin' : '',
+  password: import.meta.env.DEV ? 'admin123' : '',
+})
 const usernameError = ref('')
 const passwordError = ref('')
 const loading = ref(false)
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const toast = useFpToast()
+
+// 两步验证第二步
+const challenge = ref('')
+const code = ref('')
+const codeError = ref('')
+const useRecovery = ref(false)
+/** 面板强制两步验证而该用户未绑定：登录（含强制改密）完成后进入绑定页 */
+const mustSetupTwoFactor = ref(false)
 
 // 强制改密
 const showForceChange = ref(false)
@@ -148,12 +198,14 @@ async function handleLogin() {
   loading.value = true
   try {
     const res = await auth.login(form.username, form.password)
-    if (res.must_change_password) {
-      forceForm.old_password = form.password
-      showForceChange.value = true
-    } else {
-      router.push('/dashboard')
+    if (res.two_factor_required && res.challenge) {
+      challenge.value = res.challenge
+      code.value = ''
+      codeError.value = ''
+      useRecovery.value = false
+      return
     }
+    afterLogin(res)
   } catch (e) {
     const err = e as { code?: string; message?: string }
     toast.error(new Error(err.code === 'AUTH_FORBIDDEN' ? t('login.locked') : t('login.error')))
@@ -162,13 +214,60 @@ async function handleLogin() {
   }
 }
 
+/** 登录完成后的去向：强制改密 → 强制绑定两步验证 → 仪表盘 */
+function afterLogin(res: LoginResponse) {
+  mustSetupTwoFactor.value = !!res.must_setup_two_factor
+  if (res.must_change_password) {
+    forceForm.old_password = form.password
+    showForceChange.value = true
+  } else {
+    router.push(mustSetupTwoFactor.value ? '/two-factor-setup' : '/dashboard')
+  }
+}
+
+async function handleTwoFactor() {
+  if (!code.value.trim()) return
+  loading.value = true
+  try {
+    const res = await auth.loginTwoFactor(challenge.value, code.value.trim())
+    challenge.value = ''
+    afterLogin(res)
+  } catch (e) {
+    const err = e as { code?: string; message?: string }
+    if (err.code === 'RATE_LIMITED' || err.code === 'AUTH_FORBIDDEN') {
+      toast.error(new Error(t('login.locked')))
+    } else if (/challenge/i.test(err.message ?? '')) {
+      // 挑战令牌过期（5 分钟）或因改密失效：回到第一步
+      toast.error(new Error(t('twoFactor.challengeExpired')))
+      resetTwoFactor()
+    } else {
+      codeError.value = t('twoFactor.loginInvalid')
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+function toggleRecovery() {
+  useRecovery.value = !useRecovery.value
+  code.value = ''
+  codeError.value = ''
+}
+
+function resetTwoFactor() {
+  challenge.value = ''
+  code.value = ''
+  codeError.value = ''
+  useRecovery.value = false
+}
+
 function validateForce(): boolean {
-  forceErrors.old = forceForm.old_password ? '' : t('settings.oldPasswordRequired')
+  forceErrors.old = forceForm.old_password ? '' : t('login.oldPasswordRequired')
   forceErrors.newPwd = forceForm.new_password
     ? forceForm.new_password.length >= 8
       ? ''
-      : t('settings.passwordMinLength')
-    : t('settings.newPasswordRequired')
+      : t('login.passwordMinLength')
+    : t('login.newPasswordRequired')
   forceErrors.confirm =
     forceForm.confirm && forceForm.confirm === forceForm.new_password
       ? ''
@@ -183,7 +282,7 @@ async function handleForceChange() {
     await changePassword(forceForm.old_password, forceForm.new_password)
     toast.success(t('common.success'))
     showForceChange.value = false
-    router.push('/dashboard')
+    router.push(mustSetupTwoFactor.value ? '/two-factor-setup' : '/dashboard')
   } catch {
     toast.error(t('common.failed'))
   } finally {
@@ -191,10 +290,20 @@ async function handleForceChange() {
   }
 }
 
-onMounted(preloadBackground)
+onMounted(() => {
+  preloadBackground()
+  // B3：会话中后端返回强制改密错误码跳转本页时，提示用户重新登录并完成改密
+  if (route.query.force === '1') {
+    toast.info(t('login.forceChangeHint'))
+  }
+})
 </script>
 
 <style scoped>
+.login-2fa-links {
+  display: flex;
+  justify-content: space-between;
+}
 .login {
   position: relative;
   height: 100vh;
@@ -225,7 +334,11 @@ onMounted(preloadBackground)
   inset: 0;
   background:
     radial-gradient(700px 420px at 18% 12%, var(--fp-brand-soft), transparent 65%),
-    radial-gradient(520px 360px at 85% 88%, color-mix(in srgb, var(--fp-brand-soft) 55%, transparent), transparent 60%);
+    radial-gradient(
+      520px 360px at 85% 88%,
+      color-mix(in srgb, var(--fp-brand-soft) 55%, transparent),
+      transparent 60%
+    );
   pointer-events: none;
 }
 

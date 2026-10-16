@@ -72,7 +72,8 @@
             />
           </div>
           <p class="devui-note">
-            表格已支持：空态（FpEmpty）、加载态、虚拟滚动（virtual 模式）、客户端排序、窄屏横向滚动。
+            表格已支持：空态（FpEmpty）、加载态、虚拟滚动（virtual
+            模式）、客户端排序、窄屏横向滚动。
           </p>
         </section>
       </template>
@@ -95,7 +96,13 @@
               label="下拉选择"
               style="max-width: 200px"
             />
-            <FpNumber v-model="demoNumber" :min="1" :max="100" label="数字输入" style="max-width: 160px" />
+            <FpNumber
+              v-model="demoNumber"
+              :min="1"
+              :max="100"
+              label="数字输入"
+              style="max-width: 160px"
+            />
           </div>
           <div class="devui-row" style="margin-top: 16px">
             <FpSwitch v-model="demoSwitch" />
@@ -117,13 +124,23 @@
           </p>
           <h3>Brand</h3>
           <div class="swatches">
-            <div v-for="c in brandColors" :key="c" class="swatch" :style="{ background: `var(${c})` }">
+            <div
+              v-for="c in brandColors"
+              :key="c"
+              class="swatch"
+              :style="{ background: `var(${c})` }"
+            >
               <span>{{ c }}</span>
             </div>
           </div>
           <h3>Semantic</h3>
           <div class="swatches">
-            <div v-for="c in semanticColors" :key="c" class="swatch" :style="{ background: `var(${c})` }">
+            <div
+              v-for="c in semanticColors"
+              :key="c"
+              class="swatch"
+              :style="{ background: `var(${c})` }"
+            >
               <span>{{ c }}</span>
             </div>
           </div>
@@ -133,14 +150,22 @@
               v-for="c in surfaceColors"
               :key="c"
               class="swatch"
-              :style="{ background: `var(${c})`, color: c.includes('bg') ? 'var(--fp-text-invert)' : '' }"
+              :style="{
+                background: `var(${c})`,
+                color: c.includes('bg') ? 'var(--fp-text-invert)' : '',
+              }"
             >
               <span>{{ c }}</span>
             </div>
           </div>
           <h3>阴影 elevation</h3>
           <div class="devui-row">
-            <div v-for="s in shadows" :key="s.name" class="shadow-demo" :style="{ boxShadow: `var(${s.var})` }">
+            <div
+              v-for="s in shadows"
+              :key="s.name"
+              class="shadow-demo"
+              :style="{ boxShadow: `var(${s.var})` }"
+            >
               {{ s.name }}
             </div>
           </div>
@@ -149,7 +174,7 @@
     </FpTabs>
 
     <!-- 弹窗演示 -->
-    <FpModal v-model="modalVisible" header="FpModal 演示" style="width: 480px">
+    <FpModal v-model="modalVisible" header="FpModal 演示" size="md">
       <p>这是 FpModal（重玻璃）。支持关闭按钮 / 遮罩关闭 / footer 插槽。</p>
       <div class="devui-row" style="margin-top: 12px">
         <FpInput v-model="demoText" label="示例字段" />

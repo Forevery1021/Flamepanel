@@ -168,6 +168,20 @@ impl EmailChannel {
                 "Backup Created".to_string(),
                 format!("Database backup created: {}", filename),
             )),
+            DomainEvent::BackupSucceeded {
+                job_name,
+                remote_key,
+                ..
+            } => Some((
+                "Backup Succeeded".to_string(),
+                format!("Backup job \"{}\" succeeded: {}", job_name, remote_key),
+            )),
+            DomainEvent::BackupFailed {
+                job_name, reason, ..
+            } => Some((
+                "Backup Failed".to_string(),
+                format!("Backup job \"{}\" failed: {}", job_name, reason),
+            )),
             DomainEvent::FirewallRulesApplied { rule_count } => Some((
                 "Firewall Rules Applied".to_string(),
                 format!("{} firewall rules applied.", rule_count),
@@ -176,6 +190,65 @@ impl EmailChannel {
                 "Setup Completed".to_string(),
                 format!("Panel initialized by {}.", username),
             )),
+            DomainEvent::ProjectZeroDowntimeFailed {
+                project_name,
+                reason,
+                ..
+            } => Some((
+                "Zero-Downtime Deploy Failed".to_string(),
+                format!(
+                    "Project \"{}\" zero-downtime switch failed, rolled back to old instance: {}",
+                    project_name, reason
+                ),
+            )),
+            DomainEvent::CertificateIssued {
+                domains, source, ..
+            } => Some((
+                "Certificate Issued".to_string(),
+                format!(
+                    "Certificate for {} (source: {}) issued/renewed successfully.",
+                    domains, source
+                ),
+            )),
+            DomainEvent::CertificateRenewed { id, domain } => Some((
+                "Certificate Renewed".to_string(),
+                format!(
+                    "Certificate #{} for {} has been renewed successfully.",
+                    id, domain
+                ),
+            )),
+            DomainEvent::CertificateRenewalFailed { id, domain, error } => Some((
+                "Certificate Renewal Failed".to_string(),
+                format!(
+                    "Failed to renew certificate #{} for {}: {}.",
+                    id, domain, error
+                ),
+            )),
+            DomainEvent::CertificateExpiring {
+                domains,
+                expires_at,
+                ..
+            } => Some((
+                "Certificate Expiring".to_string(),
+                format!("Certificate for {} expires at {}.", domains, expires_at),
+            )),
+            DomainEvent::WafBlocked {
+                rule_name,
+                rule_type,
+                client_ip,
+                request_summary,
+                hit_count,
+                ..
+            } => Some((
+                format!("WAF Blocked: {}", rule_name),
+                format!(
+                    "WAF rule \"{}\" (type: {}) blocked a request from {}: {}\n\
+                     Blocked hits in this notification window: {}.",
+                    rule_name, rule_type, client_ip, request_summary, hit_count
+                ),
+            )),
+            // F-13: 审计补偿事件不触发通知
+            DomainEvent::AuditEvent { .. } => None,
         }
     }
 }
@@ -200,5 +273,94 @@ impl AsyncNotificationChannel for EmailChannel {
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(all(test, feature = "email"))]
+mod email_render_tests {
+    use super::*;
+    use crate::domain::entity::DomainEvent;
+
+    fn channel() -> EmailChannel {
+        EmailChannel::new(
+            "admin@flamepanel.local",
+            Arc::new(EmailNotifier::new(SmtpConfig::default())),
+        )
+    }
+
+    /// §6.2 拦截通知：`WafBlocked` 渲染为主题 + 正文（含规则类型 / 来源 IP /
+    /// 请求行摘要 / 窗口累计次数），且正文不含敏感头信息（只有请求行摘要）。
+    #[test]
+    fn renders_waf_blocked_notification() {
+        let (subject, body) = channel()
+            .render(&DomainEvent::WafBlocked {
+                website_id: 3,
+                rule_id: 7,
+                rule_name: "sqli-guard".into(),
+                rule_type: "sql_injection".into(),
+                client_ip: "9.9.9.9".into(),
+                request_summary: "GET /login?id=1' OR '1'='1".into(),
+                hit_count: 12,
+            })
+            .expect("WafBlocked 应有邮件映射");
+        assert_eq!(subject, "WAF Blocked: sqli-guard");
+        assert!(body.contains("sql_injection"));
+        assert!(body.contains("9.9.9.9"));
+        assert!(body.contains("GET /login"));
+        assert!(body.contains("12"), "窗口累计次数应透出: {body}");
+    }
+
+    /// 静默事件（含审计补偿）不得产生空邮件。
+    #[test]
+    fn skips_silent_events() {
+        let c = channel();
+        assert!(c
+            .render(&DomainEvent::AuditEvent {
+                message: "OUTBOX_LAGGED:3".into()
+            })
+            .is_none());
+        assert!(
+            c.render(&DomainEvent::CertificateExpiring {
+                cert_id: 1,
+                domains: "example.com".into(),
+                expires_at: "2026-12-31T00:00:00Z".into(),
+            })
+            .is_some(),
+            "到期预警应有邮件映射"
+        );
+        assert!(
+            c.render(&DomainEvent::CertificateRenewed {
+                id: 1,
+                domain: "example.com".into(),
+            })
+            .is_some(),
+            "续签成功应有邮件映射"
+        );
+        assert!(
+            c.render(&DomainEvent::CertificateRenewalFailed {
+                id: 1,
+                domain: "example.com".into(),
+                error: "timeout".into(),
+            })
+            .is_some(),
+            "续签失败应有邮件映射"
+        );
+    }
+
+    /// 未配置 SMTP 时静默跳过（不发信也不报错）。
+    #[tokio::test]
+    async fn notify_skips_when_smtp_unconfigured() {
+        let c = channel();
+        c.notify(&DomainEvent::WafBlocked {
+            website_id: 0,
+            rule_id: 1,
+            rule_name: "bl".into(),
+            rule_type: "ip_blacklist".into(),
+            client_ip: "1.2.3.4".into(),
+            request_summary: "GET /".into(),
+            hit_count: 1,
+        })
+        .await
+        .expect("未配置 SMTP 应静默成功");
     }
 }

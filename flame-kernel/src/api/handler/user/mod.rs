@@ -103,6 +103,8 @@ pub async fn delete(
     Path(id): Path<i64>,
 ) -> Result<Json<&'static str>, AppError> {
     state.user_service.delete_user(id).await?;
+    // 清理两步验证记录（密钥 / 恢复码不随用户删除而残留）
+    let _ = state.two_factor_service.disable(id).await;
     Ok(Json("deleted"))
 }
 

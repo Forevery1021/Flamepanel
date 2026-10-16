@@ -1,7 +1,8 @@
 use crate::api::handler::{
-    app_store, auth, backup, database, docker, file, firewall, health, log, memo, metrics, node,
-    operation_log, outbox, plugin, scheduled_task, settings, setup, task, user, web_server,
-    website, ws,
+    app_store, assistant, auth, backup, backup_account, backup_job, certificate, database,
+    dns_provider, docker, file, firewall, health, iac, inspection, kernel_logs, log, mcp, memo,
+    metrics, node, operation_log, outbox, overview, plugin, project, scheduled_task, settings,
+    setup, task, toolbox, user, waf, web_server, website, ws,
 };
 use crate::api::types::AppState;
 use crate::core::error::AppError;
@@ -15,7 +16,7 @@ pub async fn fallback_handler(uri: axum::http::Uri) -> AppError {
 /// 组合根：汇聚各 handler 模块的路由表，附加全局中间件（见 middleware::add_middleware）
 pub fn create_router(state: AppState) -> Router {
     let mut app = Router::new()
-        .route("/health", get(|| async { "OK" }))
+        .route("/health", get(crate::api::handler::health::liveness))
         .merge(health::routes())
         .merge(auth::routes())
         .merge(user::routes())
@@ -24,16 +25,29 @@ pub fn create_router(state: AppState) -> Router {
         .merge(docker::routes())
         .merge(plugin::routes())
         .merge(web_server::routes())
+        .merge(waf::routes())
         .merge(settings::routes())
         .merge(setup::routes())
         .merge(database::routes())
         .merge(app_store::routes())
+        .merge(certificate::routes())
+        .merge(dns_provider::routes())
         .merge(file::routes())
         .merge(firewall::routes())
         .merge(operation_log::routes())
         .merge(outbox::routes())
+        .merge(overview::routes())
+        .merge(iac::routes())
+        .merge(inspection::routes())
+        .merge(toolbox::routes())
+        .merge(kernel_logs::routes())
+        .merge(mcp::routes())
+        .merge(assistant::routes())
         .merge(backup::routes())
+        .merge(backup_account::routes())
+        .merge(backup_job::routes())
         .merge(scheduled_task::routes())
+        .merge(project::routes())
         .merge(task::routes())
         .merge(log::routes())
         .merge(memo::routes())

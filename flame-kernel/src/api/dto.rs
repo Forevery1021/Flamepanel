@@ -75,7 +75,7 @@ pub struct CreateWebsiteRequest {
     pub website: crate::domain::entity::Website,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct WebServerResponse {
     pub id: i64,
     pub engine: String,
@@ -88,13 +88,15 @@ pub struct WebServerResponse {
     pub resource_version: i64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct PluginSettingRequest {
+    /// 1–128 位 `[A-Za-z0-9._-]`
     pub key: String,
+    /// ≤ 4096 字节
     pub value: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct PluginMetricsResponse {
     pub total_executions: u64,
     pub successful_executions: u64,
@@ -106,18 +108,23 @@ pub struct PluginMetricsResponse {
     pub peak_memory_bytes: usize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct PluginReloadRequest {
     pub wasm_base64: String,
+    /// 1 MiB – 256 MiB，缺省 64 MiB
     pub memory_limit_bytes: Option<usize>,
+    /// 1 – 300000 ms，缺省 30000
     pub timeout_ms: Option<u64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateWebServerInstanceRequest {
+    /// `nginx` / `apache` / `openlitespeed` / `openresty` / `caddy`
     pub engine: String,
     pub version: Option<String>,
+    /// 缺省取引擎默认主配置；必须位于 Web 引擎配置根之下（`/etc/nginx`、`/etc/apache2`、`/etc/httpd`、`/etc/caddy`、`/usr/local/lsws/conf`、`/usr/local/openresty/nginx/conf`）
     pub config_path: Option<String>,
+    /// 缺省按发行版取默认；只接受该引擎的已知二进制（裸程序名或系统 bin 目录下同名文件）
     pub binary_path: Option<String>,
     pub port: Option<i32>,
 }

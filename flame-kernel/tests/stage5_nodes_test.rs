@@ -18,11 +18,10 @@ async fn setup_router() -> axum::Router {
     // 复用主集成测试的组装逻辑：构建最小 AppState
     let state = minimal_state().await;
     let router = routes::create_router(state.clone());
-    middleware::add_middleware(router, state)
+    middleware::add_middleware_with_mock_peer(router, state)
 }
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use flame_kernel::application::app_store_service::AppStoreService;
 use flame_kernel::application::backup_service::BackupService;
@@ -32,11 +31,71 @@ use flame_kernel::domain::entity::*;
 use flame_kernel::domain::repository::*;
 use flame_kernel::event::EventBus;
 use flame_kernel::infrastructure::db::*;
-use flame_kernel::infrastructure::metrics::MetricsHistory;
+use flame_kernel::infrastructure::metrics::MetricsHub;
 use flame_kernel::plugin::{PluginRegistry, PluginSandbox};
 use flame_kernel::terminal::TerminalManager;
 use flame_kernel::utils::auth_cache::AuthCache;
 use flame_kernel::utils::jwt::JwtUtils;
+
+/// 无操作进程守护（集成测试：不触达真实 systemctl）。
+struct NoopSupervisor;
+
+#[async_trait::async_trait]
+impl flame_kernel::application::project_ports::ProcessSupervisor for NoopSupervisor {
+    async fn ensure_unit(
+        &self,
+        _: &flame_kernel::domain::entity::Project,
+    ) -> Result<(), flame_kernel::core::error::AppError> {
+        Ok(())
+    }
+    async fn remove_unit(
+        &self,
+        _: &flame_kernel::domain::entity::Project,
+    ) -> Result<(), flame_kernel::core::error::AppError> {
+        Ok(())
+    }
+    async fn start(
+        &self,
+        _: &flame_kernel::domain::entity::Project,
+    ) -> Result<(), flame_kernel::core::error::AppError> {
+        Ok(())
+    }
+    async fn stop(
+        &self,
+        _: &flame_kernel::domain::entity::Project,
+    ) -> Result<(), flame_kernel::core::error::AppError> {
+        Ok(())
+    }
+    async fn restart(
+        &self,
+        _: &flame_kernel::domain::entity::Project,
+    ) -> Result<(), flame_kernel::core::error::AppError> {
+        Ok(())
+    }
+    async fn status(
+        &self,
+        _: &flame_kernel::domain::entity::Project,
+    ) -> Result<
+        flame_kernel::application::project_ports::ProcessStatus,
+        flame_kernel::core::error::AppError,
+    > {
+        Ok(flame_kernel::application::project_ports::ProcessStatus {
+            state: "stopped".into(),
+            exit_code: None,
+            restarts: 0,
+        })
+    }
+    async fn logs(
+        &self,
+        _: &flame_kernel::domain::entity::Project,
+        _: usize,
+    ) -> Result<
+        Vec<flame_kernel::application::project_ports::LogLine>,
+        flame_kernel::core::error::AppError,
+    > {
+        Ok(Vec::new())
+    }
+}
 
 fn auth_header() -> (header::HeaderName, String) {
     let jwt = JwtUtils::new("test-secret", 24);
@@ -57,8 +116,7 @@ async fn minimal_state() -> AppState {
     let settings_repo = Arc::new(InMemorySettingsRepository::new());
     let database_repo = Arc::new(InMemoryDatabaseRepository::new());
     let firewall_repo = Arc::new(InMemoryFirewallRepository::new());
-    let metrics_history = Arc::new(Mutex::new(MetricsHistory::new(10)));
-    let (metrics_tx, _) = tokio::sync::broadcast::channel::<MetricsSnapshot>(16);
+    let metrics_hub = Arc::new(MetricsHub::new(10));
     let (log_tx, _) = tokio::sync::broadcast::channel::<LogEntry>(16);
     let terminal_manager = TerminalManager::new();
     let plugin_sandbox = Arc::new(PluginSandbox::new());
@@ -84,6 +142,7 @@ async fn minimal_state() -> AppState {
         AppStoreService::default_apps_dir(),
         EventBus::new(100),
         flame_kernel::infrastructure::app_store::default_ports(runner.clone()),
+        Arc::new(InMemoryAppSourceRepository::new()),
     ));
     let backup_dir = std::env::temp_dir().join(format!("stage5-backup-{}", std::process::id()));
     std::fs::create_dir_all(&backup_dir).unwrap();
@@ -124,9 +183,60 @@ async fn minimal_state() -> AppState {
         scheduled_task_service: Arc::new(ScheduledTaskService::new(Arc::new(
             InMemoryScheduledTaskRepository::new(),
         ))),
+        backup_account_service: Arc::new(
+            flame_kernel::application::backup_account_service::BackupAccountService::new(Arc::new(
+                flame_kernel::infrastructure::db::InMemoryBackupAccountRepository::new(),
+            )),
+        ),
+        dns_provider_account_service: Arc::new(
+            flame_kernel::application::dns_provider_service::DnsProviderAccountService::new(
+                Arc::new(
+                    flame_kernel::infrastructure::db::InMemoryDnsProviderAccountRepository::new(),
+                ),
+            ),
+        ),
+        waf_service: Arc::new(flame_kernel::application::waf_service::WafService::new(
+            Arc::new(flame_kernel::infrastructure::db::InMemoryWafRuleRepository::new()),
+            Arc::new(flame_kernel::infrastructure::db::InMemoryWafLogRepository::new()),
+        )),
+        backup_job_service: Arc::new(
+            flame_kernel::application::backup_job_service::BackupJobService::new(
+                Arc::new(flame_kernel::infrastructure::db::InMemoryBackupJobRepository::new()),
+                Arc::new(
+                    flame_kernel::application::backup_account_service::BackupAccountService::new(
+                        Arc::new(
+                            flame_kernel::infrastructure::db::InMemoryBackupAccountRepository::new(
+                            ),
+                        ),
+                    ),
+                ),
+                Arc::new(BackupService::new(
+                    backup_dir.join("app.db"),
+                    backup_dir.join("backups"),
+                )),
+                Arc::new(InMemoryInstalledAppRepository::new()),
+                EventBus::new(100),
+            ),
+        ),
+
         task_service: Arc::new(flame_kernel::application::task_service::TaskService::new(
             flame_kernel::runtime::task_state::TaskTracker::new(),
         )),
+        runtime_service: Arc::new(
+            flame_kernel::application::runtime_service::RuntimeService::new(
+                Arc::new(flame_kernel::infrastructure::db::InMemoryRuntimeRepository::new()),
+                flame_kernel::application::runtime_ports::RuntimeInstallerRegistry::new(),
+            ),
+        ),
+        project_service: Arc::new(
+            flame_kernel::application::project_service::ProjectService::new(
+                Arc::new(flame_kernel::infrastructure::db::InMemoryProjectRepository::new()),
+                Arc::new(flame_kernel::infrastructure::db::InMemoryRuntimeRepository::new()),
+                Arc::new(NoopSupervisor),
+                runner.clone(),
+            ),
+        ),
+
         setup_service: Arc::new(flame_kernel::application::setup_service::SetupService::new(
             Arc::new(UserService::new(
                 Arc::new(InMemoryUserRepository::new()),
@@ -141,13 +251,47 @@ async fn minimal_state() -> AppState {
             runner.clone(),
             false,
         )),
+        certificate_service: Arc::new(
+            flame_kernel::application::certificate_service::CertificateService::new(
+                Arc::new(InMemoryCertificateRepository::new()),
+                EventBus::new(100),
+                std::env::temp_dir().join(format!("fp-cert-svc-{}", uuid::Uuid::new_v4())),
+            ),
+        ),
+        acme_account_key_store:
+            flame_kernel::infrastructure::acme::account::AcmeAccountKeyStore::new(
+                &std::env::temp_dir().join(format!("fp-acme-svc-{}", uuid::Uuid::new_v4())),
+            ),
         event_bus: EventBus::new(100),
+        revoked_token_repo: Arc::new(InMemoryRevokedTokenRepository::new()),
+        assistant_service: Arc::new(
+            flame_kernel::application::assistant_service::AssistantService::new(
+                Arc::new(SettingsService::new(Arc::new(
+                    flame_kernel::infrastructure::db::InMemorySettingsRepository::new(),
+                ))),
+                None,
+                flame_kernel::infrastructure::llm::factory(),
+            ),
+        ),
+        two_factor_service: Arc::new(
+            flame_kernel::application::two_factor_service::TwoFactorService::new(Arc::new(
+                flame_kernel::infrastructure::db::InMemoryTwoFactorRepository::new(),
+            )),
+        ),
+        mcp_service: Arc::new(flame_kernel::application::mcp_service::McpService::new(
+            Arc::new(flame_kernel::infrastructure::db::InMemoryMcpRepository::new()),
+        )),
+        metrics_history_service: Arc::new(
+            flame_kernel::application::metrics_history_service::MetricsHistoryService::new(
+                Arc::new(flame_kernel::infrastructure::db::InMemoryMetricsHistoryRepository::new()),
+            ),
+        ),
+        command_runner: Arc::new(flame_kernel::infrastructure::execution::EmbeddedCommandRunner),
     };
     let mut state = AppState::new(
         "test-secret".to_string(),
         services,
-        metrics_history,
-        metrics_tx,
+        metrics_hub,
         log_tx,
         terminal_manager,
     );
