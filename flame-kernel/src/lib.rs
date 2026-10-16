@@ -865,6 +865,7 @@ impl FlameKernel {
     /// - Configured admin_password: seed admin, set setup_completed_at, require password change.
     /// - Empty password and users: wait for setup; do not seed or print a generated password.
     /// - Existing users without setup_completed_at: backfill the marker for compatibility.
+    ///
     /// Return the outcome for caller-side logging.
     pub async fn bootstrap_initialization_state(
         &self,
